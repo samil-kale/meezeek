@@ -78,8 +78,18 @@ function titleUnsettled(tab: TabState): boolean {
 }
 
 function toDescriptor(tab: TabState): TerminalDescriptor {
-  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId } = tab;
-  return { tabId, projectId, agentId, title, updatedAt, createdAt, status, hasSession: sessionId !== undefined };
+  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, console: isConsole } = tab;
+  return {
+    tabId,
+    projectId,
+    agentId,
+    title,
+    updatedAt,
+    createdAt,
+    status,
+    hasSession: sessionId !== undefined,
+    console: isConsole
+  };
 }
 
 /**
@@ -309,7 +319,8 @@ export class ProjectSessionManager {
     }
   }
 
-  createTab(agentId: AgentId): TerminalDescriptor {
+  /** `asConsole` marks it as the git tab's one console — see TerminalDescriptor.console. */
+  createTab(agentId: AgentId, asConsole = false): TerminalDescriptor {
     const runtime = this.runtimeFor(agentId);
     this.newTabCounter += 1;
     const tab: TabState = {
@@ -317,7 +328,8 @@ export class ProjectSessionManager {
       projectId: this.project.id,
       agentId,
       title: "",
-      status: this.canStart(runtime) ? "ready" : "missing"
+      status: this.canStart(runtime) ? "ready" : "missing",
+      console: asConsole || undefined
     };
     this.tabs.push(tab);
     this.postTabs();

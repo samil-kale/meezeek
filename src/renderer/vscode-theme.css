@@ -34,6 +34,10 @@
   --vscode-tab-inactiveForeground: #9d9d9d;
   --vscode-tab-border: #2b2b2b;
 
+  /* Translucent on purpose: an action button sits on list rows, on the blue of a selected
+     one and on plain bars, and this is the one hover that reads on all of them. */
+  --vscode-toolbar-hoverBackground: #5a5d5e50;
+
   --vscode-list-activeSelectionBackground: #04395e;
   --vscode-list-activeSelectionForeground: #ffffff;
   --vscode-list-inactiveSelectionBackground: #37373d;

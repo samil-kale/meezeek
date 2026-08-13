@@ -26,6 +26,18 @@ const mainConfig = {
   external: ["electron", "node-pty"]
 };
 
+/** The git CLI wrapper, which runs in a utilityProcess of its own — see CLAUDE.md. */
+/** @type {import('esbuild').BuildOptions} */
+const gitHostConfig = {
+  ...common,
+  entryPoints: [path.join(__dirname, "src", "main", "git-host.ts")],
+  outfile: path.join(dist, "git-host.js"),
+  platform: "node",
+  target: "node22",
+  format: "cjs",
+  external: ["electron"]
+};
+
 /** @type {import('esbuild').BuildOptions} */
 const preloadConfig = {
   ...common,
@@ -55,7 +67,7 @@ function copyStaticAssets() {
 async function build() {
   copyStaticAssets();
 
-  const configs = [mainConfig, preloadConfig, rendererConfig];
+  const configs = [mainConfig, gitHostConfig, preloadConfig, rendererConfig];
   if (watch) {
     const contexts = await Promise.all(configs.map((config) => esbuild.context(config)));
     await Promise.all(contexts.map((context) => context.watch()));

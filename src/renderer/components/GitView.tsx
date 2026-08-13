@@ -1,19 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
+  AgentId,
+  AgentInfo,
   ChangeStatus,
   FileChange,
   FileDiff,
   GitActionResult,
   Project,
-  RepositoryState
+  RepositoryState,
+  TerminalDescriptor
 } from "../../shared/types";
 import { isMac, isWindows } from "../platform";
+import { fitTerminal, refitTerminal } from "../terminal-views";
 import { BranchTree, type BranchActions } from "./BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm } from "./Dialog";
 import { DiffView } from "./DiffView";
 import { notify } from "./Notices";
 import { Sash } from "./Sash";
+import { TerminalHost } from "./TerminalHost";
 
 /**
  * The two sizes the git tab's panels can be dragged to. Held by the app rather than by this
@@ -24,6 +29,8 @@ export interface GitPaneSizes {
   onPanelsWidth: (size: number) => void;
   treeHeight: number;
   onTreeHeight: (size: number) => void;
+  consoleHeight: number;
+  onConsoleHeight: (size: number) => void;
 }
 
 interface GitViewProps {
@@ -32,6 +39,10 @@ interface GitViewProps {
   sizes: GitPaneSizes;
   /** Passed straight through to the tree, which is the only place they are offered. */
   branch: BranchActions;
+  /** What the console's dropdown may offer. */
+  agents: AgentInfo[];
+  /** This project's console session, once one has been opened. */
+  console?: TerminalDescriptor;
   /**
    * Repository-relative path of the file whose diff is shown. Owned by the pane, so a file
    * ctrl-clicked in a terminal can open this tab on it.
@@ -43,6 +54,9 @@ interface GitViewProps {
   /** False while another tab is on screen; the view stays mounted so its selection survives. */
   active: boolean;
 }
+
+/** Dragging the sash fires dozens of observations; the pty is resized once they stop. */
+const CONSOLE_RESIZE_DEBOUNCE_MS = 100;
 
 const STATUS_LETTER: Record<ChangeStatus, string> = {
   modified: "M",
@@ -61,7 +75,18 @@ function revealLabel(): string {
   return isWindows() ? "Show in Explorer" : "Show in your file manager";
 }
 
-export function GitView({ project, state, sizes, branch, selected, onSelect, onBusy, active }: GitViewProps) {
+export function GitView({
+  project,
+  state,
+  sizes,
+  branch,
+  agents,
+  console: consoleTab,
+  selected,
+  onSelect,
+  onBusy,
+  active
+}: GitViewProps) {
   const [filter, setFilter] = useState("");
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,6 +94,11 @@ export function GitView({ project, state, sizes, branch, selected, onSelect, onB
   const [acting, setActing] = useState(false);
   const [diffBusy, setDiffBusy] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; change: FileChange } | null>(null);
+  const consoleBody = useRef<HTMLDivElement>(null);
+  /** A console is being replaced; nothing may open a second one in the gap. */
+  const switchingConsole = useRef(false);
+  /** `git diff -w`. Per project rather than per file: it is how the user wants to read. */
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
 
   const query = filter.trim().toLowerCase();
   const visible = state.changes.filter((change) => change.path.toLowerCase().includes(query));
@@ -82,7 +112,7 @@ export function GitView({ project, state, sizes, branch, selected, onSelect, onB
     }
     let cancelled = false;
     setLoading(true);
-    void window.meeseek.repository.diff(project.id, selected).then((result) => {
+    void window.meeseek.repository.diff(project.id, selected, { ignoreWhitespace }).then((result) => {
       if (cancelled) {
         return;
       }
@@ -95,9 +125,72 @@ export function GitView({ project, state, sizes, branch, selected, onSelect, onB
     return () => {
       cancelled = true;
     };
-  }, [project.id, selected, state.changes]);
+  }, [project.id, selected, state.changes, ignoreWhitespace]);
 
   useEffect(() => onBusy(diffBusy || acting), [diffBusy, acting, onBusy]);
+
+  /**
+   * The console opens with the git tab and stays for the project's lifetime, running whatever
+   * this project picked last. A shell when it never picked one: this is the pane you type git
+   * commands into, and that is what a shell is for.
+   */
+  useEffect(() => {
+    if (active && !consoleTab && !switchingConsole.current) {
+      void window.meeseek.terminals.create(project.id, project.consoleAgent ?? "shell", true);
+    }
+  }, [active, consoleTab, project.id, project.consoleAgent]);
+
+  /**
+   * Only one console per project, so switching agents replaces it: the running one is closed —
+   * which ends its session — and the new one takes its place. The flag holds off the effect
+   * above, which would otherwise see the gap between the two and open a shell into it.
+   */
+  const switchConsole = (agentId: AgentId): void => {
+    if (!consoleTab || consoleTab.agentId === agentId) {
+      return;
+    }
+    switchingConsole.current = true;
+    void window.meeseek.terminals
+      .close(project.id, [consoleTab.tabId])
+      .then(() => window.meeseek.terminals.create(project.id, agentId, true))
+      // Remembered for the next time this project is opened, in its own meeseek.json.
+      .then(() => window.meeseek.projects.setConsoleAgent(project.id, agentId))
+      .finally(() => {
+        switchingConsole.current = false;
+      });
+  };
+
+  // While the git tab was off screen the console had no layout to measure itself against, so
+  // its last measured size is stale. This is also what starts its process the first time.
+  useEffect(() => {
+    if (active && consoleTab) {
+      fitTerminal(project.id, consoleTab.tabId);
+    }
+  }, [active, consoleTab, project.id]);
+
+  // xterm follows the pane immediately, so dragging the sash never leaves an empty strip;
+  // the pty hears about it once the dragging settles, because every pty resize repaints the
+  // CLI in full.
+  useEffect(() => {
+    const element = consoleBody.current;
+    if (!element || !consoleTab) {
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      if (!active) {
+        return;
+      }
+      refitTerminal(project.id, consoleTab.tabId);
+      clearTimeout(timer);
+      timer = setTimeout(() => fitTerminal(project.id, consoleTab.tabId), CONSOLE_RESIZE_DEBOUNCE_MS);
+    });
+    observer.observe(element);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [active, consoleTab, project.id]);
 
   /** Runs a file action against the repository and reports what it says when it failed. */
   const act = (action: () => Promise<GitActionResult>): void => {
@@ -209,8 +302,52 @@ export function GitView({ project, state, sizes, branch, selected, onSelect, onB
         minOther={200}
         onResize={sizes.onPanelsWidth}
       />
-      <div className="changes-diff">
-        <DiffView diff={diff} loading={loading} onBusy={setDiffBusy} />
+      {/* The right half: the diff, and the console under it. The branches and the changed
+          files keep the full height on the left. */}
+      <div className="git-right">
+        <div className="changes-diff">
+          <DiffView
+            projectId={project.id}
+            diff={diff}
+            loading={loading}
+            onBusy={setDiffBusy}
+            ignoreWhitespace={ignoreWhitespace}
+            onIgnoreWhitespace={setIgnoreWhitespace}
+          />
+        </div>
+
+        <Sash
+          orientation="horizontal"
+          size={sizes.consoleHeight}
+          min={80}
+          minFraction={0.2}
+          minOther={160}
+          reverse
+          onResize={sizes.onConsoleHeight}
+        />
+
+        {/* One console for the whole git tab. Which agent runs in it is the dropdown's
+            business; switching replaces the session, there is never a second. */}
+        <div className="git-console" style={{ height: sizes.consoleHeight }}>
+          <div className="git-console-bar">
+            <select
+              value={consoleTab?.agentId ?? "shell"}
+              disabled={!consoleTab}
+              onChange={(event) => switchConsole(event.target.value as AgentId)}
+            >
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* The terminal places itself absolutely, so it needs a box of its own to fill —
+              otherwise it would sit over the bar above it. */}
+          <div className="git-console-body" ref={consoleBody}>
+            {consoleTab && <TerminalHost projectId={project.id} tabId={consoleTab.tabId} active={true} />}
+          </div>
+        </div>
       </div>
 
       {menu && (

@@ -2,18 +2,23 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
-import { listAgents } from "../agents";
+import { AGENTS, listAgents } from "../agents";
+import type { AgentDefinition } from "../agents/agent";
+import { mergeActions, readActions, runAction, suggestActions, suggestQuestion, writeActions } from "./actions";
+import { checkAgentInstalled } from "./terminal-session";
 import type {
   AgentId,
   CheckoutTarget,
+  DiffOptions,
   FileDiff,
   GitActionResult,
   Project,
   RepositoryState,
   TerminalDescriptor,
+  TerminalOutput,
   TerminalStatus
 } from "../shared/types";
-import { resolveRoot } from "./git";
+import { git, startGitProcess, stopGitProcess } from "./git-client";
 import { ProjectStore } from "./projects";
 import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
 import { RepositoryManager } from "./repository";
@@ -30,15 +35,16 @@ function send(channel: string, payload: unknown): void {
   }
 }
 
-const pendingOutput = new Map<string, { projectId: string; tabId: string; data: string }>();
+const pendingOutput = new Map<string, TerminalOutput>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** All of it in one message: see TerminalOutput for why it is not one per tab. */
 function flushOutput(): void {
   flushTimer = undefined;
-  for (const chunk of pendingOutput.values()) {
-    send("terminal:output", chunk);
+  if (pendingOutput.size > 0) {
+    send("terminal:output", [...pendingOutput.values()]);
+    pendingOutput.clear();
   }
-  pendingOutput.clear();
 }
 
 function queueOutput(projectId: string, tabId: string, data: string): void {
@@ -69,6 +75,10 @@ const sessions = new SessionManagerRegistry(app.getPath("userData"), {
 const MISSING_REPOSITORY: RepositoryState = {
   head: "",
   detached: false,
+  ahead: 0,
+  behind: 0,
+  stashes: [],
+  tags: [],
   localBranches: [],
   remotes: [],
   changes: [],
@@ -78,6 +88,23 @@ const MISSING_REPOSITORY: RepositoryState = {
 function openProject(project: Project): void {
   repositories.open(project);
   sessions.open(project);
+}
+
+/**
+ * The first installed agent that can be asked a question without a terminal, in the order
+ * `listAgents` reports them. The shell has no `askArgs` and is skipped by that alone.
+ */
+async function findAskableAgent(cwd: string): Promise<{ executable: string; agent: AgentDefinition } | undefined> {
+  for (const agent of AGENTS) {
+    if (!agent.askArgs || !agent.versionArgs) {
+      continue;
+    }
+    const executable = agent.executable();
+    if (await checkAgentInstalled(executable, agent.versionArgs, cwd)) {
+      return { executable, agent };
+    }
+  }
+  return undefined;
 }
 
 /** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
@@ -101,12 +128,16 @@ function registerIpc(): void {
     }
     // Picking a subdirectory of a repository opens the repository itself: git reports every
     // path relative to the root, and the root is what branches and status describe.
-    const project = store.add((await resolveRoot(directory)) ?? directory);
+    const project = store.add((await git.resolveRoot(directory).catch(() => undefined)) ?? directory);
     openProject(project);
     return project;
   });
 
   ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));
+
+  ipcMain.handle("projects:set-console-agent", (_event, projectId: string, agentId: AgentId): void => {
+    store.setConsoleAgent(projectId, agentId);
+  });
 
   ipcMain.handle("projects:remove", (_event, projectId: string): void => {
     sessions.close(projectId);
@@ -130,38 +161,13 @@ function registerIpc(): void {
     return repository.checkout(target);
   });
 
-  ipcMain.handle(
-    "repo:create-branch",
-    async (_event, projectId: string, name: string, startPoint?: string): Promise<GitActionResult> => {
+  /** The three that reach a remote; each takes nothing but the project. */
+  for (const command of ["fetch", "pull", "push"] as const) {
+    ipcMain.handle(`repo:${command}`, async (_event, projectId: string): Promise<GitActionResult> => {
       const repository = repositories.get(projectId);
-      if (!repository) {
-        return { ok: false, error: MISSING_REPOSITORY.error };
-      }
-      return repository.createBranch(name, startPoint);
-    }
-  );
-
-  ipcMain.handle(
-    "repo:rename-branch",
-    async (_event, projectId: string, from: string, to: string): Promise<GitActionResult> => {
-      const repository = repositories.get(projectId);
-      if (!repository) {
-        return { ok: false, error: MISSING_REPOSITORY.error };
-      }
-      return repository.renameBranch(from, to);
-    }
-  );
-
-  ipcMain.handle(
-    "repo:delete-branch",
-    async (_event, projectId: string, name: string, remote?: string): Promise<GitActionResult> => {
-      const repository = repositories.get(projectId);
-      if (!repository) {
-        return { ok: false, error: MISSING_REPOSITORY.error };
-      }
-      return repository.deleteBranch(name, remote);
-    }
-  );
+      return repository ? repository[command]() : { ok: false, error: MISSING_REPOSITORY.error };
+    });
+  }
 
   ipcMain.handle("repo:discard", async (_event, projectId: string, paths: string[]): Promise<GitActionResult> => {
     const repository = repositories.get(projectId);
@@ -182,25 +188,116 @@ function registerIpc(): void {
     }
   );
 
-  ipcMain.handle("repo:diff", async (_event, projectId: string, filePath: string): Promise<FileDiff> => {
-    const repository = repositories.get(projectId);
-    if (!repository) {
-      return { path: filePath, lines: [], binary: false, truncated: false, error: MISSING_REPOSITORY.error };
+  ipcMain.handle(
+    "repo:diff",
+    async (_event, projectId: string, filePath: string, options: DiffOptions): Promise<FileDiff> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { path: filePath, lines: [], binary: false, truncated: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.diff(filePath, options);
     }
-    return repository.diff(filePath);
+  );
+
+  ipcMain.handle(
+    "repo:file-lines",
+    async (_event, projectId: string, filePath: string, from: number, to: number): Promise<string[]> => {
+      return (await repositories.get(projectId)?.fileLines(filePath, from, to)) ?? [];
+    }
+  );
+
+  ipcMain.handle("actions:list", async (_event, projectId: string): Promise<string[] | null> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    return project ? readActions(project.path) : [];
+  });
+
+  ipcMain.handle("actions:save", async (_event, projectId: string, actions: string[]): Promise<void> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    if (!project) {
+      return;
+    }
+    try {
+      await writeActions(project.path, actions);
+    } catch (error) {
+      send("app:notice", { severity: "error", message: `Could not save actions: ${String(error)}` });
+    }
+  });
+
+  /**
+   * Runs one and reports how it went. Nothing is streamed while it runs: an action is started
+   * and then waited on, and the answer is a single notice either way.
+   */
+  ipcMain.handle("actions:run", async (_event, projectId: string, command: string): Promise<void> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    if (!project) {
+      return;
+    }
+    const result = await runAction(project.path, command);
+    send("app:notice", {
+      severity: result.code === 0 ? "info" : "error",
+      message:
+        result.code === 0
+          ? `${command} finished`
+          : `${command} exited with ${result.code}${result.output ? `\n${result.output}` : ""}`
+    });
+  });
+
+  /**
+   * The wand: asks whichever agent is installed what this project can run, and adds what it
+   * names to the list. Whatever it gets wrong is one right-click away from being deleted,
+   * which is why its answer goes straight in rather than through a review step.
+   */
+  ipcMain.handle("actions:suggest", async (_event, projectId: string): Promise<string[]> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    if (!project) {
+      return [];
+    }
+    const askable = await findAskableAgent(project.path);
+    if (!askable) {
+      send("app:notice", {
+        severity: "warning",
+        message: "Neither claude nor opencode was found — install one to have it find the commands for you."
+      });
+      return [];
+    }
+    const { executable, agent } = askable;
+    try {
+      const found = await suggestActions(project.path, executable, agent.askArgs!(suggestQuestion()));
+      const existing = (await readActions(project.path)) ?? [];
+      const merged = mergeActions(existing, found);
+      const added = merged.length - existing.length;
+      if (added > 0) {
+        await writeActions(project.path, merged);
+      }
+      send("app:notice", {
+        severity: "info",
+        message: added > 0 ? `Added ${added} actions` : "No new commands found"
+      });
+      return merged;
+    } catch (error) {
+      send("app:notice", { severity: "error", message: `Could not read the project: ${String(error)}` });
+      return [];
+    } finally {
+      // Whether it answered or not, it may have persisted a session on the way — and one
+      // nobody opened has no business showing up as a tab after the next restart.
+      await agent.cleanupAsk?.(executable, project.path).catch(() => undefined);
+    }
   });
 
   ipcMain.handle("terminal:list", (_event, projectId: string): TerminalDescriptor[] => {
     return sessions.get(projectId)?.snapshot() ?? [];
   });
 
-  ipcMain.handle("terminal:create", (_event, projectId: string, agentId: AgentId): TerminalDescriptor => {
-    const manager = sessions.get(projectId);
-    if (!manager) {
-      throw new Error(`Unknown project: ${projectId}`);
+  ipcMain.handle(
+    "terminal:create",
+    (_event, projectId: string, agentId: AgentId, asConsole?: boolean): TerminalDescriptor => {
+      const manager = sessions.get(projectId);
+      if (!manager) {
+        throw new Error(`Unknown project: ${projectId}`);
+      }
+      return manager.createTab(agentId, asConsole);
     }
-    return manager.createTab(agentId);
-  });
+  );
 
   ipcMain.handle("terminal:close", async (_event, projectId: string, tabIds: string[]): Promise<void> => {
     await sessions.get(projectId)?.closeTabs(tabIds);
@@ -329,6 +426,9 @@ function createWindow(): void {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   startEventLoopMonitor(path.join(app.getPath("userData"), "event-loop.log"));
+  // Up front rather than on the first repository: forking it costs a moment, and every
+  // project that opens below is about to ask it something.
+  startGitProcess();
   registerIpc();
   for (const project of store.list()) {
     openProject(project);
@@ -351,4 +451,5 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   sessions.disposeAll();
   repositories.disposeAll();
+  stopGitProcess();
 });

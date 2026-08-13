@@ -40,6 +40,24 @@ input::placeholder {
   color: var(--vscode-input-placeholderForeground);
 }
 
+/* Styled like an input rather than like the platform's own dropdown, for the same reason the
+   dialogs are drawn here: the OS widget looks out of place in a window that copies VS Code. */
+select {
+  font: inherit;
+  font-size: 11px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 2px;
+  outline: none;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+select:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
 input:focus {
   border-color: var(--vscode-focusBorder);
 }
@@ -70,9 +88,12 @@ input:focus {
 }
 
 .app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Shared with the notices, which stack on top of this bar rather than beside it. */
+  --branch-bar-height: 28px;
 }
 
 /* Title bar ------------------------------------------------------------------------------ */
@@ -97,27 +118,49 @@ input:focus {
   color: var(--vscode-titleBar-activeForeground);
 }
 
+/* 24px around an 18px icon — the box only has to leave the hover background something to
+   draw. Barely dimmed rather than at 0.75: these are line drawings on a dark ground, and
+   every step down costs contrast the shapes need to stay readable. */
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 3px;
   color: inherit;
-  opacity: 0.75;
+  opacity: 0.9;
   flex: none;
 }
 
+/* Never the list's own hover colour: on a row that is already hovered it would be invisible,
+   and on a selected row it would be a grey patch on the selection. VS Code uses the
+   translucent toolbar hover for every action button, wherever it sits. */
 .icon-button:hover:not(:disabled) {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--vscode-toolbar-hoverBackground);
   opacity: 1;
 }
 
-/* Same treatment VS Code gives a disabled action — dimmed, not recolored. */
-.icon-button:disabled {
+/* Same treatment VS Code gives a disabled action — dimmed, not recolored. Not while it is
+   busy: such a button is not disabled because there is nothing to do, but because it is
+   already doing it, and its spinner has to stay legible. */
+.icon-button:disabled:not(.busy) {
   opacity: 0.3;
+}
+
+.icon-button:disabled {
   cursor: default;
+}
+
+.spinning {
+  transform-origin: 50% 50%;
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Branch bar ----------------------------------------------------------------------------- */
@@ -128,15 +171,57 @@ input:focus {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  height: 28px;
+  height: var(--branch-bar-height);
   flex: none;
   padding: 0 8px;
   background: var(--vscode-editor-background);
   border-top: 1px solid var(--vscode-panel-border);
 }
 
+/* Takes the leftover width, which is what pushes the branch and its actions to the right. */
+.branch-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
 .branch-name {
   font-size: 12px;
+}
+
+/* Ahead and behind, each next to the arrow that says which way it goes. */
+.branch-count {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The one network button, GitHub Desktop's: what it does depends on where the branch stands,
+   so it carries a label rather than an icon alone. */
+.branch-sync {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: inherit;
+}
+
+.branch-sync:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.branch-sync:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* Says what the branch command is doing rather than what HEAD still is — set apart, because
@@ -170,20 +255,81 @@ input:focus {
 
 /* Width comes from the sash beside it — the default and the limits it can be dragged to live
    with the state, in App. Same for the two panels of the git tab below. */
-.project-list {
+/* The whole left column: projects on top, the selected one's actions below. */
+.sidebar {
   display: flex;
   flex-direction: column;
   flex: none;
+  min-height: 0;
   background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-panel-border);
 }
 
-.project-list-header {
+.project-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Its height is dragged and remembered; the projects above take what is left. */
+.action-list {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* A header with more than one action keeps them together at its right edge. */
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.action-items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.action-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* A command that is on its way out; its button is disabled until it answers. */
+.action-item.running .action-command {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* Takes the leftover width, which is what holds the run button at the row's right edge. */
+.action-command {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family);
+}
+
+
+/* Exactly as tall as the tab strip next to it, border included, so the sidebar's title and the
+   tabs sit on one line and end on one. */
+/* Every section header in the sidebar: the tab strip's 35px, and a line below it. The line
+   above comes from whatever the section sits under — `.body` for the first one, the section's
+   own top border for the ones after it — so no header draws two. */
+.sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
+  height: 35px;
   flex: none;
-  padding: 5px 6px 5px 10px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.3px;
@@ -195,12 +341,19 @@ input:focus {
   overflow-y: auto;
 }
 
-.project-item {
+/* One row shape for both sidebar lists: the same indent, the same gap, and 28px of height —
+   the 22px action button with enough room left that its hover does not touch the row's own
+   highlight. Declared together so they cannot drift apart. */
+.project-item,
+.action-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 6px 4px 10px;
+  gap: 4px;
+  padding: 3px 6px 3px 10px;
   font-size: 12px;
+}
+
+.project-item {
   cursor: pointer;
 }
 
@@ -213,18 +366,22 @@ input:focus {
   color: var(--vscode-list-activeSelectionForeground);
 }
 
-/* The row is being dragged elsewhere; it stays where it is until the drop decides. */
-.project-item.dragging {
+/* The row is being dragged elsewhere; it stays where it is until the drop decides. Both lists
+   reorder by dragging, so both draw it the same way. */
+.project-item.dragging,
+.action-item.dragging {
   opacity: 0.5;
 }
 
 /* Where the drop would put it — a line between two rows rather than a highlight on one, since
    the position is between them. Inset, so it does not add to the row's height. */
-.project-item.drop-above {
+.project-item.drop-above,
+.action-item.drop-above {
   box-shadow: inset 0 1px 0 var(--vscode-focusBorder);
 }
 
-.project-item.drop-below {
+.project-item.drop-below,
+.action-item.drop-below {
   box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
 }
 
@@ -261,9 +418,10 @@ input:focus {
   padding: 8px 6px;
 }
 
+/* Leaves the search icon its own room, which is why this is not the plain input padding. */
 .branch-filter input {
   width: 100%;
-  padding-left: 24px;
+  padding-left: 28px;
 }
 
 .branch-filter-icon {
@@ -335,17 +493,17 @@ input:focus {
   background: var(--vscode-list-hoverBackground);
 }
 
+/* A row that is only there to be read — nothing to click, so nothing lights up under the
+   pointer either. */
+.tree-item.static,
+.tree-item.static:hover {
+  background: none;
+  cursor: default;
+}
+
 .tree-item.current {
   font-weight: 600;
   color: var(--vscode-gitDecoration-untrackedResourceForeground);
-}
-
-/* A name being typed takes the row it will become, indented like the branches around it. */
-.tree-input {
-  width: calc(100% - 26px);
-  margin: 1px 6px 1px 20px;
-  padding: 1px 4px;
-  font-size: 12px;
 }
 
 .tree-icon {
@@ -480,13 +638,6 @@ input:focus {
   opacity: 0.9;
 }
 
-.tab-rename-input {
-  flex: 1;
-  min-width: 0;
-  padding: 1px 4px;
-  font-size: 12px;
-}
-
 .new-terminal {
   position: relative;
   display: flex;
@@ -571,9 +722,14 @@ input:focus {
   background: var(--vscode-terminal-background);
 }
 
+/* Carries the terminal background itself, rather than borrowing whatever pane it sits in:
+   xterm paints exactly its rows and columns, and the strip left over between the last row and
+   the bottom edge — widest right after a drag — has to be the same color the CLI is drawn on.
+   `theme.ts` reads this very variable for xterm's own background, so the two cannot drift. */
 .terminal {
   position: absolute;
   inset: 4px 0 4px 6px;
+  background: var(--vscode-terminal-background);
 }
 
 /* visibility, not display: xterm needs a laid-out element to measure itself. */
@@ -581,9 +737,21 @@ input:focus {
   visibility: hidden;
 }
 
-/* A TUI repaints its whole viewport, so a bar beside it would only twitch; the terminal
-   scrolls by wheel. Spelled out twice for the same reason as the tab strip. */
+/*
+ * xterm.css hardcodes a black background here — its own comment says it is "required on OS X
+ * for the scroll bar to appear fully opaque" — and that black is what shows through wherever
+ * the viewport is larger than the rows drawn in it: the gutter beside .terminal's left inset,
+ * and the strip under the last row while a pane is being dragged taller. The theme's own
+ * background sits on .terminal, so this only has to get out of the way.
+ *
+ * The selector matches xterm.css's own two-class one, or it would lose the cascade despite
+ * loading later. This is the same fix sbc-vsc-agents carries, for the same reason.
+ *
+ * A TUI repaints its whole viewport, so a scrollbar beside it would only twitch; the terminal
+ * scrolls by wheel. Spelled out twice for the same reason as the tab strip.
+ */
 .xterm .xterm-viewport {
+  background-color: transparent;
   scrollbar-width: none;
 }
 
@@ -595,11 +763,57 @@ input:focus {
 
 /* A tab of the terminals pane, so it grows down the pane's column and must be allowed to
    shrink below its content for its panels to scroll. */
+/* Four panes: branches over changed files on the left, the diff over the console on the
+   right. Both columns run the full height of the tab. */
 .git-view {
   display: flex;
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+/* The diff on top, the console below it. */
+.git-right {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* One console for the whole tab, full width. */
+/* Its height is dragged and remembered; the floor is a share of the view, so it means the same
+   thing in every window size — the sash enforces the same 20% while dragging. */
+.git-console {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 20%;
+  background: var(--vscode-terminal-background);
+  /* The lower pane carries the line to the one above it, the way .changes-list does. */
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* What the absolutely placed .terminal fills — same background, so the 4px inset around it
+   is not a seam of another color. */
+.git-console-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--vscode-terminal-background);
+}
+
+/* The tab strip's height, which is what every bar along an edge of this window uses. */
+.git-console-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 35px;
+  padding: 0 8px;
+  font-size: 11px;
+  background: var(--vscode-panel-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
 }
 
 /* Branches on top, changed files below; the diff gets the rest of the width. */
@@ -680,10 +894,14 @@ input:focus {
   color: var(--vscode-gitDecoration-conflictingResourceForeground);
 }
 
+/* Both floors matter, and for different neighbours: `min-width: 0` keeps a long line from
+   pushing the panels on the left, `min-height: 0` keeps a long diff from pushing the console
+   below out of the column. A flex item defaults to min-height: auto, which is its content. */
 .changes-diff {
   display: flex;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 .diff {
@@ -691,14 +909,65 @@ input:focus {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+}
+
+.diff-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 3px 6px 3px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
 }
 
 .diff-path {
-  flex: none;
-  padding: 5px 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
-  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* A toggle that is on, the way VS Code marks a checked action in a title bar. */
+.icon-button.active {
+  opacity: 1;
+  color: var(--vscode-button-background);
+}
+
+/* Two-up, side by side, each version as large as it fits without stretching. */
+.image-diff {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+}
+
+.image-diff figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.image-diff img {
+  max-width: 100%;
+  /* The checkerboard an image viewer puts behind transparency. */
+  background:
+    repeating-conic-gradient(#2b2b2b 0% 25%, #1f1f1f 0% 50%) 50% / 16px 16px;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.image-diff figcaption {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
 }
 
 .diff-body {
@@ -735,6 +1004,22 @@ input:focus {
   text-align: right;
   color: var(--vscode-editorLineNumber-foreground);
   user-select: none;
+}
+
+/* Sits where the old line number would be on a hunk header, which has none of its own. */
+.diff-unfold {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: none;
+  width: 46px;
+  padding-right: 8px;
+  color: var(--vscode-editorLineNumber-foreground);
+}
+
+.diff-unfold:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
 }
 
 .diff-marker {
@@ -907,6 +1192,30 @@ input:focus {
   cursor: pointer;
 }
 
+/* The field a name is typed into, with its label above it. */
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dialog-field span {
+  color: var(--vscode-descriptionForeground);
+}
+
+.dialog-field input {
+  padding: 5px 8px;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.button:disabled:hover {
+  background: var(--vscode-button-background);
+}
+
 /* The one being suggested sits last, where the platform's own dialogs put it. */
 .dialog-buttons {
   display: flex;
@@ -918,13 +1227,26 @@ input:focus {
 
 /* Stacked above the branch bar. Sized to its content rather than the window: a one-line
    message should not draw a bar across the whole screen. */
+/* Laid over the window's bottom right corner, not in the column with everything else: a
+   message arriving must not resize the panes underneath it. Only the messages themselves take
+   the pointer, so the empty space around them stays clickable. */
 .notices {
+  position: absolute;
+  right: 0;
+  bottom: var(--branch-bar-height);
+  /* Above the views and the context menus, below a dialog, which is modal. */
+  z-index: 25;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
-  flex: none;
+  max-width: 100%;
   padding: 8px;
+  pointer-events: none;
+}
+
+.notices > * {
+  pointer-events: auto;
 }
 
 .notice {
@@ -962,7 +1284,9 @@ input:focus {
   color: var(--vscode-notificationsInfoIcon-foreground);
 }
 
-/* Long paths and git's own messages break anywhere rather than widening the box. */
+/* Long paths and git's own messages break anywhere rather than widening the box, and a git
+   message that came back over several lines keeps them. */
 .notice-message {
   overflow-wrap: anywhere;
+  white-space: pre-line;
 }

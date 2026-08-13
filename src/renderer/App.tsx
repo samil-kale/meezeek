@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CheckoutTarget, GitActionResult, Project, RepositoryState } from "../shared/types";
+import { ActionList } from "./components/ActionList";
 import { Dialogs } from "./components/Dialog";
 import { Notices, notify } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
 import { Sash, usePaneSize } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
-import { BranchIcon, PlusIcon, RefreshIcon } from "./components/icons";
+import { ArrowDownIcon, ArrowUpIcon, BranchIcon, PlusIcon, RefreshIcon, SyncIcon } from "./components/icons";
 
 const EMPTY_STATE: RepositoryState = {
   head: "",
   detached: false,
+  ahead: 0,
+  behind: 0,
   localBranches: [],
   remotes: [],
+  tags: [],
+  stashes: [],
   changes: []
 };
 
@@ -31,6 +36,11 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240);
   const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300);
   const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260);
+  // 40% of the window it first opens in, like the console below the diff.
+  const [actionsHeight, setActionsHeight] = usePaneSize("actions", Math.round(window.innerHeight * 0.4));
+  // A third of the window it first opens in, and whatever it is dragged to after that. Its
+  // floor is a share rather than a pixel count, and lives in the sash and in the stylesheet.
+  const [consoleHeight, setConsoleHeight] = usePaneSize("git-console", Math.round(window.innerHeight * 0.33));
 
   useEffect(() => {
     const unsubscribe = window.meeseek.repository.onState(({ projectId, state }) =>
@@ -106,25 +116,13 @@ export function App() {
     []
   );
 
-  /** The whole branch menu of one project, in the shape the git tab takes it. */
+  /** What the git tab may start, in the shape the tree takes it. */
   const branchActions = useCallback(
     (projectId: string) => ({
       busy: branchAction?.projectId === projectId,
       checkout: (target: CheckoutTarget) =>
         void runBranchAction(projectId, `Switching to ${target.name}...`, () =>
           window.meeseek.repository.checkout(projectId, target)
-        ),
-      create: (name: string, startPoint?: string) =>
-        void runBranchAction(projectId, `Creating ${name}...`, () =>
-          window.meeseek.repository.createBranch(projectId, name, startPoint)
-        ),
-      rename: (from: string, to: string) =>
-        void runBranchAction(projectId, `Renaming ${from} to ${to}...`, () =>
-          window.meeseek.repository.renameBranch(projectId, from, to)
-        ),
-      remove: (name: string, remote?: string) =>
-        void runBranchAction(projectId, `Deleting ${name}...`, () =>
-          window.meeseek.repository.deleteBranch(projectId, name, remote)
         )
     }),
     [branchAction, runBranchAction]
@@ -140,6 +138,50 @@ export function App() {
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_STATE;
 
+  /**
+   * The one button GitHub Desktop puts here, and the same rules for what it does: publish a
+   * branch the remote has never seen, then pull what came in, then push what went out, and
+   * fetch when the two agree. One thing to press, whatever the state of the branch is.
+   */
+  const sync = ((): { label: string; title: string; icon: React.ReactNode; run: () => void } | null => {
+    const remote = activeState.remotes[0]?.name;
+    if (!activeProjectId || !remote || activeState.detached) {
+      return null;
+    }
+    const start = (label: string, call: (projectId: string) => Promise<GitActionResult>) => () =>
+      void runBranchAction(activeProjectId, `${label}...`, () => call(activeProjectId));
+    if (activeState.upstream === undefined) {
+      return {
+        label: "Publish branch",
+        title: `Push ${activeState.head} to ${remote} and track it`,
+        icon: <ArrowUpIcon />,
+        run: start("Publishing", window.meeseek.repository.push)
+      };
+    }
+    if (activeState.behind > 0) {
+      return {
+        label: `Pull ${remote}`,
+        title: `Pull ${activeState.behind} commits from ${activeState.upstream}`,
+        icon: <ArrowDownIcon />,
+        run: start("Pulling", window.meeseek.repository.pull)
+      };
+    }
+    if (activeState.ahead > 0) {
+      return {
+        label: `Push ${remote}`,
+        title: `Push ${activeState.ahead} commits to ${activeState.upstream}`,
+        icon: <ArrowUpIcon />,
+        run: start("Pushing", window.meeseek.repository.push)
+      };
+    }
+    return {
+      label: `Fetch ${remote}`,
+      title: `Fetch from ${remote}`,
+      icon: <SyncIcon />,
+      run: start("Fetching", window.meeseek.repository.fetch)
+    };
+  })();
+
   return (
     <div className="app">
       {/* Just the app name; the bar itself is the drag region and the space the window
@@ -149,15 +191,26 @@ export function App() {
       </div>
 
       <div className="body">
-        <ProjectList
-          projects={projects}
-          activeProjectId={activeProjectId}
-          width={sidebarWidth}
-          onSelect={setActiveProjectId}
-          onClose={(projectId) => void closeProject(projectId)}
-          onReorder={reorderProjects}
-          onAdd={() => void addProject()}
-        />
+        {/* Projects on top, the selected one's saved commands below them. */}
+        <div className="sidebar" style={{ width: sidebarWidth }}>
+          <ProjectList
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onSelect={setActiveProjectId}
+            onClose={(projectId) => void closeProject(projectId)}
+            onReorder={reorderProjects}
+            onAdd={() => void addProject()}
+          />
+          <Sash
+            orientation="horizontal"
+            size={actionsHeight}
+            min={60}
+            minOther={100}
+            reverse
+            onResize={setActionsHeight}
+          />
+          <ActionList projectId={activeProjectId} height={actionsHeight} />
+        </div>
         <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
 
         <main className="content">
@@ -173,7 +226,9 @@ export function App() {
                 panelsWidth: gitPanelsWidth,
                 onPanelsWidth: setGitPanelsWidth,
                 treeHeight: branchTreeHeight,
-                onTreeHeight: setBranchTreeHeight
+                onTreeHeight: setBranchTreeHeight,
+                consoleHeight,
+                onConsoleHeight: setConsoleHeight
               }}
               branch={branchActions(project.id)}
             />
@@ -198,12 +253,36 @@ export function App() {
             bar then simply has no branch to name. */}
         {activeProject && (
           <>
+            {/* Left, where a status bar puts what you are looking at; everything that acts on
+                it stays on the right. */}
+            <span className="branch-path" title={activeProject.path}>
+              {activeProject.path}
+            </span>
             <BranchIcon />
             {/* While a branch command runs the bar says what it is doing instead of naming
                 HEAD — for those seconds the branch you are on is not the whole story. */}
             <span className={`branch-name${busyLabel === null ? "" : " busy"}`}>
               {busyLabel ?? (activeState.head || "...")}
             </span>
+            {/* How far HEAD and its upstream have drifted apart, only where they have. */}
+            {activeState.ahead > 0 && (
+              <span className="branch-count" title={`${activeState.ahead} commits to push`}>
+                <ArrowUpIcon />
+                {activeState.ahead}
+              </span>
+            )}
+            {activeState.behind > 0 && (
+              <span className="branch-count" title={`${activeState.behind} commits to pull`}>
+                <ArrowDownIcon />
+                {activeState.behind}
+              </span>
+            )}
+            {sync && (
+              <button className="branch-sync" title={sync.title} disabled={busyLabel !== null} onClick={sync.run}>
+                {sync.icon}
+                <span>{sync.label}</span>
+              </button>
+            )}
             <button className="icon-button" title="Refresh repository" onClick={refresh}>
               <RefreshIcon />
             </button>

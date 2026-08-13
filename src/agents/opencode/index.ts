@@ -4,11 +4,27 @@ import { prepareOpencodeSpawn } from "./server";
 import { resolveOpencodeUrlPrefix } from "./session-urls";
 import { opencodeSessionProvider } from "./sessions";
 
+/** What a background question's session is called, so it can be found and removed again. */
+const ASK_TITLE = "meeseek: project commands";
+
 export const opencodeAgent: AgentDefinition = {
   id: "opencode",
   displayName: "OpenCode",
   executable: () => "opencode",
   versionArgs: ["--version"],
+  /*
+   * Its own non-interactive mode: prints the reply and exits. It has no way to skip persisting
+   * the session, so the run is titled and `cleanupAsk` deletes it again by that title — the
+   * alternative, deleting whatever appeared while the question ran, would also catch a session
+   * the user started themselves in the meantime.
+   */
+  askArgs: (question) => ["run", "--title", ASK_TITLE, question],
+  cleanupAsk: async (executable, cwd) => {
+    const sessions = await opencodeSessionProvider.list(executable, cwd);
+    for (const session of sessions.filter((candidate) => candidate.title === ASK_TITLE)) {
+      await opencodeSessionProvider.remove(executable, cwd, session.id).catch(() => undefined);
+    }
+  },
   sessions: opencodeSessionProvider,
   prepareSpawn: prepareOpencodeSpawn,
   resolveUrlPrefix: resolveOpencodeUrlPrefix,

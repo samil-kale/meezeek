@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentId, AgentInfo, Project, RepositoryState, TerminalDescriptor } from "../../shared/types";
-import { attachTerminal, disposeTerminal, fitTerminal, focusTerminal, setRevealHandler } from "../terminal-views";
+import { disposeTerminal, fitTerminal, focusTerminal, refitTerminal, setRevealHandler } from "../terminal-views";
 import { AgentIcon } from "./agent-icons";
 import type { BranchActions } from "./BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
+import { prompt } from "./Dialog";
 import { GitView, type GitPaneSizes } from "./GitView";
+import { TerminalHost } from "./TerminalHost";
 import { BranchIcon, CloseIcon, PlusIcon } from "./icons";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
@@ -37,27 +39,12 @@ interface TerminalsPaneProps {
   branch: BranchActions;
 }
 
-function TerminalHost({ projectId, tabId, active }: { projectId: string; tabId: string; active: boolean }) {
-  const container = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (container.current) {
-      attachTerminal(projectId, tabId, container.current);
-    }
-  }, [projectId, tabId]);
-
-  // "hidden" is visibility, not display — xterm needs a laid-out element to measure itself,
-  // both when it opens and when output arrives for a background tab.
-  return <div ref={container} className={`terminal${active ? "" : " hidden"}`} />;
-}
-
 export function TerminalsPane({ project, visible, state, gitSizes, branch }: TerminalsPaneProps) {
   const [tabs, setTabs] = useState<TerminalDescriptor[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedChange, setSelectedChange] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   /** The git tab reading or coloring a diff — the same bar as a starting agent. */
   const [gitBusy, setGitBusy] = useState(false);
@@ -67,6 +54,11 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
   const knownTabs = useRef<TerminalDescriptor[]>([]);
   /** Whether onStartupProgress has fired; the initial query must not overwrite a push. */
   const progressPushed = useRef(false);
+
+  // The git tab's console is a session like any other, but it belongs to that tab rather than
+  // to the strip — everything below works off `stripTabs`, and the console is handed on.
+  const consoleTab = tabs.find((tab) => tab.console);
+  const stripTabs = tabs.filter((tab) => !tab.console);
 
   useEffect(() => {
     void (async () => {
@@ -141,14 +133,15 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
     if (activeId === GIT_TAB_ID) {
       return;
     }
+    const strip = tabs.filter((tab) => !tab.console);
     if (activeId && !ids.has(activeId)) {
       // Same rule as VS Code: hand over to the nearest neighbour on the right, or — if the
       // closed tab was the rightmost one — on the left.
-      const index = previous.findIndex((tab) => tab.tabId === activeId);
-      setActiveId(tabs[Math.min(index, tabs.length - 1)]?.tabId ?? GIT_TAB_ID);
-    } else if (!activeId && tabs.length > 0) {
+      const index = previous.filter((tab) => !tab.console).findIndex((tab) => tab.tabId === activeId);
+      setActiveId(strip[Math.min(index, strip.length - 1)]?.tabId ?? GIT_TAB_ID);
+    } else if (!activeId && strip.length > 0) {
       // On first load, open the session the user last worked in.
-      const mostRecent = [...tabs].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+      const mostRecent = [...strip].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
       setActiveId(mostRecent.tabId);
     }
   }, [tabs, activeId, project.id]);
@@ -168,13 +161,15 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // xterm follows the pane at once — dragging a sash would otherwise leave a strip of empty
+    // background until the debounce fires. Only the pty resize waits, since it repaints the CLI.
     const observer = new ResizeObserver(() => {
+      if (!visible || !activeId || activeId === GIT_TAB_ID) {
+        return;
+      }
+      refitTerminal(project.id, activeId);
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (visible && activeId && activeId !== GIT_TAB_ID) {
-          fitTerminal(project.id, activeId);
-        }
-      }, RESIZE_DEBOUNCE_MS);
+      timer = setTimeout(() => fitTerminal(project.id, activeId), RESIZE_DEBOUNCE_MS);
     });
     observer.observe(element);
     return () => {
@@ -217,11 +212,17 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
     [project.id]
   );
 
-  const commitRename = useCallback(
-    (tabId: string, title: string) => {
-      setRenamingId(null);
-      if (title.trim()) {
-        void window.meeseek.terminals.rename(project.id, tabId, title);
+  const askRename = useCallback(
+    async (tab: TerminalDescriptor) => {
+      const title = await prompt({
+        title: "Rename session",
+        label: "Name",
+        value: tab.title,
+        confirmLabel: "Rename",
+        maxLength: MAX_TITLE_LENGTH
+      });
+      if (title !== null && title !== tab.title) {
+        void window.meeseek.terminals.rename(project.id, tab.tabId, title);
       }
     },
     [project.id]
@@ -260,7 +261,8 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
    * to close" (a right-click on the only tab, or on the last one) renders it disabled.
    */
   const tabMenuEntries = (tabId: string): ContextMenuEntry[] => {
-    const ids = tabs.map((tab) => tab.tabId);
+    const ids = stripTabs.map((tab) => tab.tabId);
+    const renamable = stripTabs.find((tab) => tab.tabId === tabId && tab.hasSession);
     const closeAction = (label: string, targets: string[]): ContextMenuEntry => ({
       label,
       run: targets.length > 0 ? () => closeTabs(targets) : undefined
@@ -277,8 +279,8 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
       // A tab whose agent hasn't persisted a session yet has nothing to rename — the host
       // would just revert the new label, so don't offer it in the first place.
       {
-        label: "Rename",
-        run: tabs.find((tab) => tab.tabId === tabId)?.hasSession ? () => setRenamingId(tabId) : undefined
+        label: "Rename...",
+        run: renamable ? () => void askRename(renamable) : undefined
       }
     ];
   };
@@ -299,12 +301,12 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
             <BranchIcon className="terminal-tab-icon" />
             <span className="terminal-tab-label">Git</span>
           </div>
-          {tabs.map((tab) => (
+          {stripTabs.map((tab) => (
           <div
             key={tab.tabId}
             className={`terminal-tab${tab.tabId === activeId ? " active" : ""}${tab.status === "stopped" || tab.status === "error" ? " inactive" : ""}${tab.status === "missing" ? " unavailable" : ""}`}
             onClick={() => setActiveId(tab.tabId)}
-            onDoubleClick={() => tab.hasSession && setRenamingId(tab.tabId)}
+            onDoubleClick={() => tab.hasSession && void askRename(tab)}
             // Keeps the terminal focused across the whole right-click interaction: without
             // this, mousedown's default focus handling blurs xterm's textarea (the tab isn't
             // focusable, so focus falls back to <body>), leaving the user unable to type
@@ -321,25 +323,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
             title={tabTooltip(tab)}
           >
             <AgentIcon agentId={tab.agentId} className="terminal-tab-icon" />
-            {renamingId === tab.tabId ? (
-              <input
-                className="tab-rename-input"
-                autoFocus
-                maxLength={MAX_TITLE_LENGTH}
-                defaultValue={tab.title}
-                onClick={(event) => event.stopPropagation()}
-                onBlur={() => setRenamingId(null)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    commitRename(tab.tabId, event.currentTarget.value);
-                  } else if (event.key === "Escape") {
-                    setRenamingId(null);
-                  }
-                }}
-              />
-            ) : (
-              <span className="terminal-tab-label">{tabLabel(tab)}</span>
-            )}
+            <span className="terminal-tab-label">{tabLabel(tab)}</span>
             <button
               className="icon-button"
               title={tab.hasSession ? "Close tab and delete its session" : "Close tab"}
@@ -392,7 +376,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
       </div>
 
       <div className={`terminal-stack${gitActive ? " pane-hidden" : ""}`} ref={stack}>
-        {tabs.map((tab) => (
+        {stripTabs.map((tab) => (
           <TerminalHost key={tab.tabId} projectId={project.id} tabId={tab.tabId} active={tab.tabId === activeId} />
         ))}
       </div>
@@ -405,6 +389,8 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
         onSelect={setSelectedChange}
         onBusy={setGitBusy}
         active={gitActive}
+        agents={agents}
+        console={consoleTab}
       />
 
       {tabMenu && (

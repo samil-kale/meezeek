@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Project } from "../shared/types";
+import type { AgentId, Project } from "../shared/types";
 
 /** The open repositories, persisted so the window comes back with the same project tabs. */
 export class ProjectStore {
@@ -41,6 +41,20 @@ export class ProjectStore {
   remove(projectId: string): void {
     this.projects = this.projects.filter((project) => project.id !== projectId);
     this.save();
+  }
+
+  /**
+   * Which agent this project's git console runs. Kept here rather than in the project's own
+   * meeseek.json: it is how one person likes to work in one checkout, not something the
+   * repository has to carry around — and a file that changes on every dropdown would show up
+   * as a local change every time.
+   */
+  setConsoleAgent(projectId: string, agentId: AgentId): void {
+    const project = this.get(projectId);
+    if (project) {
+      project.consoleAgent = agentId;
+      this.save();
+    }
   }
 
   /**

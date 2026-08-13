@@ -11,8 +11,6 @@ const DRAG_TYPE = "application/x-meeseek-project";
 interface ProjectListProps {
   projects: Project[];
   activeProjectId: string | null;
-  /** Dragged on the sash beside the list, which is why it isn't a style of its own. */
-  width: number;
   onSelect: (projectId: string) => void;
   onClose: (projectId: string) => void;
   /** The full list in the order the user dropped it into. */
@@ -20,15 +18,7 @@ interface ProjectListProps {
   onAdd: () => void;
 }
 
-export function ProjectList({
-  projects,
-  activeProjectId,
-  width,
-  onSelect,
-  onClose,
-  onReorder,
-  onAdd
-}: ProjectListProps) {
+export function ProjectList({ projects, activeProjectId, onSelect, onClose, onReorder, onAdd }: ProjectListProps) {
   const [dragged, setDragged] = useState<string | null>(null);
   /** Where the dragged project would land: the index it would take among the others. */
   const [dropAt, setDropAt] = useState<number | null>(null);
@@ -132,8 +122,8 @@ export function ProjectList({
   };
 
   return (
-    <div className="project-list" style={{ width }}>
-      <div className="project-list-header">
+    <div className="project-list">
+      <div className="sidebar-header">
         <span>PROJECTS</span>
         <button className="icon-button" title="Add repository" onClick={onAdd}>
           <PlusIcon />

@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 export interface ConfirmOptions {
   title: string;
@@ -18,9 +18,21 @@ export interface ConfirmAnswer {
   checked: boolean;
 }
 
-interface PendingDialog extends ConfirmOptions {
-  answer: (answer: ConfirmAnswer) => void;
+export interface PromptOptions {
+  title: string;
+  /** What the field holds, above it. */
+  label: string;
+  /** What it is for, when the label alone does not say — the branch a new one starts from. */
+  detail?: string;
+  /** What the field starts out with, selected so typing replaces it. */
+  value: string;
+  confirmLabel: string;
+  maxLength?: number;
 }
+
+type Pending =
+  | ({ kind: "confirm"; answer: (answer: ConfirmAnswer) => void } & ConfirmOptions)
+  | ({ kind: "prompt"; answer: (value: string | null) => void } & PromptOptions);
 
 /**
  * Asking the user something, the way `notify` tells them something: one function anything can
@@ -28,39 +40,143 @@ interface PendingDialog extends ConfirmOptions {
  * rather than through Electron's `dialog.showMessageBox`, so a question looks like the rest of
  * the app instead of like the OS.
  *
- * Only ask before something that cannot be undone — a question the user answers the same way
- * every time is a question not worth asking.
+ * `confirm` is for something that cannot be undone — a question the user answers the same way
+ * every time is one not worth asking. `prompt` is for a name, and is where every rename in the
+ * app happens.
  */
-let pending: PendingDialog | null = null;
+let pending: Pending | null = null;
 const listeners = new Set<() => void>();
 
-function publish(next: PendingDialog | null): void {
+function publish(next: Pending | null): void {
   pending = next;
   for (const listener of listeners) {
     listener();
   }
 }
 
-export function confirm(options: ConfirmOptions): Promise<ConfirmAnswer> {
-  // One at a time: the overlay swallows the clicks that could start a second question, and a
-  // stack of them would hide the one that is actually being answered.
+/** One at a time: the overlay swallows the clicks that could start a second question. */
+function ask<T>(build: (answer: (value: T) => void) => Pending, cancelled: T): Promise<T> {
   if (pending) {
-    return Promise.resolve({ confirmed: false, checked: false });
+    return Promise.resolve(cancelled);
   }
   return new Promise((resolve) => {
-    publish({
-      ...options,
-      answer: (answer) => {
+    publish(
+      build((value) => {
         publish(null);
-        resolve(answer);
-      }
-    });
+        resolve(value);
+      })
+    );
   });
+}
+
+export function confirm(options: ConfirmOptions): Promise<ConfirmAnswer> {
+  return ask<ConfirmAnswer>(
+    (answer) => ({ kind: "confirm", ...options, answer }),
+    { confirmed: false, checked: false }
+  );
+}
+
+/** Resolves to the name the user typed, or null when they cancelled. */
+export function prompt(options: PromptOptions): Promise<string | null> {
+  return ask<string | null>((answer) => ({ kind: "prompt", ...options, answer }), null);
 }
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+interface FrameProps {
+  title: string;
+  confirmLabel: string;
+  /** Nothing to go through with yet — an empty name, say. */
+  disabled?: boolean;
+  onSubmit: () => void;
+  onCancel: () => void;
+  children: React.ReactNode;
+}
+
+function Frame({ title, confirmLabel, disabled, onSubmit, onCancel, children }: FrameProps) {
+  return (
+    <div className="dialog-overlay">
+      {/* A form, so Enter answers from wherever the focus sits — the field or the checkbox. */}
+      <form
+        className="dialog"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!disabled) {
+            onSubmit();
+          }
+        }}
+      >
+        <div className="dialog-title">{title}</div>
+        <div className="dialog-body">{children}</div>
+        <div className="dialog-buttons">
+          <button type="button" className="button secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="button" disabled={disabled}>
+            {confirmLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ConfirmDialog({ dialog }: { dialog: Extract<Pending, { kind: "confirm" }> }) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <Frame
+      title={dialog.title}
+      confirmLabel={dialog.confirmLabel}
+      onSubmit={() => dialog.answer({ confirmed: true, checked })}
+      onCancel={() => dialog.answer({ confirmed: false, checked: false })}
+    >
+      <p className="dialog-message">{dialog.message}</p>
+      {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
+      {dialog.checkboxLabel && (
+        <label className="dialog-checkbox">
+          <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
+          <span>{dialog.checkboxLabel}</span>
+        </label>
+      )}
+    </Frame>
+  );
+}
+
+function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }> }) {
+  const [value, setValue] = useState(dialog.value);
+  const field = useRef<HTMLInputElement>(null);
+
+  // The focus has to land in the field, not on a button: a rename is opened to type in. Once,
+  // on the way in — selecting on every render would swallow each keystroke after the first.
+  useEffect(() => {
+    field.current?.focus();
+    field.current?.select();
+  }, []);
+
+  return (
+    <Frame
+      title={dialog.title}
+      confirmLabel={dialog.confirmLabel}
+      disabled={value.trim().length === 0}
+      onSubmit={() => dialog.answer(value.trim())}
+      onCancel={() => dialog.answer(null)}
+    >
+      <label className="dialog-field">
+        <span>{dialog.label}</span>
+        <input
+          type="text"
+          value={value}
+          maxLength={dialog.maxLength}
+          onChange={(event) => setValue(event.target.value)}
+          ref={field}
+        />
+      </label>
+      {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
+    </Frame>
+  );
 }
 
 /** Mounted once, next to `Notices`; draws nothing until something asks. */
@@ -77,7 +193,11 @@ export function Dialogs() {
         // ESC keystroke for the terminal that had focus before it opened.
         event.preventDefault();
         event.stopPropagation();
-        dialog.answer({ confirmed: false, checked: false });
+        if (dialog.kind === "confirm") {
+          dialog.answer({ confirmed: false, checked: false });
+        } else {
+          dialog.answer(null);
+        }
       }
     };
     document.addEventListener("keydown", onKeyDown, true);
@@ -87,42 +207,5 @@ export function Dialogs() {
   if (!dialog) {
     return null;
   }
-
-  return (
-    <div className="dialog-overlay">
-      {/* A form, so Enter answers from wherever the focus sits — including the checkbox. */}
-      <form
-        className="dialog"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const checkbox = event.currentTarget.elements.namedItem("dialog-checkbox");
-          dialog.answer({ confirmed: true, checked: checkbox instanceof HTMLInputElement && checkbox.checked });
-        }}
-      >
-        <div className="dialog-title">{dialog.title}</div>
-        <div className="dialog-body">
-          <p className="dialog-message">{dialog.message}</p>
-          {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
-          {dialog.checkboxLabel && (
-            <label className="dialog-checkbox">
-              <input type="checkbox" name="dialog-checkbox" />
-              <span>{dialog.checkboxLabel}</span>
-            </label>
-          )}
-        </div>
-        <div className="dialog-buttons">
-          <button
-            type="button"
-            className="button secondary"
-            onClick={() => dialog.answer({ confirmed: false, checked: false })}
-          >
-            Cancel
-          </button>
-          <button type="submit" className="button" autoFocus>
-            {dialog.confirmLabel}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+  return dialog.kind === "confirm" ? <ConfirmDialog dialog={dialog} /> : <PromptDialog dialog={dialog} />;
 }

@@ -101,6 +101,18 @@ export interface AgentDefinition {
    * spawn that failed for another reason. Omitted for agents that always exist (the shell).
    */
   versionArgs?: string[];
+  /**
+   * Args that put one question to the agent without a terminal, answered on stdout and then
+   * over. Omitted for an agent that cannot be asked anything (the shell), which is also what
+   * marks it as no candidate for the jobs that use this.
+   */
+  askArgs?: (question: string) => string[];
+  /**
+   * Removes what `askArgs` left behind, for an agent that persists a session either way — a
+   * question asked in the background must not come back as a tab on the next start. Left out
+   * by an agent that can be told not to persist one in the first place.
+   */
+  cleanupAsk?: (executable: string, cwd: string) => Promise<void>;
   /** Session enumeration/resume/deletion; a missing provider means "this agent has no sessions". */
   sessions?: SessionProvider;
   /**

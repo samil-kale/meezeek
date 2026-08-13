@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { shell } from "electron";
 import type {
   CheckoutTarget,
+  DiffOptions,
   FileDiff,
   GitActionResult,
   NoticeSeverity,
@@ -10,21 +11,8 @@ import type {
   RepositoryState
 } from "../shared/types";
 import { countActivity } from "./event-loop-monitor";
-import {
-  appendIgnoreRules,
-  checkout,
-  createBranch,
-  deleteBranch,
-  deleteRemoteBranch,
-  discard,
-  ignoreRuleForExtension,
-  ignoreRuleForPath,
-  isRepository,
-  readDiff,
-  readState,
-  renameBranch,
-  type DiscardTargets
-} from "./git";
+import { git } from "./git-client";
+import type { DiscardTargets } from "./git";
 
 /** Filesystem events arrive in bursts (a build, a checkout, an agent editing files). */
 const REFRESH_DEBOUNCE_MS = 250;
@@ -35,12 +23,21 @@ const REFRESH_DEBOUNCE_MS = 250;
  * machine with instrumented process creation: ~350ms per git start, two per refresh.
  */
 const REFRESH_MIN_INTERVAL_MS = 2000;
+/**
+ * How often a repository fetches on its own, GitHub Desktop's interval. Frequent enough that
+ * the ahead/behind counts are worth reading, rare enough not to hammer a remote all day.
+ */
+const AUTO_FETCH_INTERVAL_MS = 10 * 60_000;
 
 const LOADING_STATE: RepositoryState = {
   head: "",
   detached: false,
+  ahead: 0,
+  behind: 0,
   localBranches: [],
   remotes: [],
+  tags: [],
+  stashes: [],
   changes: []
 };
 
@@ -74,7 +71,8 @@ export class Repository {
   private refreshing = false;
   private refreshPending = false;
   private lastRefreshAt = 0;
-  private branchActionRunning = false;
+  private actionRunning = false;
+  private autoFetchTimer: ReturnType<typeof setInterval> | undefined;
   /** Checked once when the project opens; without it there is nothing to read or watch. */
   private isGit = false;
 
@@ -100,7 +98,7 @@ export class Repository {
   }
 
   async start(): Promise<void> {
-    this.isGit = await isRepository(this.project.path);
+    this.isGit = await git.isRepository(this.project.path).catch(() => false);
     if (!this.isGit) {
       const next = { ...LOADING_STATE, error: "Not a git repository" };
       this.reportError(next);
@@ -110,6 +108,26 @@ export class Repository {
     }
     await this.refresh();
     this.startWatching();
+    this.autoFetchTimer = setInterval(() => void this.autoFetch(), AUTO_FETCH_INTERVAL_MS);
+  }
+
+  /**
+   * The periodic fetch. It says nothing when it fails: a repository whose remote needs
+   * credentials nobody entered, or a machine that is offline, would otherwise put the same
+   * notice up every ten minutes for something the user never asked for. A fetch they *did*
+   * ask for reports as loudly as anything else.
+   */
+  private async autoFetch(): Promise<void> {
+    if (this.actionRunning || this.state.remotes.length === 0) {
+      return;
+    }
+    this.actionRunning = true;
+    try {
+      await git.fetch(this.project.path).catch(() => undefined);
+      await this.refresh();
+    } finally {
+      this.actionRunning = false;
+    }
   }
 
   async refresh(): Promise<RepositoryState> {
@@ -123,7 +141,12 @@ export class Repository {
     this.refreshing = true;
     countActivity("git");
     try {
-      const next = await readState(this.project.path);
+      // readState answers with an error rather than throwing; what can still reject is the
+      // git process having gone away underneath it, and that is worth saying out loud.
+      const next = await git.readState(this.project.path).catch((error: Error) => ({
+        ...LOADING_STATE,
+        error: error.message
+      }));
       this.reportError(next);
       // Only emit on an actual change: the watcher fires for plenty of edits that leave
       // the repository state identical, and every emit re-renders the views.
@@ -156,49 +179,54 @@ export class Repository {
   }
 
   /**
-   * Runs one branch command at a time and refreshes after it. Two of them in one repository
-   * race for the index lock, and which branch you end up on comes down to timing. The UI does
-   * not offer a second one while the first runs; anything that gets here anyway is refused
-   * rather than gambled on.
+   * Runs one command at a time and refreshes after it. Two of them in one repository race for
+   * the index lock, and which branch you end up on comes down to timing; a fetch on top of a
+   * checkout is no better. The UI does not offer a second one while the first runs; anything
+   * that gets here anyway is refused rather than gambled on.
    */
-  private async runBranchAction(action: () => Promise<GitActionResult>): Promise<GitActionResult> {
-    if (this.branchActionRunning) {
-      return { ok: false, error: "A branch command is already running" };
+  private async runAction(action: () => Promise<GitActionResult>): Promise<GitActionResult> {
+    if (this.actionRunning) {
+      return { ok: false, error: "A git command is already running for this repository" };
     }
-    this.branchActionRunning = true;
+    this.actionRunning = true;
     try {
-      const result = await action();
+      // A git command reports failure in its result; a rejection here is the git process
+      // itself having stopped, which the caller shows the same way.
+      const result = await action().catch((error: Error) => ({ ok: false, error: error.message }));
       await this.refresh();
       return result;
     } finally {
-      this.branchActionRunning = false;
+      this.actionRunning = false;
     }
   }
 
   checkout(target: CheckoutTarget): Promise<GitActionResult> {
-    return this.runBranchAction(() => checkout(this.project.path, target, this.state.localBranches));
+    return this.runAction(() => git.checkout(this.project.path, target, this.state.localBranches));
   }
 
-  createBranch(name: string, startPoint?: string): Promise<GitActionResult> {
-    return this.runBranchAction(() => createBranch(this.project.path, name, startPoint));
+  fetch(): Promise<GitActionResult> {
+    return this.runAction(() => git.fetch(this.project.path));
   }
 
-  renameBranch(from: string, to: string): Promise<GitActionResult> {
-    return this.runBranchAction(() => renameBranch(this.project.path, from, to));
+  pull(): Promise<GitActionResult> {
+    return this.runAction(() => git.pull(this.project.path));
   }
 
   /**
-   * Deletes the branch locally and, when a remote is named, there as well. The local one goes
-   * first: it always succeeds where the push may not, and a failed push then leaves a plain
-   * "the remote said no" rather than a half-done state to explain.
+   * Pushes the current branch, publishing it when it has no upstream yet. Which remote to
+   * publish to is only a question where there are several; the first one is what GitHub
+   * Desktop uses too, and it is "origin" in all but a handful of repositories.
    */
-  deleteBranch(name: string, remote?: string): Promise<GitActionResult> {
-    return this.runBranchAction(async () => {
-      const local = await deleteBranch(this.project.path, name);
-      if (!local.ok || remote === undefined) {
-        return local;
+  push(): Promise<GitActionResult> {
+    return this.runAction(() => {
+      const remote = this.state.remotes[0]?.name;
+      if (!remote) {
+        return Promise.resolve({ ok: false, error: "This repository has no remote to push to" });
       }
-      return deleteRemoteBranch(this.project.path, remote, name);
+      if (this.state.detached) {
+        return Promise.resolve({ ok: false, error: "HEAD is detached — check out a branch to push it" });
+      }
+      return git.push(this.project.path, remote, this.state.head, this.state.upstream === undefined);
     });
   }
 
@@ -234,28 +262,33 @@ export class Repository {
       }
     }
 
-    const result = await discard(this.project.path, targets);
+    const result = await git.discard(this.project.path, targets);
     await this.refresh();
     return result;
   }
 
   /** Adds the file, or everything with its extension, to the repository's .gitignore. */
   async ignore(filePath: string, scope: "file" | "extension"): Promise<GitActionResult> {
-    const rule = scope === "file" ? ignoreRuleForPath(filePath) : ignoreRuleForExtension(filePath);
-    if (rule === undefined) {
-      return { ok: false, error: `${filePath} has no extension to ignore` };
-    }
-    const result = await appendIgnoreRules(this.project.path, [rule]);
+    const result = await git.ignorePath(this.project.path, filePath, scope);
     await this.refresh();
     return result;
   }
 
-  async diff(filePath: string): Promise<FileDiff> {
+  async diff(filePath: string, options: DiffOptions): Promise<FileDiff> {
     const change = this.state.changes.find((candidate) => candidate.path === filePath);
-    return readDiff(this.project.path, filePath, {
-      untracked: change?.status === "untracked",
-      origPath: change?.origPath
-    });
+    return git
+      .readDiff(this.project.path, filePath, {
+        ...options,
+        untracked: change?.status === "untracked",
+        origPath: change?.origPath
+      })
+      .catch((error: Error) => ({ path: filePath, lines: [], binary: false, truncated: false, error: error.message }));
+  }
+
+  /** The file's own lines, for a gap the diff view was asked to open. */
+  fileLines(filePath: string, from: number, to: number): Promise<string[]> {
+    // Same as when the file cannot be read: no lines, so the gap simply stays closed.
+    return git.readFileLines(this.project.path, filePath, from, to).catch(() => []);
   }
 
   private startWatching(): void {
@@ -279,6 +312,7 @@ export class Repository {
 
   dispose(): void {
     clearTimeout(this.debounceTimer);
+    clearInterval(this.autoFetchTimer);
     this.watcher?.close();
     this.watcher = undefined;
   }

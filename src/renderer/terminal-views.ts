@@ -29,9 +29,13 @@ function viewKey(projectId: string, tabId: string): string {
   return `${projectId} ${tabId}`;
 }
 
-window.meeseek.terminals.onOutput(({ projectId, tabId, data }) =>
-  views.get(viewKey(projectId, tabId))?.term.write(data)
-);
+// One batch per flush, in the order the main process collected it — a terminal that produced
+// nothing in that window is simply not in it.
+window.meeseek.terminals.onOutput((batch) => {
+  for (const { projectId, tabId, data } of batch) {
+    views.get(viewKey(projectId, tabId))?.term.write(data);
+  }
+});
 
 export function setRevealHandler(projectId: string, handler: (path: string) => void): () => void {
   revealHandlers.set(projectId, handler);
@@ -241,7 +245,17 @@ export function attachTerminal(projectId: string, tabId: string, container: HTML
   });
 }
 
-/** Refits the terminal to its container and reports the new size — this starts its process. */
+/**
+ * Resizes xterm to its container without telling the pty. Cheap and local — it only does
+ * anything when the container grew or shrank by a whole row or column — so it can run while a
+ * sash is being dragged, and the pane never shows an empty strip waiting for the terminal to
+ * catch up. The pty learns the size from `fitTerminal` once the dragging settles.
+ */
+export function refitTerminal(projectId: string, tabId: string): void {
+  views.get(viewKey(projectId, tabId))?.fit.fit();
+}
+
+/** Refits the terminal and reports the new size — this is what starts its process. */
 export function fitTerminal(projectId: string, tabId: string): void {
   const view = views.get(viewKey(projectId, tabId));
   if (!view) {

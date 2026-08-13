@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "npm start",
+    "npm run watch",
+    "npm run compile",
+    "npm run typecheck",
+    "npm run lint",
+    "npm install"
+  ],
+  "git-console": "claude"
+}

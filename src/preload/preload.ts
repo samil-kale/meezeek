@@ -12,24 +12,32 @@ const api: MeeseekApi = {
     list: () => ipcRenderer.invoke("projects:list"),
     add: () => ipcRenderer.invoke("projects:add"),
     remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId),
-    reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds)
+    reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds),
+    setConsoleAgent: (projectId, agentId) => ipcRenderer.invoke("projects:set-console-agent", projectId, agentId)
   },
   repository: {
     state: (projectId) => ipcRenderer.invoke("repo:state", projectId),
     refresh: (projectId) => ipcRenderer.invoke("repo:refresh", projectId),
     checkout: (projectId, target) => ipcRenderer.invoke("repo:checkout", projectId, target),
-    createBranch: (projectId, name, startPoint) =>
-      ipcRenderer.invoke("repo:create-branch", projectId, name, startPoint),
-    renameBranch: (projectId, from, to) => ipcRenderer.invoke("repo:rename-branch", projectId, from, to),
-    deleteBranch: (projectId, name, remote) => ipcRenderer.invoke("repo:delete-branch", projectId, name, remote),
+    fetch: (projectId) => ipcRenderer.invoke("repo:fetch", projectId),
+    pull: (projectId) => ipcRenderer.invoke("repo:pull", projectId),
+    push: (projectId) => ipcRenderer.invoke("repo:push", projectId),
     discard: (projectId, paths) => ipcRenderer.invoke("repo:discard", projectId, paths),
     ignore: (projectId, filePath, scope) => ipcRenderer.invoke("repo:ignore", projectId, filePath, scope),
-    diff: (projectId, filePath) => ipcRenderer.invoke("repo:diff", projectId, filePath),
+    diff: (projectId, filePath, options) => ipcRenderer.invoke("repo:diff", projectId, filePath, options),
+    fileLines: (projectId, filePath, from, to) =>
+      ipcRenderer.invoke("repo:file-lines", projectId, filePath, from, to),
     onState: (listener) => subscribe("repo:state-changed", listener)
+  },
+  actions: {
+    list: (projectId) => ipcRenderer.invoke("actions:list", projectId),
+    save: (projectId, actions) => ipcRenderer.invoke("actions:save", projectId, actions),
+    run: (projectId, command) => ipcRenderer.invoke("actions:run", projectId, command),
+    suggest: (projectId) => ipcRenderer.invoke("actions:suggest", projectId)
   },
   terminals: {
     list: (projectId) => ipcRenderer.invoke("terminal:list", projectId),
-    create: (projectId, agentId) => ipcRenderer.invoke("terminal:create", projectId, agentId),
+    create: (projectId, agentId, asConsole) => ipcRenderer.invoke("terminal:create", projectId, agentId, asConsole),
     close: (projectId, tabIds) => ipcRenderer.invoke("terminal:close", projectId, tabIds),
     rename: (projectId, tabId, title) => ipcRenderer.invoke("terminal:rename", projectId, tabId, title),
     input: (projectId, tabId, data) => ipcRenderer.send("terminal:input", projectId, tabId, data),

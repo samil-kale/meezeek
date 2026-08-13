@@ -5,11 +5,14 @@ import type {
   CheckoutTarget,
   ChangeStatus,
   DiffLine,
+  DiffOptions,
   FileChange,
   FileDiff,
   GitActionResult,
+  ImageDiff,
   RemoteInfo,
-  RepositoryState
+  RepositoryState,
+  StashEntry
 } from "../shared/types";
 
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -28,12 +31,12 @@ export interface GitResult {
  * Runs the local git CLI. Resolves for any exit code (callers decide what a non-zero one
  * means) and rejects only when git itself could not be started.
  */
-export function git(cwd: string, args: string[]): Promise<GitResult> {
+export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       args,
-      { cwd, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8" },
+      { cwd, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8", env: env && { ...process.env, ...env } },
       (error, stdout, stderr) => {
         if (error && typeof error.code !== "number") {
           reject(new Error(`git could not be started (${error.code ?? error.message})`));
@@ -69,36 +72,64 @@ export async function resolveRoot(cwd: string): Promise<string | undefined> {
   }
 }
 
+/** What the status header says about HEAD, on top of the changed files it precedes. */
+type HeadState = Pick<RepositoryState, "head" | "detached" | "upstream" | "ahead" | "behind">;
+
 /**
- * What `--branch` puts in front of the status output: the current branch, and whether there
- * is one at all. Read from there rather than from a `rev-parse` of its own, because starting
- * git is by far the most expensive part of a refresh — one process instead of two.
+ * What `--branch` puts in front of the status output: the current branch, its upstream, and
+ * how far the two have drifted apart. Read from there rather than from a `rev-parse` and a
+ * `rev-list` of their own, because starting git is by far the most expensive part of a
+ * refresh — one process instead of three.
  *
  * Only a detached HEAD still needs a second call: the header names no ref then, and a commit
  * id is what the UI has to show instead.
  */
-async function readHead(cwd: string, header: string): Promise<{ head: string; detached: boolean }> {
+async function readHead(cwd: string, header: string): Promise<HeadState> {
+  const base = { upstream: undefined, ahead: 0, behind: 0 };
   if (header === "HEAD (no branch)") {
     const short = await git(cwd, ["rev-parse", "--short", "HEAD"]);
-    return { head: short.stdout.trim() || "HEAD", detached: true };
+    return { ...base, head: short.stdout.trim() || "HEAD", detached: true };
   }
   // Unborn branch (a fresh repository without commits): HEAD points at a ref that does not
   // exist yet, and git says so in words. The wording changed in 2.16; both are accepted.
   const unborn = /^(?:No commits yet on|Initial commit on) (.+)$/.exec(header);
   if (unborn) {
-    return { head: unborn[1], detached: false };
+    return { ...base, head: unborn[1], detached: false };
   }
-  // "<branch>...<upstream> [ahead 1]" when it tracks one, plain "<branch>" when it does not.
-  // A branch name can hold neither "..." nor a space, so the first field is the whole name.
-  return { head: header.split("...")[0].split(" ")[0] || "HEAD", detached: false };
+  // "<branch>...<upstream> [ahead 1, behind 2]" when it tracks one, plain "<branch>" when it
+  // does not. A branch name holds neither "..." nor a space, so the first field is the name.
+  const [name, rest] = header.split("...");
+  const tracking = /^(\S+)(?: \[(.*)\])?$/.exec(rest ?? "");
+  const divergence = tracking?.[2] ?? "";
+  return {
+    head: name.split(" ")[0] || "HEAD",
+    detached: false,
+    // "[gone]" is an upstream the remote no longer has; there is nothing to compare against,
+    // so it counts as none at all.
+    upstream: tracking && divergence !== "gone" ? tracking[1] : undefined,
+    ahead: Number(/ahead (\d+)/.exec(divergence)?.[1] ?? 0),
+    behind: Number(/behind (\d+)/.exec(divergence)?.[1] ?? 0)
+  };
 }
 
-async function readBranches(cwd: string): Promise<{ localBranches: string[]; remotes: RemoteInfo[] }> {
+/**
+ * Every ref the tree shows, from one `for-each-ref`. Tags ride along with the branches rather
+ * than costing a `git tag` of their own: it is the same process either way, and the rule in
+ * CLAUDE.md is to count invocations.
+ */
+async function readRefs(cwd: string): Promise<{ localBranches: string[]; remotes: RemoteInfo[]; tags: string[] }> {
   // Full ref names, not %(refname:short): git shortens "refs/remotes/origin/HEAD" to plain
   // "origin", which cannot be told apart from a branch named after its remote.
-  const result = await git(cwd, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"]);
+  const result = await git(cwd, [
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/heads",
+    "refs/remotes",
+    "refs/tags"
+  ]);
 
   const localBranches: string[] = [];
+  const tags: string[] = [];
   const remotes = new Map<string, string[]>();
 
   for (const line of result.stdout.split("\n")) {
@@ -108,6 +139,10 @@ async function readBranches(cwd: string): Promise<{ localBranches: string[]; rem
     }
     if (refname.startsWith("refs/heads/")) {
       localBranches.push(refname.slice("refs/heads/".length));
+      continue;
+    }
+    if (refname.startsWith("refs/tags/")) {
+      tags.push(refname.slice("refs/tags/".length));
       continue;
     }
     const remoteRef = refname.slice("refs/remotes/".length);
@@ -129,6 +164,7 @@ async function readBranches(cwd: string): Promise<{ localBranches: string[]; rem
 
   return {
     localBranches,
+    tags,
     remotes: [...remotes].map(([name, branches]) => ({ name, branches }))
   };
 }
@@ -159,7 +195,7 @@ function toChangeStatus(code: string): ChangeStatus {
 }
 
 /** The changed files and, from the `--branch` header, what HEAD is — in one git process. */
-async function readStatus(cwd: string): Promise<{ head: string; detached: boolean; changes: FileChange[] }> {
+async function readStatus(cwd: string): Promise<HeadState & { changes: FileChange[] }> {
   // core.quotePath=false keeps non-ASCII paths readable instead of octal-escaped.
   const result = await git(cwd, [
     "-c",
@@ -205,8 +241,12 @@ export async function readState(cwd: string): Promise<RepositoryState> {
   const empty: RepositoryState = {
     head: "",
     detached: false,
+    ahead: 0,
+    behind: 0,
     localBranches: [],
     remotes: [],
+    tags: [],
+    stashes: [],
     changes: []
   };
 
@@ -214,8 +254,12 @@ export async function readState(cwd: string): Promise<RepositoryState> {
     // No `isRepository` check here: a folder does not stop being a repository, so Repository
     // asks that once when it opens. On a machine where starting git is slow, dropping it took
     // a quarter off every refresh.
-    const [status, branches] = await Promise.all([readStatus(cwd), readBranches(cwd)]);
-    return { ...status, ...branches };
+    //
+    // The stash list is the third process a refresh spends. It earns it by being a list the
+    // user acts on: one that only updated when something else happened would offer to pop a
+    // stash that is no longer there. All three run at once, so it costs no extra wall time.
+    const [status, refs, stashes] = await Promise.all([readStatus(cwd), readRefs(cwd), readStashes(cwd)]);
+    return { ...status, ...refs, stashes };
   } catch (error) {
     return { ...empty, error: error instanceof Error ? error.message : String(error) };
   }
@@ -225,16 +269,62 @@ export async function readState(cwd: string): Promise<RepositoryState> {
  * One git command, reported the way the UI wants it: a non-zero exit is the command's own
  * message, and a git that could not be started is the thrown error's.
  */
-async function run(cwd: string, args: string[]): Promise<GitActionResult> {
+async function run(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitActionResult> {
   try {
-    const result = await git(cwd, args);
+    const result = await git(cwd, args, env);
     if (result.code === 0) {
       return { ok: true };
     }
-    return { ok: false, error: (result.stderr || result.stdout).trim() };
+    // Without the "hint:" block: a pull that hits diverged branches or a conflict answers with
+    // eight lines of advice, all of it about what to type next in a terminal. What went wrong
+    // is in the lines above it, and those are what a notice has room for.
+    const message = (result.stderr || result.stdout)
+      .split("\n")
+      .filter((line) => !line.startsWith("hint:"))
+      .join("\n")
+      .trim();
+    return { ok: false, error: message };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/**
+ * What every command that reaches a remote runs with. git must never stop to ask for a
+ * password here: there is no terminal it could ask in, and a command waiting for an answer
+ * that cannot come would hold this repository's one action slot open forever. Credentials
+ * come from the user's own credential helper or they do not come at all.
+ */
+const NETWORK_ENV: NodeJS.ProcessEnv = {
+  GIT_TERMINAL_PROMPT: "0",
+  // Set but empty: git falls back to the terminal when it is unset, which is the very thing
+  // the line above is trying to prevent.
+  GIT_ASKPASS: "",
+  SSH_ASKPASS: "",
+  // Keeps a host key it has never seen from turning into a question nobody can answer.
+  GIT_SSH_COMMAND: "ssh -oBatchMode=yes"
+};
+
+function runNetwork(cwd: string, args: string[]): Promise<GitActionResult> {
+  return run(cwd, args, NETWORK_ENV);
+}
+
+/** `--prune`, like GitHub Desktop: a branch deleted on the remote goes from the tree too. */
+export function fetch(cwd: string, remote?: string): Promise<GitActionResult> {
+  return runNetwork(cwd, remote ? ["fetch", "--prune", remote] : ["fetch", "--prune"]);
+}
+
+/** Plain `git pull`, so whatever the user configured — merge or rebase — is what happens. */
+export function pull(cwd: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["pull"]);
+}
+
+/**
+ * Pushes the current branch. Without an upstream this is GitHub Desktop's "publish branch":
+ * the same command, plus the tracking configuration that makes every later push a plain one.
+ */
+export function push(cwd: string, remote: string, branch: string, setUpstream: boolean): Promise<GitActionResult> {
+  return runNetwork(cwd, setUpstream ? ["push", "--set-upstream", remote, branch] : ["push"]);
 }
 
 export async function checkout(cwd: string, target: CheckoutTarget, localBranches: string[]): Promise<GitActionResult> {
@@ -249,31 +339,19 @@ export async function checkout(cwd: string, target: CheckoutTarget, localBranche
   return tracked.ok ? tracked : run(cwd, ["switch", target.name]);
 }
 
-/**
- * Creates a branch and switches to it, which is what GitHub Desktop's "Create branch" does —
- * a branch you make and do not go to is not what anyone asked for. Without a start point git
- * branches off HEAD; a remote one like "origin/main" also sets up tracking.
- */
-export function createBranch(cwd: string, name: string, startPoint?: string): Promise<GitActionResult> {
-  return run(cwd, startPoint ? ["switch", "--create", name, startPoint] : ["switch", "--create", name]);
-}
-
-/**
- * Force-deletes, like GitHub Desktop: the user confirmed the branch by name in a dialog that
- * says it cannot be undone, and refusing an unmerged branch afterwards only sends them to a
- * terminal to repeat themselves.
- */
-export function deleteBranch(cwd: string, name: string): Promise<GitActionResult> {
-  return run(cwd, ["branch", "--delete", "--force", name]);
-}
-
-/** The only command here that goes to the network — see the CLAUDE.md note on that. */
-export function deleteRemoteBranch(cwd: string, remote: string, name: string): Promise<GitActionResult> {
-  return run(cwd, ["push", remote, "--delete", name]);
-}
-
-export function renameBranch(cwd: string, from: string, to: string): Promise<GitActionResult> {
-  return run(cwd, ["branch", "--move", from, to]);
+async function readStashes(cwd: string): Promise<StashEntry[]> {
+  // %gd is the ref the other commands take ("stash@{0}"), %gs the message git itself wrote.
+  const result = await git(cwd, ["stash", "list", "--format=%gd%x00%gs"]);
+  if (result.code !== 0) {
+    return [];
+  }
+  return result.stdout
+    .split("\n")
+    .filter((line) => line.includes("\0"))
+    .map((line) => {
+      const [ref, message] = line.split("\0");
+      return { ref, message };
+    });
 }
 
 export interface DiscardTargets {
@@ -309,23 +387,22 @@ function escapeIgnorePattern(pattern: string): string {
   return pattern.replace(/[\\!#*?[\]]/g, "\\$&");
 }
 
-export function ignoreRuleForPath(filePath: string): string {
-  return escapeIgnorePattern(filePath);
-}
-
-/** "Ignore all .log files", GitHub Desktop's second ignore action; undefined without one. */
-export function ignoreRuleForExtension(filePath: string): string | undefined {
-  const extension = path.extname(filePath);
-  return extension ? `*${escapeIgnorePattern(extension)}` : undefined;
-}
-
 /**
- * Appends rules to the repository's .gitignore, skipping any it already holds verbatim.
+ * Adds the file, or everything with its extension ("Ignore all .log files", GitHub Desktop's
+ * second ignore action), to the repository's .gitignore — skipping a rule it already holds
+ * verbatim.
+ *
  * Written in place rather than through a temp file and a rename: this is a working tree file
  * the user owns, written once per menu click, and a temp file beside it would show up in the
  * very list this was started from.
  */
-export async function appendIgnoreRules(cwd: string, rules: string[]): Promise<GitActionResult> {
+export async function ignorePath(cwd: string, filePath: string, scope: "file" | "extension"): Promise<GitActionResult> {
+  const extension = path.extname(filePath);
+  if (scope === "extension" && !extension) {
+    return { ok: false, error: `${filePath} has no extension to ignore` };
+  }
+  const rules = [scope === "file" ? escapeIgnorePattern(filePath) : `*${escapeIgnorePattern(extension)}`];
+
   const file = path.join(cwd, ".gitignore");
   try {
     const existing = await fs.readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
@@ -363,7 +440,9 @@ function parseUnifiedDiff(text: string): { lines: DiffLine[]; truncated: boolean
       oldLine = Number(header[1]);
       newLine = Number(header[2]);
       inHunk = true;
-      lines.push({ type: "hunk", text: raw });
+      // Carried on the header so the view knows where the gap in front of it ends, and can
+      // offer to fill it. The gutter renders nothing for a hunk line either way.
+      lines.push({ type: "hunk", oldLine, newLine, text: raw });
       continue;
     }
     if (!inHunk) {
@@ -384,6 +463,64 @@ function parseUnifiedDiff(text: string): { lines: DiffLine[]; truncated: boolean
   }
 
   return { lines, truncated: false };
+}
+
+/**
+ * What the diff view can show side by side instead of the words "binary file". SVG is not
+ * here on purpose: git diffs it as the text it is, and that reads better than two pictures.
+ */
+const IMAGE_TYPES: Record<string, string> = {
+  avif: "image/avif",
+  bmp: "image/bmp",
+  gif: "image/gif",
+  ico: "image/x-icon",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp"
+};
+
+/** Both versions of an image go into the renderer as data URLs; a large one would not. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function imageType(filePath: string): string | undefined {
+  return IMAGE_TYPES[path.extname(filePath).slice(1).toLowerCase()];
+}
+
+function isImage(filePath: string): boolean {
+  return imageType(filePath) !== undefined;
+}
+
+function toDataUrl(filePath: string, content: Buffer): string | undefined {
+  return content.length > 0 && content.length <= MAX_IMAGE_BYTES
+    ? `data:${imageType(filePath)};base64,${content.toString("base64")}`
+    : undefined;
+}
+
+/**
+ * The committed and the current version of an image. Either may be missing — the file was
+ * added, or deleted — and each is simply left out then, which is what the view draws around.
+ */
+async function readImageDiff(cwd: string, filePath: string, origPath?: string): Promise<ImageDiff> {
+  const image: ImageDiff = {};
+  // Buffer encoding, not the utf8 the rest of this file runs on: text encoding would replace
+  // every byte that is not valid utf8 and leave an image nothing could decode.
+  const committed = await new Promise<Buffer>((resolve) => {
+    execFile(
+      "git",
+      ["show", `HEAD:${(origPath ?? filePath).replace(/\\/g, "/")}`],
+      { cwd, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "buffer" },
+      (error, stdout) => resolve(error ? Buffer.alloc(0) : stdout)
+    );
+  });
+  image.before = toDataUrl(origPath ?? filePath, committed);
+
+  try {
+    image.after = toDataUrl(filePath, await fs.readFile(path.join(cwd, filePath)));
+  } catch {
+    // Deleted in the working tree: there is no "after" to show.
+  }
+  return image;
 }
 
 /** An untracked file has nothing to diff against, so its content becomes an all-added diff. */
@@ -413,7 +550,7 @@ async function readUntrackedDiff(cwd: string, filePath: string): Promise<FileDif
   }
 }
 
-export interface DiffOptions {
+export interface ReadDiffOptions extends DiffOptions {
   untracked: boolean;
   /** The rename's source path — without it git diffs the new path as a wholly new file. */
   origPath?: string;
@@ -423,18 +560,22 @@ export interface DiffOptions {
  * The diff of one file against HEAD — index and worktree changes combined, which is what
  * the "Local Changes" list shows as a single entry.
  */
-export async function readDiff(cwd: string, filePath: string, options: DiffOptions): Promise<FileDiff> {
+export async function readDiff(cwd: string, filePath: string, options: ReadDiffOptions): Promise<FileDiff> {
+  const base: FileDiff = { path: filePath, lines: [], binary: false, truncated: false };
+  if (isImage(filePath)) {
+    return { ...base, binary: true, image: await readImageDiff(cwd, filePath, options.origPath) };
+  }
   if (options.untracked) {
     return readUntrackedDiff(cwd, filePath);
   }
 
   const paths = options.origPath ? [options.origPath, filePath] : [filePath];
-  const base: FileDiff = { path: filePath, lines: [], binary: false, truncated: false };
+  const flags = options.ignoreWhitespace ? ["--ignore-all-space"] : [];
   try {
-    let result = await git(cwd, ["diff", "HEAD", "--no-color", "--", ...paths]);
+    let result = await git(cwd, ["diff", "HEAD", "--no-color", ...flags, "--", ...paths]);
     if (result.code !== 0) {
       // No HEAD yet (unborn branch): compare against the index instead.
-      result = await git(cwd, ["diff", "--no-color", "--", ...paths]);
+      result = await git(cwd, ["diff", "--no-color", ...flags, "--", ...paths]);
       if (result.code !== 0) {
         return { ...base, error: (result.stderr || result.stdout).trim() };
       }
@@ -446,5 +587,24 @@ export async function readDiff(cwd: string, filePath: string, options: DiffOptio
     return { ...base, lines, truncated };
   } catch (error) {
     return { ...base, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Lines `from` to `to` of the file as it is now, 1-based and inclusive — what the diff view
+ * puts into a gap it was asked to open. Context lines are by definition the same in both
+ * versions, so the working tree is the one place they have to be read from.
+ */
+export async function readFileLines(cwd: string, filePath: string, from: number, to: number): Promise<string[]> {
+  try {
+    const content = await fs.readFile(path.join(cwd, filePath), "utf8");
+    const rows = content.split("\n");
+    if (rows.at(-1) === "") {
+      rows.pop();
+    }
+    return rows.slice(Math.max(0, from - 1), to);
+  } catch {
+    // A file that cannot be read has no context to add; the gap simply stays closed.
+    return [];
   }
 }
