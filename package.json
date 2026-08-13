@@ -1,0 +1,34 @@
+{
+  "name": "meeseex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Git workspace for coding agents",
+  "license": "MIT",
+  "main": "./dist/main.js",
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "start": "npm run compile && electron .",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "node-pty": "1.2.0-beta.14"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@xterm/addon-clipboard": "^0.2.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^43.4.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.8.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0"
+  }
+}

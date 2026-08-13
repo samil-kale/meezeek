@@ -1,0 +1,85 @@
+/*
+ * The theme layer: every color the UI uses comes from a --vscode-* custom property, the same
+ * names the VS Code plugins style against. Values below are the VS Code "Dark Modern" defaults;
+ * a theme loader can later overwrite them without touching a single component style.
+ */
+:root {
+  --vscode-font-family: "Segoe UI", system-ui, sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+
+  --vscode-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-errorForeground: #f85149;
+  --vscode-focusBorder: #0078d4;
+
+  --vscode-editor-background: #1f1f1f;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-terminal-background: #1f1f1f;
+  --vscode-terminal-foreground: #cccccc;
+
+  --vscode-sideBar-background: #181818;
+  --vscode-sideBar-foreground: #cccccc;
+  --vscode-sideBarSectionHeader-foreground: #cccccc;
+  --vscode-titleBar-activeBackground: #181818;
+
+  --vscode-panel-background: #181818;
+  --vscode-panel-border: #2b2b2b;
+
+  --vscode-tab-activeBackground: #1f1f1f;
+  --vscode-tab-activeForeground: #ffffff;
+  --vscode-tab-inactiveBackground: #181818;
+  --vscode-tab-inactiveForeground: #9d9d9d;
+  --vscode-tab-border: #2b2b2b;
+
+  --vscode-list-activeSelectionBackground: #04395e;
+  --vscode-list-activeSelectionForeground: #ffffff;
+  --vscode-list-inactiveSelectionBackground: #37373d;
+  --vscode-list-hoverBackground: #2a2d2e;
+
+  --vscode-input-background: #313131;
+  --vscode-input-foreground: #cccccc;
+  --vscode-input-border: #3c3c3c;
+  --vscode-input-placeholderForeground: #989898;
+
+  --vscode-button-background: #0078d4;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #026ec1;
+
+  --vscode-menu-background: #1f1f1f;
+  --vscode-menu-foreground: #cccccc;
+  --vscode-menu-border: #454545;
+  --vscode-menu-selectionBackground: #0078d4;
+  --vscode-menu-selectionForeground: #ffffff;
+
+  --vscode-scrollbarSlider-background: #79797966;
+  --vscode-scrollbarSlider-hoverBackground: #646464b3;
+  --vscode-scrollbarSlider-activeBackground: #bfbfbf66;
+
+  --vscode-gitDecoration-modifiedResourceForeground: #e2c08d;
+  --vscode-gitDecoration-deletedResourceForeground: #c74e39;
+  --vscode-gitDecoration-untrackedResourceForeground: #73c991;
+  --vscode-gitDecoration-addedResourceForeground: #81b88b;
+  --vscode-gitDecoration-conflictingResourceForeground: #e4676b;
+
+  --vscode-diffEditor-insertedLineBackground: #2ea04326;
+  --vscode-diffEditor-removedLineBackground: #f8514926;
+  --vscode-editorLineNumber-foreground: #6e7681;
+
+  --vscode-terminal-ansiBlack: #000000;
+  --vscode-terminal-ansiRed: #cd3131;
+  --vscode-terminal-ansiGreen: #0dbc79;
+  --vscode-terminal-ansiYellow: #e5e510;
+  --vscode-terminal-ansiBlue: #2472c8;
+  --vscode-terminal-ansiMagenta: #bc3fbc;
+  --vscode-terminal-ansiCyan: #11a8cd;
+  --vscode-terminal-ansiWhite: #e5e5e5;
+  --vscode-terminal-ansiBrightBlack: #666666;
+  --vscode-terminal-ansiBrightRed: #f14c4c;
+  --vscode-terminal-ansiBrightGreen: #23d18b;
+  --vscode-terminal-ansiBrightYellow: #f5f543;
+  --vscode-terminal-ansiBrightBlue: #3b8eea;
+  --vscode-terminal-ansiBrightMagenta: #d670d6;
+  --vscode-terminal-ansiBrightCyan: #29b8db;
+  --vscode-terminal-ansiBrightWhite: #e5e5e5;
+}
