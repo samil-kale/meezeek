@@ -69,20 +69,28 @@ export async function resolveRoot(cwd: string): Promise<string | undefined> {
   }
 }
 
-async function readHead(cwd: string): Promise<{ head: string; detached: boolean }> {
-  const current = await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  if (current.code !== 0) {
-    // Unborn branch (a fresh repository without commits): HEAD points at a ref that does
-    // not exist yet, so only symbolic-ref can name it.
-    const symbolic = await git(cwd, ["symbolic-ref", "--short", "HEAD"]);
-    return { head: symbolic.code === 0 ? symbolic.stdout.trim() : "HEAD", detached: false };
+/**
+ * What `--branch` puts in front of the status output: the current branch, and whether there
+ * is one at all. Read from there rather than from a `rev-parse` of its own, because starting
+ * git is by far the most expensive part of a refresh — one process instead of two.
+ *
+ * Only a detached HEAD still needs a second call: the header names no ref then, and a commit
+ * id is what the UI has to show instead.
+ */
+async function readHead(cwd: string, header: string): Promise<{ head: string; detached: boolean }> {
+  if (header === "HEAD (no branch)") {
+    const short = await git(cwd, ["rev-parse", "--short", "HEAD"]);
+    return { head: short.stdout.trim() || "HEAD", detached: true };
   }
-  const name = current.stdout.trim();
-  if (name !== "HEAD") {
-    return { head: name, detached: false };
+  // Unborn branch (a fresh repository without commits): HEAD points at a ref that does not
+  // exist yet, and git says so in words. The wording changed in 2.16; both are accepted.
+  const unborn = /^(?:No commits yet on|Initial commit on) (.+)$/.exec(header);
+  if (unborn) {
+    return { head: unborn[1], detached: false };
   }
-  const short = await git(cwd, ["rev-parse", "--short", "HEAD"]);
-  return { head: short.stdout.trim() || "HEAD", detached: true };
+  // "<branch>...<upstream> [ahead 1]" when it tracks one, plain "<branch>" when it does not.
+  // A branch name can hold neither "..." nor a space, so the first field is the whole name.
+  return { head: header.split("...")[0].split(" ")[0] || "HEAD", detached: false };
 }
 
 async function readBranches(cwd: string): Promise<{ localBranches: string[]; remotes: RemoteInfo[] }> {
@@ -150,7 +158,8 @@ function toChangeStatus(code: string): ChangeStatus {
   }
 }
 
-async function readChanges(cwd: string): Promise<FileChange[]> {
+/** The changed files and, from the `--branch` header, what HEAD is — in one git process. */
+async function readStatus(cwd: string): Promise<{ head: string; detached: boolean; changes: FileChange[] }> {
   // core.quotePath=false keeps non-ASCII paths readable instead of octal-escaped.
   const result = await git(cwd, [
     "-c",
@@ -158,10 +167,20 @@ async function readChanges(cwd: string): Promise<FileChange[]> {
     "status",
     "--porcelain=v1",
     "-z",
-    "--untracked-files=all"
+    "--untracked-files=all",
+    "--branch"
   ]);
 
-  const entries = result.stdout.split("\0");
+  const records = result.stdout.split("\0");
+  // The header is one record like any other, and always the first one.
+  const header = records[0]?.startsWith("## ") ? records[0].slice(3) : "";
+  return {
+    ...(await readHead(cwd, header)),
+    changes: readChanges(header ? records.slice(1) : records)
+  };
+}
+
+function readChanges(entries: string[]): FileChange[] {
   const changes: FileChange[] = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
@@ -192,11 +211,11 @@ export async function readState(cwd: string): Promise<RepositoryState> {
   };
 
   try {
-    if (!(await isRepository(cwd))) {
-      return { ...empty, error: "Not a git repository" };
-    }
-    const [head, branches, changes] = await Promise.all([readHead(cwd), readBranches(cwd), readChanges(cwd)]);
-    return { ...head, ...branches, changes };
+    // No `isRepository` check here: a folder does not stop being a repository, so Repository
+    // asks that once when it opens. On a machine where starting git is slow, dropping it took
+    // a quarter off every refresh.
+    const [status, branches] = await Promise.all([readStatus(cwd), readBranches(cwd)]);
+    return { ...status, ...branches };
   } catch (error) {
     return { ...empty, error: error instanceof Error ? error.message : String(error) };
   }

@@ -5,7 +5,8 @@
 Meeseex is a git workspace for coding agents: Electron + React + xterm.js, several
 repositories open at once, each with its own git tab and its own set of agent and shell
 terminals. `meeseex.md` holds the product idea and the deliberate scope limits — read it
-before adding anything to the git side.
+before adding anything to the git side, but read its UI sections as history (see "Where it
+came from").
 
 Git is there for navigation and control of the repository state. The actual work happens in
 the terminals, so anything git can't do in two clicks belongs in an agent or a shell, not in
@@ -48,10 +49,23 @@ invocation and its clone/status/branch/checkout/diff paths translate almost dire
 needs a small fraction of it — crib the shapes, not the scope.
 
 **VS Code** is the UI reference: tab semantics, the context menu's close actions, the theme
-variable names. `meeseex.md` names `terminals.view.png` and `local-changes-view.png` as
-binding, but the UI has since moved on by agreement — projects live in the left sidebar
-instead of as tabs along the top, and git is a permanent leftmost tab rather than a sidebar
-view. Do not "restore" the screenshots.
+variable names, the sash between two panes.
+
+`meeseex.md` still calls `terminals.view.png` and `local-changes-view.png` a binding visual
+reference ("Verbindliche UI-Referenz", and again under "Zielbild"). Both files are gone — the
+user deleted them because the tool no longer looks like them. Read those sections as history:
+where they and the running app disagree, the app is right. What changed, and stayed changed
+by agreement:
+
+- projects live in the left sidebar, not as tabs along the top; the tab strip is one project's
+  terminals only
+- git is a permanent, unclosable, leftmost tab of that strip, not a sidebar view — branches,
+  changed files and the diff are all inside it
+- the branch bar is the window's bottom strip
+- the panes between all of that are draggable (`src/renderer/components/Sash.tsx`)
+
+Do not restore the screenshots, and do not rebuild the layout from `meeseex.md`'s ASCII
+diagrams. Its scope limits, on the other hand, still hold.
 
 Further references, none of them adopted yet: **Monaco** for a richer diff view, **Octokit**
 and **GitBeaker** for the GitHub and GitLab providers.
@@ -64,9 +78,9 @@ not be started. Never run git from the renderer.
 
 `Repository` (`src/main/repository.ts`) is the single source of truth both the git tab and the
 terminals observe, so a branch an agent switches in a terminal shows up in the UI on its own.
-It watches the working directory, debounces the burst, and only emits when the state actually
-changed — the watcher fires for plenty of edits that leave it identical, and every emit
-re-renders. Diffs are loaded when a file is selected, never up front.
+It watches the working directory, debounces and throttles the burst (see below), and only emits
+when the state actually changed — the watcher fires for plenty of edits that leave it
+identical, and every emit re-renders. Diffs are loaded when a file is selected, never up front.
 
 Working today: local branches, remotes, checkout, status, per-file diff (including a
 synthesised one for untracked files). Still missing, roughly in order: clone, then GitHub and
@@ -76,6 +90,37 @@ repository is cloned, everything goes back through the CLI.
 
 Out of scope on purpose: commit UI, history, graph, interactive rebase, cherry-pick, stash,
 tags, bisect, submodules, merge UI. Those go through an agent or a shell.
+
+### git shares a process with everyone's keystrokes
+
+The same main process reads git and writes to the ptys, so every git process a refresh starts
+is time a keystroke on its way to a terminal waits for. This is not theoretical: it made typing
+in an agent's terminal visibly lag, and the event loop lost 7–11 seconds *per minute*.
+
+Two things were wrong, and both are worth not reintroducing. `Repository.refresh` re-ran
+immediately when events had arrived while it was running, which bypassed the debounce and
+turned a busy working tree into an unbroken chain of git processes; the pending path now goes
+back through `scheduleRefresh`, which also keeps a minimum interval between two finished
+refreshes. And `readState` spawned four git processes where two do: a folder does not stop
+being a repository (checked once in `start()`), and `git status --branch` reports the current
+branch along with the changes. Only a detached HEAD still needs a third call.
+
+Starting git is what costs, not the work: on the machine this was measured on — process
+creation instrumented by security software — `git rev-parse` in a 58-file repository took
+350ms. So the thing to count in this layer is *invocations*, not what each one does. Anything
+added to the refresh path should earn its process.
+
+When the git half grows a long-running command — clone, fetch, push — that argument runs out,
+and git moves into a `utilityProcess` of its own. VS Code has it in the extension host and its
+terminals in a pty host, which is why the problem cannot arise there at all. Move git rather
+than the terminals: git is the unpredictable half (seconds to minutes, output of unknown size),
+while relaying pty output is small and constant per chunk and is the part that has to stay
+responsive. The cut is cheap as long as it happens first — `git.ts` and `repository.ts` are the
+only places that touch git, and everything they expose is already asynchronous.
+
+`src/main/event-loop-monitor.ts` is what measured all of this and is still wired up: it samples
+the loop and writes stalls to `event-loop.log` in the app's `userData`, with a tally of what
+ran. It stays silent while nothing blocks.
 
 ## Agent-specific vs shared code
 

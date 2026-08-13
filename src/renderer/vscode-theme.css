@@ -57,6 +57,13 @@
 
   --vscode-progressBar-background: #0078d4;
 
+  --vscode-notifications-background: #1f1f1f;
+  --vscode-notifications-foreground: #cccccc;
+  --vscode-notifications-border: #2b2b2b;
+  --vscode-notificationsErrorIcon-foreground: #f85149;
+  --vscode-notificationsWarningIcon-foreground: #cca700;
+  --vscode-notificationsInfoIcon-foreground: #3794ff;
+
   --vscode-scrollbarSlider-background: #79797966;
   --vscode-scrollbarSlider-hoverBackground: #646464b3;
   --vscode-scrollbarSlider-activeBackground: #bfbfbf66;

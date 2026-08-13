@@ -71,6 +71,17 @@ export interface SpawnPreparation {
   args: string[];
   env?: Record<string, string>;
   dispose(): void;
+  /**
+   * Whether this may be disposed again while the project has no session and no open tab of
+   * this agent, and prepared afresh once it does. Set it when the preparation holds something
+   * that costs while it sits idle — opencode's is a server process per repository, started
+   * only so its sessions could be listed. A preparation that is just a generated file is
+   * cheaper to keep than to redo, and leaves this unset.
+   *
+   * Whatever the agent's `watch` holds goes with it, since it may well be a subscription on
+   * the very thing being disposed.
+   */
+  releaseWhenIdle?: boolean;
 }
 
 /**

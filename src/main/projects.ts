@@ -43,6 +43,21 @@ export class ProjectStore {
     this.save();
   }
 
+  /**
+   * Puts the projects in the given order. Ids the store doesn't know are dropped and projects
+   * the caller left out keep their place at the end: the renderer sends the list it had on
+   * screen, which can be a moment behind one added or closed elsewhere.
+   */
+  reorder(projectIds: string[]): void {
+    const known = new Map(this.projects.map((project) => [project.id, project]));
+    const ordered = projectIds
+      .map((projectId) => known.get(projectId))
+      .filter((project): project is Project => project !== undefined);
+    const seen = new Set(ordered.map((project) => project.id));
+    this.projects = [...ordered, ...this.projects.filter((project) => !seen.has(project.id))];
+    this.save();
+  }
+
   private load(): void {
     try {
       const raw = fs.readFileSync(this.file, "utf8");

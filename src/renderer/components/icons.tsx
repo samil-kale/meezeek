@@ -1,3 +1,5 @@
+import type { NoticeSeverity } from "../../shared/types";
+
 interface IconProps {
   className?: string;
 }
@@ -34,6 +36,22 @@ export function CloseIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
+    </Svg>
+  );
+}
+
+/**
+ * The three shapes VS Code uses for a notification: a cross for an error, an exclamation for a
+ * warning, an "i" for information — each in the circle they share, so a glance at the outline
+ * alone does not have to carry the meaning that the color does.
+ */
+export function SeverityIcon({ severity, ...props }: IconProps & { severity: NoticeSeverity }) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="6" />
+      {severity === "error" && <path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" />}
+      {severity === "warning" && <path d="M8 4.6v4.2M8 11.1v.4" />}
+      {severity === "info" && <path d="M8 7.4v4M8 4.9v.4" />}
     </Svg>
   );
 }

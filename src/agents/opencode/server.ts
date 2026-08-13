@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as crypto from "node:crypto";
+import { countActivity } from "../../main/event-loop-monitor";
 import { resolveCommand } from "../../main/pty";
 import type { AgentPaths, SpawnPreparation } from "../agent";
 import { NOTIFICATIONS } from "../notifications";
@@ -114,6 +115,7 @@ export class OpencodeServer {
           while ((boundary = buffer.indexOf("\n\n")) >= 0) {
             const frame = buffer.slice(0, boundary);
             buffer = buffer.slice(boundary + 2);
+            countActivity("sse");
             const data = frame.split("\n").find((line) => line.startsWith("data: "));
             const type = data === undefined ? undefined : eventType(data.slice("data: ".length));
             if (type !== undefined) {
@@ -214,6 +216,9 @@ export async function prepareOpencodeSpawn(
   );
   return {
     args: ["attach", server.url, "--dir", cwd],
+    // A whole process per repository, started for the session listing alone — not worth
+    // keeping up for a project whose opencode is never used.
+    releaseWhenIdle: true,
     // attach reads the password from the environment; passing it as --password would put
     // the secret in the process command line, where any local process can read it.
     env: { OPENCODE_SERVER_PASSWORD: server.password },

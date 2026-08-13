@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CheckoutTarget, Project, RepositoryState } from "../shared/types";
+import { Notices, useNotices } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
 import { Sash, usePaneSize } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
@@ -17,7 +18,9 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RepositoryState>>({});
-  const [error, setError] = useState<string | null>(null);
+  const { notices, notify, dismiss } = useNotices();
+  /** The checkout in flight, if any — a switch can take seconds on a large repository. */
+  const [switching, setSwitching] = useState<{ projectId: string; name: string } | null>(null);
   // Defaults and limits of the draggable panes. Every project's git tab shares the two below,
   // so they are held here rather than in each of them.
   const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240);
@@ -43,7 +46,7 @@ export function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => window.meeseex.onNotice(({ message }) => setError(message)), []);
+  useEffect(() => window.meeseex.onNotice(({ severity, message }) => notify(severity, message)), [notify]);
 
   const addProject = useCallback(async () => {
     const project = await window.meeseex.projects.add();
@@ -64,10 +67,24 @@ export function App() {
     [projects]
   );
 
-  const checkout = useCallback(async (projectId: string, target: CheckoutTarget) => {
-    const result = await window.meeseex.repository.checkout(projectId, target);
-    setError(result.ok ? null : (result.error ?? "Checkout failed"));
+  const reorderProjects = useCallback((ordered: Project[]) => {
+    setProjects(ordered);
+    void window.meeseex.projects.reorder(ordered.map((project) => project.id));
   }, []);
+
+  const checkout = useCallback(async (projectId: string, target: CheckoutTarget) => {
+    // Which project is switching, not just that one is: the bar shows the active project, and
+    // that may not be the one still working when the user moves on.
+    setSwitching({ projectId, name: target.name });
+    try {
+      const result = await window.meeseex.repository.checkout(projectId, target);
+      if (!result.ok) {
+        notify("error", result.error ?? "Checkout failed");
+      }
+    } finally {
+      setSwitching(null);
+    }
+  }, [notify]);
 
   const refresh = useCallback(() => {
     if (activeProjectId) {
@@ -75,6 +92,7 @@ export function App() {
     }
   }, [activeProjectId]);
 
+  const switchingTo = switching !== null && switching.projectId === activeProjectId ? switching.name : null;
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_STATE;
 
@@ -93,6 +111,7 @@ export function App() {
           width={sidebarWidth}
           onSelect={setActiveProjectId}
           onClose={(projectId) => void closeProject(projectId)}
+          onReorder={reorderProjects}
           onAdd={() => void addProject()}
         />
         <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
@@ -127,18 +146,21 @@ export function App() {
         </main>
       </div>
 
-      {error && (
-        <button className="banner" onClick={() => setError(null)} title="Dismiss">
-          {error}
-        </button>
-      )}
+      <Notices notices={notices} onDismiss={dismiss} />
 
       <div className="branch-bar">
+        {switchingTo !== null && (
+          <div className="tab-progress">
+            <div className="tab-progress-bit" />
+          </div>
+        )}
         {activeProject && activeState.error && <span className="branch-error">{activeState.error}</span>}
         {activeProject && !activeState.error && (
           <>
             <BranchIcon />
-            <span className="branch-name">{activeState.head || "..."}</span>
+            <span className={`branch-name${switchingTo === null ? "" : " switching"}`}>
+              {switchingTo === null ? activeState.head || "..." : `Switching to ${switchingTo}...`}
+            </span>
             <button className="icon-button" title="Refresh repository" onClick={refresh}>
               <RefreshIcon />
             </button>

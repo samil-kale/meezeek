@@ -15,6 +15,7 @@ import type {
 } from "../shared/types";
 import { resolveRoot } from "./git";
 import { ProjectStore } from "./projects";
+import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
 import { RepositoryManager } from "./repository";
 import { SessionManagerRegistry } from "./session-manager";
 
@@ -41,6 +42,7 @@ function flushOutput(): void {
 }
 
 function queueOutput(projectId: string, tabId: string, data: string): void {
+  countActivity("output");
   const key = `${projectId}\u0000${tabId}`;
   const pending = pendingOutput.get(key);
   if (pending) {
@@ -58,7 +60,7 @@ const sessions = new SessionManagerRegistry(app.getPath("userData"), {
   onOutput: queueOutput,
   onStatus: (projectId, tabId, status: TerminalStatus) => send("terminal:status", { projectId, tabId, status }),
   onStartupProgress: (projectId, show) => send("terminal:startup-progress", { projectId, show }),
-  onNotice: (message) => send("app:notice", { message })
+  onNotice: (severity, message) => send("app:notice", { severity, message })
 });
 
 const MISSING_REPOSITORY: RepositoryState = {
@@ -100,6 +102,8 @@ function registerIpc(): void {
     openProject(project);
     return project;
   });
+
+  ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));
 
   ipcMain.handle("projects:remove", (_event, projectId: string): void => {
     sessions.close(projectId);
@@ -152,6 +156,7 @@ function registerIpc(): void {
   });
 
   ipcMain.on("terminal:input", (_event, projectId: string, tabId: string, data: string) => {
+    countActivity("input");
     sessions.get(projectId)?.write(tabId, data);
   });
 
@@ -173,7 +178,7 @@ function registerIpc(): void {
     try {
       await shell.openExternal(url);
     } catch (error) {
-      send("app:notice", { message: `Could not open URL: ${url} (${String(error)})` });
+      send("app:notice", { severity: "error", message: `Could not open URL: ${url} (${String(error)})` });
     }
   });
 
@@ -194,7 +199,7 @@ function registerIpc(): void {
     const root = repository.project.path;
     const resolved = path.isAbsolute(expanded) ? expanded : path.join(root, expanded);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
-      send("app:notice", { message: `Could not find file: ${rawPath}` });
+      send("app:notice", { severity: "error", message: `Could not find file: ${rawPath}` });
       return null;
     }
     // git reports every path relative to the root with forward slashes, so match in that shape.
@@ -204,7 +209,7 @@ function registerIpc(): void {
     }
     const error = await shell.openPath(resolved);
     if (error) {
-      send("app:notice", { message: `Could not open file: ${rawPath} (${error})` });
+      send("app:notice", { severity: "error", message: `Could not open file: ${rawPath} (${error})` });
     }
     return null;
   });
@@ -260,6 +265,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  startEventLoopMonitor(path.join(app.getPath("userData"), "event-loop.log"));
   registerIpc();
   for (const project of store.list()) {
     openProject(project);

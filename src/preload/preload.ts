@@ -11,7 +11,8 @@ const api: MeeseexApi = {
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     add: () => ipcRenderer.invoke("projects:add"),
-    remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId)
+    remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId),
+    reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds)
   },
   repository: {
     state: (projectId) => ipcRenderer.invoke("repo:state", projectId),

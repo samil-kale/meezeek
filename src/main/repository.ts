@@ -6,10 +6,18 @@ import type {
   Project,
   RepositoryState
 } from "../shared/types";
-import { checkout, readDiff, readState } from "./git";
+import { countActivity } from "./event-loop-monitor";
+import { checkout, isRepository, readDiff, readState } from "./git";
 
 /** Filesystem events arrive in bursts (a build, a checkout, an agent editing files). */
 const REFRESH_DEBOUNCE_MS = 250;
+/**
+ * Least time between two finished refreshes. A working tree under continuous change would
+ * otherwise keep one running back to back, and every git process a refresh starts is
+ * main-process time that a keystroke on its way to a terminal waits for. Measured on a
+ * machine with instrumented process creation: ~350ms per git start, two per refresh.
+ */
+const REFRESH_MIN_INTERVAL_MS = 2000;
 
 const LOADING_STATE: RepositoryState = {
   head: "",
@@ -29,6 +37,10 @@ function isIgnoredEvent(relativePath: string): boolean {
     normalized.endsWith(".lock") ||
     normalized.startsWith(".git/objects/") ||
     normalized.startsWith(".git/logs/") ||
+    // Bookkeeping git rewrites on nearly every command without any of it showing up in the
+    // status or the branch list. `.git/index` is deliberately not here: staging a file
+    // changes nothing else, and the status letters would otherwise go stale.
+    /^\.git\/(COMMIT_EDITMSG|ORIG_HEAD|FETCH_HEAD|MERGE_MSG|rebase-)/.test(normalized) ||
     normalized.includes("node_modules/")
   );
 }
@@ -44,6 +56,9 @@ export class Repository {
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshing = false;
   private refreshPending = false;
+  private lastRefreshAt = 0;
+  /** Checked once when the project opens; without it there is nothing to read or watch. */
+  private isGit = false;
 
   constructor(
     readonly project: Project,
@@ -55,16 +70,26 @@ export class Repository {
   }
 
   async start(): Promise<void> {
+    this.isGit = await isRepository(this.project.path);
+    if (!this.isGit) {
+      this.state = { ...LOADING_STATE, error: "Not a git repository" };
+      this.onState(this.state);
+      return;
+    }
     await this.refresh();
     this.startWatching();
   }
 
   async refresh(): Promise<RepositoryState> {
+    if (!this.isGit) {
+      return this.state;
+    }
     if (this.refreshing) {
       this.refreshPending = true;
       return this.state;
     }
     this.refreshing = true;
+    countActivity("git");
     try {
       const next = await readState(this.project.path);
       // Only emit on an actual change: the watcher fires for plenty of edits that leave
@@ -76,11 +101,25 @@ export class Repository {
       return next;
     } finally {
       this.refreshing = false;
+      this.lastRefreshAt = Date.now();
       if (this.refreshPending) {
         this.refreshPending = false;
-        void this.refresh();
+        // Back through the schedule rather than straight into another run: under continuous
+        // change this was an unbroken chain of git processes, with the debounce bypassed.
+        this.scheduleRefresh();
       }
     }
+  }
+
+  /**
+   * Refreshes once the events have settled, and never sooner than REFRESH_MIN_INTERVAL_MS
+   * after the last one finished. Only the watcher goes through here — a refresh the user
+   * asked for runs at once.
+   */
+  private scheduleRefresh(): void {
+    clearTimeout(this.debounceTimer);
+    const delay = Math.max(REFRESH_DEBOUNCE_MS, this.lastRefreshAt + REFRESH_MIN_INTERVAL_MS - Date.now());
+    this.debounceTimer = setTimeout(() => void this.refresh(), delay);
   }
 
   async checkout(target: CheckoutTarget): Promise<CheckoutResult> {
@@ -103,8 +142,7 @@ export class Repository {
         if (filename && isIgnoredEvent(filename.toString())) {
           return;
         }
-        clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(() => void this.refresh(), REFRESH_DEBOUNCE_MS);
+        this.scheduleRefresh();
       });
       this.watcher.on("error", (error) => {
         console.error(`[meeseex] watcher failed for ${this.project.path}:`, error);

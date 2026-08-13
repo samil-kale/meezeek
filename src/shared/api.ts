@@ -4,6 +4,7 @@ import type {
   CheckoutResult,
   CheckoutTarget,
   FileDiff,
+  Notice,
   Project,
   RepositoryState,
   TerminalDescriptor,
@@ -19,6 +20,8 @@ export interface MeeseexApi {
     /** Opens a folder picker; resolves null when the dialog was cancelled. */
     add(): Promise<Project | null>;
     remove(projectId: string): Promise<void>;
+    /** Persists the order the user dragged them into, as the full list of ids. */
+    reorder(projectIds: string[]): Promise<void>;
   };
   repository: {
     state(projectId: string): Promise<RepositoryState>;
@@ -81,5 +84,6 @@ export interface MeeseexApi {
     openFile(projectId: string, path: string): Promise<string | null>;
   };
   /** Failures the user should see (a session that could not be renamed or deleted). */
-  onNotice(listener: (payload: { message: string }) => void): Unsubscribe;
+  /** Anything transient the main process wants said — see Notice. */
+  onNotice(listener: (payload: Notice) => void): Unsubscribe;
 }

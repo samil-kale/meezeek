@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENTS, getAgent } from "../agents";
 import type { AgentDefinition, AgentPaths, SpawnPreparation } from "../agents/agent";
-import type { AgentId, Project, TerminalDescriptor, TerminalStatus } from "../shared/types";
+import type { AgentId, NoticeSeverity, Project, TerminalDescriptor, TerminalStatus } from "../shared/types";
+import { countActivity } from "./event-loop-monitor";
 import { ShellContext } from "./shell-context";
 import { checkAgentInstalled, TerminalSession } from "./terminal-session";
 
@@ -48,6 +49,10 @@ interface AgentRuntime {
   ready: Promise<void>;
   preparation?: SpawnPreparation;
   prepareFailed: boolean;
+  /** One setup at a time: two tabs opened at once must not bring up two opencode servers. */
+  preparing?: Promise<boolean>;
+  /** Its setup and watcher are let go because nothing in this project is using them. */
+  released: boolean;
   stopWatching?: () => void;
   reconciling?: Promise<void>;
   reconcileTimer?: ReturnType<typeof setTimeout>;
@@ -63,7 +68,7 @@ export interface SessionManagerCallbacks {
   /** Whether anything in this project is still starting up — drives the tab strip's bar. */
   onStartupProgress: (projectId: string, show: boolean) => void;
   /** Surfaces a failure the user should see (a session that could not be renamed or deleted). */
-  onNotice: (message: string) => void;
+  onNotice: (severity: NoticeSeverity, message: string) => void;
 }
 
 /** Nothing about this tab's label is settled yet: no session claimed, no title, or only a
@@ -177,6 +182,7 @@ export class ProjectSessionManager {
       installed: agent.versionArgs === undefined,
       ready: Promise.resolve(),
       prepareFailed: false,
+      released: false,
       reconcileRetriesLeft: 0
     };
     this.runtimes.set(agentId, runtime);
@@ -202,19 +208,8 @@ export class ProjectSessionManager {
 
     // Before anything that could lead to a spawn: opencode's listing already needs the
     // server this brings up, and the terminal's own arguments come out of it too.
-    if (agent.prepareSpawn) {
-      try {
-        runtime.preparation = await agent.prepareSpawn(executable, cwd, this.pathsFor(agent.id));
-      } catch (error) {
-        // No silent fallback: an agent that asks for preparation can't be run without it in
-        // any meaningful way (opencode would start a second instance that shares only the
-        // database — no events, renames invisible to it). Better to say so and start
-        // nothing than to hand over a terminal that quietly misbehaves.
-        console.error("[meeseex] spawn preparation failed:", error);
-        this.callbacks.onNotice(`${agent.displayName} could not be started: ${String(error)}`);
-        runtime.prepareFailed = true;
-        return;
-      }
+    if (!(await this.prepare(runtime))) {
+      return;
     }
 
     const infos = await agent.sessions.list(executable, cwd);
@@ -235,9 +230,83 @@ export class ProjectSessionManager {
       this.postTabs();
     }
     // Started after the initial listing so its first event can't race the bootstrap.
-    runtime.stopWatching = agent.sessions.watch?.(executable, cwd, () =>
+    this.startWatching(runtime);
+    // Nothing was found and nothing has been opened while we were listing, so whatever the
+    // setup is holding is serving no one.
+    if (infos.length === 0) {
+      this.releaseIdleRuntime(runtime);
+    }
+  }
+
+  /**
+   * Runs the agent's setup, at most one at a time. False means it failed and the agent must
+   * not be started at all — an agent that asks for preparation can't be run without it in any
+   * meaningful way (opencode would start a second instance that shares only the database — no
+   * events, renames invisible to it). Better to say so and start nothing than to hand over a
+   * terminal that quietly misbehaves.
+   */
+  private prepare(runtime: AgentRuntime): Promise<boolean> {
+    runtime.preparing ??= this.doPrepare(runtime).finally(() => {
+      runtime.preparing = undefined;
+    });
+    return runtime.preparing;
+  }
+
+  private async doPrepare(runtime: AgentRuntime): Promise<boolean> {
+    const { agent, executable } = runtime;
+    if (!agent.prepareSpawn || runtime.preparation) {
+      return !runtime.prepareFailed;
+    }
+    try {
+      runtime.preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(agent.id));
+      return true;
+    } catch (error) {
+      console.error("[meeseex] spawn preparation failed:", error);
+      this.callbacks.onNotice("error", `${agent.displayName} could not be started: ${String(error)}`);
+      runtime.prepareFailed = true;
+      return false;
+    }
+  }
+
+  private startWatching(runtime: AgentRuntime): void {
+    if (runtime.stopWatching) {
+      return;
+    }
+    runtime.stopWatching = runtime.agent.sessions?.watch?.(runtime.executable, this.project.path, () =>
       this.scheduleReconcile(runtime, WATCH_DEBOUNCE_MS)
     );
+  }
+
+  /**
+   * Lets go of what this agent keeps running for a project that has no session and no tab of
+   * it — but only if its own preparation says that is allowed (see releaseWhenIdle). The
+   * watcher goes too: for opencode it is a subscription on the very server being stopped and
+   * would bring it straight back up. ensurePrepared restores both.
+   */
+  private releaseIdleRuntime(runtime: AgentRuntime): void {
+    if (!runtime.preparation?.releaseWhenIdle || this.tabsOf(runtime).length > 0) {
+      return;
+    }
+    runtime.stopWatching?.();
+    runtime.stopWatching = undefined;
+    runtime.preparation.dispose();
+    runtime.preparation = undefined;
+    runtime.released = true;
+  }
+
+  /**
+   * The agent's setup, brought back if it was released. Everything that spawns waits on this:
+   * without the preparation the CLI would be started with the wrong arguments entirely.
+   */
+  private async ensurePrepared(runtime: AgentRuntime): Promise<void> {
+    await runtime.ready;
+    if (!runtime.released) {
+      return;
+    }
+    if (await this.prepare(runtime)) {
+      runtime.released = false;
+      this.startWatching(runtime);
+    }
   }
 
   createTab(agentId: AgentId): TerminalDescriptor {
@@ -272,14 +341,19 @@ export class ProjectSessionManager {
     if (pending) {
       return;
     }
-    void this.runtimeFor(tab.agentId).ready.then(() => {
-      const dims = this.starting.get(tabId);
-      this.starting.delete(tabId);
-      if (!dims || !this.tabs.includes(tab) || this.sessions.has(tabId)) {
-        return;
-      }
-      this.startSession(tab).ensureStarted(dims.cols, dims.rows);
-    });
+    // Bringing a released setup back can mean starting opencode's server, which takes
+    // seconds — the bar under the tab strip is what says so.
+    this.acquireIndicator();
+    void this.ensurePrepared(this.runtimeFor(tab.agentId))
+      .finally(() => this.releaseIndicator())
+      .then(() => {
+        const dims = this.starting.get(tabId);
+        this.starting.delete(tabId);
+        if (!dims || !this.tabs.includes(tab) || this.sessions.has(tabId)) {
+          return;
+        }
+        this.startSession(tab).ensureStarted(dims.cols, dims.rows);
+      });
   }
 
   private startSession(tab: TabState): TerminalSession {
@@ -389,6 +463,11 @@ export class ProjectSessionManager {
     for (const tab of tabs) {
       await this.destroyTab(tab, indices.get(tab.tabId) ?? this.tabs.length);
     }
+    // Closing a tab deleted its session too, so this may have been the last thing keeping the
+    // agent's setup up — the same state the project was in when it had nothing to show.
+    for (const runtime of this.runtimes.values()) {
+      this.releaseIdleRuntime(runtime);
+    }
   }
 
   /**
@@ -428,7 +507,7 @@ export class ProjectSessionManager {
       }
       await agent.sessions.remove(executable, this.project.path, sessionId);
     } catch (error) {
-      this.callbacks.onNotice(`Could not delete ${agent.displayName} session: ${String(error)}`);
+      this.callbacks.onNotice("error", `Could not delete ${agent.displayName} session: ${String(error)}`);
       // The persisted session still exists — put its tab back.
       tab.status = "ready";
       this.tabs.splice(Math.min(index, this.tabs.length), 0, tab);
@@ -459,7 +538,7 @@ export class ProjectSessionManager {
       // A name the user picked is final — nothing left for the polling below to wait for.
       tab.provisionalTitle = false;
     } catch (error) {
-      this.callbacks.onNotice(`Could not rename ${agent.displayName} session: ${String(error)}`);
+      this.callbacks.onNotice("error", `Could not rename ${agent.displayName} session: ${String(error)}`);
       tab.title = previousTitle;
     }
     this.postTabs();
@@ -510,8 +589,10 @@ export class ProjectSessionManager {
   }
 
   private async doReconcile(runtime: AgentRuntime): Promise<void> {
+    countActivity("reconcile");
     const { agent, executable } = runtime;
-    if (!agent.sessions || !this.canStart(runtime)) {
+    // A released runtime has nothing to reconcile, and listing would start its server back up.
+    if (runtime.released || !agent.sessions || !this.canStart(runtime)) {
       return;
     }
     const infos = await agent.sessions.list(executable, this.project.path);

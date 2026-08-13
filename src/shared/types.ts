@@ -42,6 +42,23 @@ export interface RepositoryState {
   error?: string;
 }
 
+/**
+ * How loudly a notice asks to be read. Only "info" goes away on its own; the other two wait
+ * to be dismissed, because nobody should have to catch a failure as it passes by.
+ */
+export type NoticeSeverity = "error" | "warning" | "info";
+
+/**
+ * Something that happened and that the user should hear about — a checkout that failed, a
+ * session that could not be renamed. Not for a condition that persists: that a folder is no
+ * repository, or that a diff could not be read, describes the state of a view and belongs in
+ * that view, where it stays visible for as long as it is true.
+ */
+export interface Notice {
+  severity: NoticeSeverity;
+  message: string;
+}
+
 export type DiffLineType = "context" | "add" | "del" | "hunk";
 
 export interface DiffLine {
