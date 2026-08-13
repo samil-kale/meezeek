@@ -67,9 +67,12 @@ by agreement:
   marks it, `TerminalsPane` filters it out of the strip, and `GitView` mounts it. Which agent
   was picked is remembered on the `Project` in meeseek's own store, not in the repository's
   `meeseek.json`: it is how one person likes to work in one checkout, and a file rewritten on
-  every dropdown would show up as a local change each time. The flag that marks the tab as the
-  console is not persisted at all, so after a restart the git tab opens a fresh one and a
-  session that ran in there comes back as an ordinary tab
+  every dropdown would show up as a local change each time. So is the session it is running
+  (`consoleSessionId`, reported by the session manager once its CLI has persisted one), and
+  that is what puts it back into the console on the next start instead of into the strip — the
+  console is a place, not a session. Deleting the session on the way out was the first answer
+  to that and is wrong: the work in it is the user's, and a display problem is no reason to
+  throw it away
 - git is a permanent, unclosable, leftmost tab of that strip, not a sidebar view — branches,
   changed files and the diff are all inside it
 - the branch bar is the window's bottom strip
@@ -237,8 +240,15 @@ repository's own root (`src/main/actions.ts`), not in meeseek's `userData`: they
 project, so they travel with it and can be committed like anything else. That also means the
 file shows up as an untracked change in the git tab until someone commits or ignores it.
 
-Running one starts it with the same shell the project's shell tabs use, in the project's
-directory, and says nothing until it is over — the notice at the end carries the exit code and,
+An action is a command and, where it does not belong in the repository root, the folder it
+runs in. In the file it is a plain string while the root is enough and an object once it is
+not (`{"command": "npm run build", "cwd": "web"}`), so the common case stays one readable line
+and a file written before this existed is still valid. The command is then the one you would
+type standing in that folder — `npm run build`, not `npm run build --prefix web`, which is a
+flag only some tools have and which reads like part of the command when it is not.
+
+Running one starts it with the same shell the project's shell tabs use, in its own directory,
+and says nothing until it is over — the notice at the end carries the exit code and,
 when it failed, the first 600 characters of its output. Nothing is streamed: an action is
 something you set going and hear back about, and anything worth watching belongs in a terminal.
 `-NoProfile` on win32 and a plain `-c` elsewhere, so a saved command does the same thing on
@@ -247,6 +257,12 @@ every machine instead of depending on what is in someone's profile.
 Reading a `meeseek.json` that is missing, unparseable or shaped differently is simply no
 actions. It is a file in the user's repository; half of it being someone else's is not a reason
 to throw.
+
+One `ActionList` serves every project, so anything it starts has to name the project it was
+started for: the wand can run for minutes, and its answer belongs to the project it asked
+about, not to whichever one is on screen when it comes back. The running commands and the
+projects being looked up are therefore keyed by project, and the result is only put on screen
+when that project is still the one shown.
 
 A project with no `meeseek.json` **at all** has its commands looked up straight away, without
 being asked — nobody has set it up here, and that is the one moment where guessing is worth the
@@ -265,10 +281,15 @@ The wand beside the `+` fills the list by asking an agent. It takes the first in
 with an `askArgs` (claude, then opencode) and puts `SUGGEST_PROMPT` to it — deliberately
 concrete about where commands hide, because a model told only "find the commands" answers with
 what it would type in a generic project of that kind rather than with what this one declares.
+It also asks for the *start* command, which is the one nobody writes down: a main method or a
+binary target is a runnable program, and the project's own tooling knows how to run it even
+though no script says so.
 The reply is expected to be a JSON array and is read as the first bracketed run in it, since
 "answer with nothing but" still tends to arrive in a fenced block. There is no cap on how many
-come back — a project that declares thirty commands has thirty, and `mergeActions` is what
-keeps the list readable by grouping them. What comes back is added
+come back, but the prompt does ask for a judgement: the commands a developer types, not the
+lifecycle hooks and CI-only scripts a `package.json` is half full of. Which of the two the
+prompt asks for has to stay unambiguous — it said "prefer what is run by hand" and "list all
+of them" at once for a while, and a model handed both picks one. What comes back is added
 without a review step: a wrong entry is one right-click away from being deleted, and a dialog
 listing twelve checkboxes would cost more than it saves.
 

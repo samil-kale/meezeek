@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type { ProjectAction } from "../shared/types";
 import { resolveCommand } from "./pty";
 
 /**
@@ -10,9 +11,15 @@ import { resolveCommand } from "./pty";
  */
 const FILE = "meeseek.json";
 
-/** What that file holds. Anything added later joins it rather than replacing it. */
+/**
+ * What that file holds. An action is written as a plain string while it runs in the project
+ * root, and as an object once it needs a directory of its own — so the common case stays a
+ * one-line entry a person can read, and an older file full of strings is still a valid one.
+ */
+type StoredAction = string | { command?: unknown; cwd?: unknown };
+
 interface ProjectFile {
-  actions?: string[];
+  actions?: StoredAction[];
 }
 
 /** How many characters of a command's or an agent's output a notice is worth. */
@@ -51,16 +58,31 @@ async function patch(root: string, changes: Partial<ProjectFile>): Promise<void>
   await fs.writeFile(file(root), `${JSON.stringify({ ...content, ...changes }, undefined, 2)}\n`, "utf8");
 }
 
-export async function readActions(root: string): Promise<string[] | null> {
+/** Both spellings in, one shape out; anything that is neither is dropped. */
+function toAction(entry: StoredAction): ProjectAction | undefined {
+  if (typeof entry === "string") {
+    return entry.trim() ? { command: entry } : undefined;
+  }
+  if (typeof entry?.command !== "string" || !entry.command.trim()) {
+    return undefined;
+  }
+  return typeof entry.cwd === "string" && entry.cwd.trim() ? { command: entry.command, cwd: entry.cwd } : { command: entry.command };
+}
+
+export async function readActions(root: string): Promise<ProjectAction[] | null> {
   const content = await read(root);
   if (content === null) {
     return null;
   }
-  return Array.isArray(content.actions) ? content.actions.filter((entry) => typeof entry === "string") : [];
+  if (!Array.isArray(content.actions)) {
+    return [];
+  }
+  return content.actions.map(toAction).filter((action): action is ProjectAction => action !== undefined);
 }
 
-export function writeActions(root: string, actions: string[]): Promise<void> {
-  return patch(root, { actions });
+export function writeActions(root: string, actions: ProjectAction[]): Promise<void> {
+  // Back to the short form wherever there is nothing else to say about the command.
+  return patch(root, { actions: actions.map((action) => (action.cwd ? action : action.command)) });
 }
 
 
@@ -76,11 +98,35 @@ const SUGGEST_PROMPT = [
   "whatever this project declares. Prefer the ones a developer runs by hand: build, test, lint,",
   "start, deploy.",
   "",
-  "List all of them — a project that declares thirty is a project with thirty.",
+  "Include how the project is *started*, even where nobody wrote that command down. A class",
+  "with a main method, a `func main`, a `__main__.py`, a binary target — each of those is a",
+  "runnable program, and the project's own tooling already knows how to run it:",
+  '  mvn compile exec:java -Dexec.mainClass=com.example.Application',
+  "  cargo run --bin server",
+  "  go run ./cmd/api",
+  "  dotnet run --project src/App",
+  "  python -m package",
+  "Those are examples, not the list — whatever this project is written in, if it has something",
+  "to start, name the command that starts it.",
+  "Where the project depends on a framework with a runner of its own, that one wins:",
+  "spring-boot:run rather than exec:java, quarkus:dev rather than a plain main.",
+  "Launch configurations count as well (.vscode/launch.json, .idea/runConfigurations,",
+  "nbactions.xml): give the shell command that does what they do, not the IDE's own wrapper.",
   "",
-  "Answer with nothing but a JSON array of shell command strings, the ones that use the same",
-  "tool next to each other.",
-  'Example: ["npm run build", "npm test", "mvn verify"]'
+  "Leave out what nobody types: lifecycle hooks (prepare, postinstall), scripts that only exist",
+  "for another script or for CI to call, and the internal steps of a build. If a project really",
+  "does offer twenty commands worth running by hand, name all twenty — the number is not the",
+  "point, being able to use each one is.",
+  "",
+  "Write every command the way it would be typed in the folder that declares it — plain",
+  '"npm run build", not "npm run build --prefix web". Where that folder is not the repository',
+  'root, say so with "cwd", relative to the root. A command that runs in the root is a plain',
+  "string.",
+  "",
+  "Answer with nothing but a JSON array. The command that starts the project comes first — it",
+  "is the one reached for most. After it, keep the ones that use the same tool next to each",
+  "other.",
+  'Example: ["mvn spring-boot:run", "mvn test", {"command": "npm run build", "cwd": "web"}]'
 ].join("\n");
 
 /** An agent that neither answers nor gives up is not going to; the wand says so and stops. */
@@ -90,7 +136,7 @@ const SUGGEST_TIMEOUT_MS = 5 * 60_000;
  * Pulls the JSON array out of an agent's reply. Asked for "nothing but", they still tend to
  * wrap it in a fenced block or a sentence, so the first bracketed run is what counts.
  */
-function parseSuggestions(reply: string): string[] {
+function parseSuggestions(reply: string): ProjectAction[] {
   const start = reply.indexOf("[");
   const end = reply.lastIndexOf("]");
   if (start < 0 || end <= start) {
@@ -101,10 +147,10 @@ function parseSuggestions(reply: string): string[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
+    // The same two spellings the file takes: a bare string, or a command with a directory.
+    return (parsed as StoredAction[])
+      .map(toAction)
+      .filter((action): action is ProjectAction => action !== undefined);
   } catch {
     return [];
   }
@@ -115,7 +161,7 @@ function parseSuggestions(reply: string): string[] {
  * without a terminal — the wand is a button in the sidebar, not a session — so the agent gets
  * one question and one shot at replying.
  */
-export function suggestActions(root: string, executable: string, args: string[]): Promise<string[]> {
+export function suggestActions(root: string, executable: string, args: string[]): Promise<ProjectAction[]> {
   const { command, args: resolved } = resolveCommand(executable, args);
   return new Promise((resolve, reject) => {
     execFile(
@@ -147,22 +193,23 @@ function tool(command: string): string {
  * order of the array is the order on screen, and the user's own dragging outranks this: it
  * only ever decides where something *new* lands.
  */
-export function mergeActions(existing: string[], found: string[]): string[] {
+export function mergeActions(existing: ProjectAction[], found: ProjectAction[]): ProjectAction[] {
   const merged = [...existing];
-  for (const command of found) {
-    if (merged.includes(command)) {
+  for (const action of found) {
+    // Same command in the same place is the same action; the same command elsewhere is not.
+    if (merged.some((entry) => entry.command === action.command && entry.cwd === action.cwd)) {
       continue;
     }
     let last = -1;
     for (let index = 0; index < merged.length; index++) {
-      if (tool(merged[index]) === tool(command)) {
+      if (tool(merged[index].command) === tool(action.command)) {
         last = index;
       }
     }
     if (last < 0) {
-      merged.push(command);
+      merged.push(action);
     } else {
-      merged.splice(last + 1, 0, command);
+      merged.splice(last + 1, 0, action);
     }
   }
   return merged;
@@ -187,14 +234,17 @@ export interface ActionResult {
  * `-NoProfile` / plain `-c`: a saved command should do the same thing on every machine, and
  * loading a profile makes that depend on what the user has in it.
  */
-export function runAction(root: string, command: string): Promise<ActionResult> {
+export function runAction(root: string, action: ProjectAction): Promise<ActionResult> {
   const [shell, args] =
     process.platform === "win32"
-      ? ["powershell.exe", ["-NoProfile", "-Command", command]]
-      : [process.env.SHELL ?? "/bin/bash", ["-c", command]];
+      ? ["powershell.exe", ["-NoProfile", "-Command", action.command]]
+      : [process.env.SHELL ?? "/bin/bash", ["-c", action.command]];
+  // Its own directory when it has one, the project root otherwise. `resolve` rather than
+  // `join`, so a cwd that is already absolute is left where it is.
+  const cwd = action.cwd ? path.resolve(root, action.cwd) : root;
 
   return new Promise((resolve) => {
-    execFile(shell, args, { cwd: root, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
+    execFile(shell, args, { cwd, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
       const output = (stderr.trim() || stdout.trim()).slice(0, MAX_OUTPUT);
       if (!error) {
         resolve({ code: 0, output });

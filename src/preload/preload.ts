@@ -32,7 +32,7 @@ const api: MeeseekApi = {
   actions: {
     list: (projectId) => ipcRenderer.invoke("actions:list", projectId),
     save: (projectId, actions) => ipcRenderer.invoke("actions:save", projectId, actions),
-    run: (projectId, command) => ipcRenderer.invoke("actions:run", projectId, command),
+    run: (projectId, action) => ipcRenderer.invoke("actions:run", projectId, action),
     suggest: (projectId) => ipcRenderer.invoke("actions:suggest", projectId)
   },
   terminals: {

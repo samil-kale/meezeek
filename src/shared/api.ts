@@ -7,6 +7,7 @@ import type {
   GitActionResult,
   Notice,
   Project,
+  ProjectAction,
   RepositoryState,
   TerminalDescriptor,
   TerminalOutput,
@@ -52,16 +53,16 @@ export interface MeeseekApi {
    */
   actions: {
     /** Null when the project has no meeseek.json yet — as opposed to one with an empty list. */
-    list(projectId: string): Promise<string[] | null>;
-    /** Writes the whole list; adding and removing both go through here. */
-    save(projectId: string, actions: string[]): Promise<void>;
-    /** Runs one in the background and reports the outcome as a notice. */
-    run(projectId: string, command: string): Promise<void>;
+    list(projectId: string): Promise<ProjectAction[] | null>;
+    /** Writes the whole list; adding, removing and reordering all go through here. */
+    save(projectId: string, actions: ProjectAction[]): Promise<void>;
+    /** Runs one in its own directory, in the background, and reports the outcome as a notice. */
+    run(projectId: string, action: ProjectAction): Promise<void>;
     /**
      * Has an installed agent read the project and name the commands it can run, adds what is
      * new to the list, and resolves to the whole list. Reports what happened as a notice.
      */
-    suggest(projectId: string): Promise<string[]>;
+    suggest(projectId: string): Promise<ProjectAction[]>;
   };
   terminals: {
     list(projectId: string): Promise<TerminalDescriptor[]>;

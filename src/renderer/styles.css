@@ -315,6 +315,18 @@ input:focus {
   font-family: var(--vscode-editor-font-family);
 }
 
+/* The folder it runs in, where that is not the project root. Kept small and dimmed: it is
+   context for the command, not part of it. */
+.action-cwd {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
 
 /* Exactly as tall as the tab strip next to it, border included, so the sidebar's title and the
    tabs sit on one line and end on one. */

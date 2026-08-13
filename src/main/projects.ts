@@ -58,6 +58,19 @@ export class ProjectStore {
   }
 
   /**
+   * Which session the console is running, so the next start can put it back there rather than
+   * showing it as a tab. `undefined` clears it — a console that was just opened has no session
+   * yet, and the one it replaced is no longer the console.
+   */
+  setConsoleSession(projectId: string, sessionId: string | undefined): void {
+    const project = this.get(projectId);
+    if (project && project.consoleSessionId !== sessionId) {
+      project.consoleSessionId = sessionId;
+      this.save();
+    }
+  }
+
+  /**
    * Puts the projects in the given order. Ids the store doesn't know are dropped and projects
    * the caller left out keep their place at the end: the renderer sends the list it had on
    * screen, which can be a moment behind one added or closed elsewhere.

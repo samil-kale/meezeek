@@ -214,15 +214,15 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
 
   const askRename = useCallback(
     async (tab: TerminalDescriptor) => {
-      const title = await prompt({
+      const answer = await prompt({
         title: "Rename session",
         label: "Name",
         value: tab.title,
         confirmLabel: "Rename",
         maxLength: MAX_TITLE_LENGTH
       });
-      if (title !== null && title !== tab.title) {
-        void window.meeseek.terminals.rename(project.id, tab.tabId, title);
+      if (answer !== null && answer.value !== tab.title) {
+        void window.meeseek.terminals.rename(project.id, tab.tabId, answer.value);
       }
     },
     [project.id]

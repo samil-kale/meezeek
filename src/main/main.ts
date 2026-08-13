@@ -13,6 +13,7 @@ import type {
   FileDiff,
   GitActionResult,
   Project,
+  ProjectAction,
   RepositoryState,
   TerminalDescriptor,
   TerminalOutput,
@@ -69,6 +70,7 @@ const sessions = new SessionManagerRegistry(app.getPath("userData"), {
   onOutput: queueOutput,
   onStatus: (projectId, tabId, status: TerminalStatus) => send("terminal:status", { projectId, tabId, status }),
   onStartupProgress: (projectId, show) => send("terminal:startup-progress", { projectId, show }),
+  onConsoleSession: (projectId, sessionId) => store.setConsoleSession(projectId, sessionId),
   onNotice: (severity, message) => send("app:notice", { severity, message })
 });
 
@@ -206,12 +208,12 @@ function registerIpc(): void {
     }
   );
 
-  ipcMain.handle("actions:list", async (_event, projectId: string): Promise<string[] | null> => {
+  ipcMain.handle("actions:list", async (_event, projectId: string): Promise<ProjectAction[] | null> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
     return project ? readActions(project.path) : [];
   });
 
-  ipcMain.handle("actions:save", async (_event, projectId: string, actions: string[]): Promise<void> => {
+  ipcMain.handle("actions:save", async (_event, projectId: string, actions: ProjectAction[]): Promise<void> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
     if (!project) {
       return;
@@ -227,18 +229,18 @@ function registerIpc(): void {
    * Runs one and reports how it went. Nothing is streamed while it runs: an action is started
    * and then waited on, and the answer is a single notice either way.
    */
-  ipcMain.handle("actions:run", async (_event, projectId: string, command: string): Promise<void> => {
+  ipcMain.handle("actions:run", async (_event, projectId: string, action: ProjectAction): Promise<void> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
     if (!project) {
       return;
     }
-    const result = await runAction(project.path, command);
+    const result = await runAction(project.path, action);
     send("app:notice", {
       severity: result.code === 0 ? "info" : "error",
       message:
         result.code === 0
-          ? `${command} finished`
-          : `${command} exited with ${result.code}${result.output ? `\n${result.output}` : ""}`
+          ? `${action.command} finished`
+          : `${action.command} exited with ${result.code}${result.output ? `\n${result.output}` : ""}`
     });
   });
 
@@ -247,7 +249,7 @@ function registerIpc(): void {
    * names to the list. Whatever it gets wrong is one right-click away from being deleted,
    * which is why its answer goes straight in rather than through a review step.
    */
-  ipcMain.handle("actions:suggest", async (_event, projectId: string): Promise<string[]> => {
+  ipcMain.handle("actions:suggest", async (_event, projectId: string): Promise<ProjectAction[]> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
     if (!project) {
       return [];

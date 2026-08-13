@@ -28,11 +28,23 @@ export interface PromptOptions {
   value: string;
   confirmLabel: string;
   maxLength?: number;
+  /**
+   * A second field, for a question that has one optional part — an action's folder next to
+   * its command. Empty is a valid answer for it; the first field is the one that must be
+   * filled in.
+   */
+  extra?: { label: string; placeholder?: string; value?: string };
+}
+
+export interface PromptAnswer {
+  value: string;
+  /** The second field's value, "" when there was none or it was left blank. */
+  extra: string;
 }
 
 type Pending =
   | ({ kind: "confirm"; answer: (answer: ConfirmAnswer) => void } & ConfirmOptions)
-  | ({ kind: "prompt"; answer: (value: string | null) => void } & PromptOptions);
+  | ({ kind: "prompt"; answer: (answer: PromptAnswer | null) => void } & PromptOptions);
 
 /**
  * Asking the user something, the way `notify` tells them something: one function anything can
@@ -76,9 +88,9 @@ export function confirm(options: ConfirmOptions): Promise<ConfirmAnswer> {
   );
 }
 
-/** Resolves to the name the user typed, or null when they cancelled. */
-export function prompt(options: PromptOptions): Promise<string | null> {
-  return ask<string | null>((answer) => ({ kind: "prompt", ...options, answer }), null);
+/** Resolves to what the user typed, or null when they cancelled. */
+export function prompt(options: PromptOptions): Promise<PromptAnswer | null> {
+  return ask<PromptAnswer | null>((answer) => ({ kind: "prompt", ...options, answer }), null);
 }
 
 function subscribe(listener: () => void): () => void {
@@ -147,10 +159,11 @@ function ConfirmDialog({ dialog }: { dialog: Extract<Pending, { kind: "confirm" 
 
 function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }> }) {
   const [value, setValue] = useState(dialog.value);
+  const [extra, setExtra] = useState(dialog.extra?.value ?? "");
   const field = useRef<HTMLInputElement>(null);
 
-  // The focus has to land in the field, not on a button: a rename is opened to type in. Once,
-  // on the way in — selecting on every render would swallow each keystroke after the first.
+  // The focus has to land in the first field, not on a button: a rename is opened to type in.
+  // Once, on the way in — selecting on every render would swallow each keystroke after it.
   useEffect(() => {
     field.current?.focus();
     field.current?.select();
@@ -161,7 +174,7 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
       title={dialog.title}
       confirmLabel={dialog.confirmLabel}
       disabled={value.trim().length === 0}
-      onSubmit={() => dialog.answer(value.trim())}
+      onSubmit={() => dialog.answer({ value: value.trim(), extra: extra.trim() })}
       onCancel={() => dialog.answer(null)}
     >
       <label className="dialog-field">
@@ -174,6 +187,18 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
           ref={field}
         />
       </label>
+      {/* Optional by construction: only the first field can hold the answer back. */}
+      {dialog.extra && (
+        <label className="dialog-field">
+          <span>{dialog.extra.label}</span>
+          <input
+            type="text"
+            value={extra}
+            placeholder={dialog.extra.placeholder}
+            onChange={(event) => setExtra(event.target.value)}
+          />
+        </label>
+      )}
       {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
     </Frame>
   );

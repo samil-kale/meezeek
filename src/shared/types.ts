@@ -15,6 +15,24 @@ export interface Project {
   name: string;
   /** Which agent its git console runs; absent until one was picked from the dropdown. */
   consoleAgent?: AgentId;
+  /**
+   * The agent session the git console was last running, so it goes back into the console on
+   * the next start instead of turning up as a tab of its own. Absent while the console runs a
+   * shell, or before its agent has persisted a session.
+   */
+  consoleSessionId?: string;
+}
+
+/**
+ * One saved shell command of a project. `cwd` is where it runs, relative to the project root —
+ * a monorepo's frontend scripts belong to the folder that declares them, and writing
+ * `npm run build` next to the folder it runs in reads better than the flag that would move it
+ * ("--prefix", "-C", "--project"), which not every tool even has.
+ */
+export interface ProjectAction {
+  command: string;
+  /** Relative to the project root; absent means the root itself. */
+  cwd?: string;
 }
 
 export interface RemoteInfo {
