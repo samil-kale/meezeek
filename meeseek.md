@@ -1,8 +1,8 @@
-# Meeseex
+# Meeseek
 
 ## Produktidee
 
-**Meeseex** ist ein schlanker Git-Workspace für agentisches Entwickeln.
+**Meeseek** ist ein schlanker Git-Workspace für agentisches Entwickeln.
 
 Der Fokus liegt nicht darauf, einen vollständigen Git-Client oder eine IDE nachzubauen. Git dient hauptsächlich zur Navigation und Kontrolle des Repository-Zustands, während die eigentliche Arbeit in mehreren Agent- und Shell-Terminals stattfindet.
 
@@ -12,7 +12,7 @@ Kurz gesagt:
 
 ## Grundprinzip
 
-Meeseex verbindet drei Dinge in einer Oberfläche:
+Meeseek verbindet drei Dinge in einer Oberfläche:
 
 1. Repository- und Branch-Kontext
 2. Local Changes mit Diff-Ansicht
@@ -23,13 +23,13 @@ Git bleibt bewusst reduziert. Komplexere Aktionen wie Rebase, Cherry-Pick, Merge
 
 ## Verbindliche UI-Referenz
 
-Die bestehende Oberfläche aus den folgenden Screenshots ist die **visuelle Referenz für Meeseex**.
+Die bestehende Oberfläche aus den folgenden Screenshots ist die **visuelle Referenz für Meeseek**.
 
 Das Programm soll sich in Aufbau, Navigation, Proportionen, Dichte und grundsätzlicher Anordnung möglichst genau daran orientieren. Die Screenshots sind dabei maßgeblicher als vereinfachte ASCII-Diagramme in diesem Dokument.
 
 ### Terminal-Ansicht
 
-![Meeseex Terminal-Ansicht](terminals.view.png)
+![Meeseek Terminal-Ansicht](terminals.view.png)
 
 Referenzdatei: `terminals.view.png`
 
@@ -47,7 +47,7 @@ Wesentliche Merkmale:
 
 ### Local-Changes-Ansicht
 
-![Meeseex Local-Changes-Ansicht](local-changes-view.png)
+![Meeseek Local-Changes-Ansicht](local-changes-view.png)
 
 Referenzdatei: `local-changes-view.png`
 
@@ -214,7 +214,7 @@ Die Local-Changes-Ansicht besteht im Wesentlichen aus zwei Bereichen:
 
 Beim Klick auf eine geänderte Datei wird deren Git-Diff angezeigt.
 
-Der Commit-Bereich ist für den Kern von Meeseex nicht notwendig. Commits können über Agent oder Shell ausgeführt werden.
+Der Commit-Bereich ist für den Kern von Meeseek nicht notwendig. Commits können über Agent oder Shell ausgeführt werden.
 
 ## Bewusst reduzierter Git-Scope
 
@@ -290,7 +290,7 @@ Terminal-Ausgabe sollte direkt an xterm.js weitergereicht und nicht über React-
 
 ### Git
 
-Git wird nicht selbst implementiert. Meeseex verwendet die lokal installierte Git-CLI.
+Git wird nicht selbst implementiert. Meeseek verwendet die lokal installierte Git-CLI.
 
 Beispiele:
 
@@ -457,7 +457,7 @@ Theme Loader / Mapping
 --vscode-* CSS Variablen
      │
      ▼
-bestehende Meeseex-/Plugin-Styles
+bestehende Meeseek-/Plugin-Styles
 ```
 
 Grundregel für neue UI-Komponenten:
@@ -550,7 +550,7 @@ GitHub Desktop ist eine wichtige Referenz für:
 - Checkout
 - Diff
 
-Meeseex benötigt davon nur einen kleinen Teil.
+Meeseek benötigt davon nur einen kleinen Teil.
 
 ### Weitere sinnvolle Referenzen
 
@@ -562,7 +562,7 @@ Meeseex benötigt davon nur einen kleinen Teil.
 
 ## Produktgrenze
 
-Meeseex soll nicht zu einer weiteren IDE werden.
+Meeseek soll nicht zu einer weiteren IDE werden.
 
 Die zentrale Trennung lautet:
 
@@ -633,6 +633,6 @@ Wechsel auf `LOCAL CHANGES`:
 
 ## Kerngedanke
 
-Meeseex ist kein Git-Client mit eingebautem Terminal.
+Meeseek ist kein Git-Client mit eingebautem Terminal.
 
-**Meeseex ist ein Agent-Workspace, der gerade genug Git-Oberfläche bereitstellt, damit der Entwickler jederzeit Repository-Zustand, Branches und Änderungen kontrollieren kann.**
+**Meeseek ist ein Agent-Workspace, der gerade genug Git-Oberfläche bereitstellt, damit der Entwickler jederzeit Repository-Zustand, Branches und Änderungen kontrollieren kann.**

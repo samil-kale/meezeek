@@ -90,8 +90,8 @@ export class TerminalSession {
     try {
       this.process = spawnAgentProcess(this.executable, this.args, { cwd: this.cwd, cols, rows, env: this.env });
     } catch (error) {
-      console.error(`[meeseex] failed to spawn ${this.executable}:`, error);
-      this.callbacks.onOutput(`\r\n[meeseex] failed to spawn ${this.executable}:\r\n${String(error)}\r\n`);
+      console.error(`[meeseek] failed to spawn ${this.executable}:`, error);
+      this.callbacks.onOutput(`\r\n[meeseek] failed to spawn ${this.executable}:\r\n${String(error)}\r\n`);
       this.setStatus("error");
       return;
     }
@@ -101,7 +101,7 @@ export class TerminalSession {
     this.process.onExit(({ exitCode }) => {
       this.process = undefined;
       if (!this.intentionalStop) {
-        this.callbacks.onOutput(`\r\n[meeseex] ${this.executable} exited with code ${exitCode}\r\n`);
+        this.callbacks.onOutput(`\r\n[meeseek] ${this.executable} exited with code ${exitCode}\r\n`);
       }
       this.setStatus(this.intentionalStop ? "stopped" : "error");
       this.intentionalStop = false;

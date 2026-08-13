@@ -18,7 +18,7 @@ export const claudeAgent: AgentDefinition = {
       // Unlike opencode's server, these hooks are not what makes the CLI usable — losing
       // the notifications must not keep Claude from starting, so this is swallowed rather
       // than rejected (a rejection marks the whole agent as unstartable).
-      console.error("[meeseex] could not write Claude hook settings:", error);
+      console.error("[meeseek] could not write Claude hook settings:", error);
     }
     return Promise.resolve({ args, dispose: () => undefined });
   },

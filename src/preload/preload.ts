@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { MeeseexApi, Unsubscribe } from "../shared/api";
+import type { MeeseekApi, Unsubscribe } from "../shared/api";
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscribe {
   const handler = (_event: Electron.IpcRendererEvent, payload: T): void => listener(payload);
@@ -7,7 +7,7 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscr
   return () => ipcRenderer.off(channel, handler);
 }
 
-const api: MeeseexApi = {
+const api: MeeseekApi = {
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     add: () => ipcRenderer.invoke("projects:add"),
@@ -18,6 +18,12 @@ const api: MeeseexApi = {
     state: (projectId) => ipcRenderer.invoke("repo:state", projectId),
     refresh: (projectId) => ipcRenderer.invoke("repo:refresh", projectId),
     checkout: (projectId, target) => ipcRenderer.invoke("repo:checkout", projectId, target),
+    createBranch: (projectId, name, startPoint) =>
+      ipcRenderer.invoke("repo:create-branch", projectId, name, startPoint),
+    renameBranch: (projectId, from, to) => ipcRenderer.invoke("repo:rename-branch", projectId, from, to),
+    deleteBranch: (projectId, name, remote) => ipcRenderer.invoke("repo:delete-branch", projectId, name, remote),
+    discard: (projectId, paths) => ipcRenderer.invoke("repo:discard", projectId, paths),
+    ignore: (projectId, filePath, scope) => ipcRenderer.invoke("repo:ignore", projectId, filePath, scope),
     diff: (projectId, filePath) => ipcRenderer.invoke("repo:diff", projectId, filePath),
     onState: (listener) => subscribe("repo:state-changed", listener)
   },
@@ -48,9 +54,10 @@ const api: MeeseexApi = {
   },
   shell: {
     openUrl: (url) => ipcRenderer.invoke("shell:open-url", url),
-    openFile: (projectId, filePath) => ipcRenderer.invoke("shell:open-file", projectId, filePath)
+    openFile: (projectId, filePath) => ipcRenderer.invoke("shell:open-file", projectId, filePath),
+    revealFile: (projectId, filePath) => ipcRenderer.invoke("shell:reveal-file", projectId, filePath)
   },
   onNotice: (listener) => subscribe("app:notice", listener)
 };
 
-contextBridge.exposeInMainWorld("meeseex", api);
+contextBridge.exposeInMainWorld("meeseek", api);

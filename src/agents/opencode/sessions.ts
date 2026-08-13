@@ -2,7 +2,7 @@ import type { AgentSessionInfo, SessionProvider } from "../agent";
 import { ensureServer } from "./server";
 
 /**
- * Every operation here goes through the one `opencode serve` instance meeseex runs per
+ * Every operation here goes through the one `opencode serve` instance meeseek runs per
  * repository — see server.ts for why talking to opencode any other way is a dead end.
  */
 export const opencodeSessionProvider: SessionProvider = {
@@ -29,7 +29,7 @@ export const opencodeSessionProvider: SessionProvider = {
         )
         .sort((a, b) => a.createdAt - b.createdAt);
     } catch (error) {
-      console.error("[meeseex] opencode session listing failed:", error);
+      console.error("[meeseek] opencode session listing failed:", error);
       return [];
     }
   },
@@ -70,7 +70,7 @@ export const opencodeSessionProvider: SessionProvider = {
           });
         }
       })
-      .catch((error) => console.error("[meeseex] opencode event stream unavailable:", error));
+      .catch((error) => console.error("[meeseek] opencode event stream unavailable:", error));
     return () => {
       stopped = true;
       unsubscribe?.();

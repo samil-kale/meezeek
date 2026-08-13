@@ -25,7 +25,7 @@ function buildWindowsCommand(storageDir: string, id: string, title: string, body
   const scriptFile = path.join(storageDir, `notify-${id}.ps1`);
   // Well-known AUMID Windows registers by default for its own PowerShell Start Menu
   // shortcut. Reusing it never creates a registry entry, but it does attribute the toast to
-  // "Windows PowerShell" rather than to meeseex — an app identity of our own would have to
+  // "Windows PowerShell" rather than to meeseek — an app identity of our own would have to
   // be registered first, which this deliberately avoids.
   const appId = String.raw`{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe`;
   fs.writeFileSync(
@@ -67,7 +67,7 @@ function buildMacCommand(storageDir: string, id: string, title: string, body: st
   writePosixScript(
     scriptFile,
     `#!/bin/sh
-MEESEEX_TITLE=${shellSingleQuote(title)} MEESEEX_BODY=${shellSingleQuote(body)} osascript -e 'display notification (system attribute "MEESEEX_BODY") with title (system attribute "MEESEEX_TITLE")' >/dev/null 2>&1
+MEESEEK_TITLE=${shellSingleQuote(title)} MEESEEK_BODY=${shellSingleQuote(body)} osascript -e 'display notification (system attribute "MEESEEK_BODY") with title (system attribute "MEESEEK_TITLE")' >/dev/null 2>&1
 exit 0
 `
   );

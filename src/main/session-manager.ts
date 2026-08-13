@@ -261,7 +261,7 @@ export class ProjectSessionManager {
       runtime.preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(agent.id));
       return true;
     } catch (error) {
-      console.error("[meeseex] spawn preparation failed:", error);
+      console.error("[meeseek] spawn preparation failed:", error);
       this.callbacks.onNotice("error", `${agent.displayName} could not be started: ${String(error)}`);
       runtime.prepareFailed = true;
       return false;

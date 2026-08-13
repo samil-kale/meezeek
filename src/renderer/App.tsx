@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import type { CheckoutTarget, Project, RepositoryState } from "../shared/types";
-import { Notices, useNotices } from "./components/Notices";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CheckoutTarget, GitActionResult, Project, RepositoryState } from "../shared/types";
+import { Dialogs } from "./components/Dialog";
+import { Notices, notify } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
 import { Sash, usePaneSize } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
@@ -18,9 +19,13 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RepositoryState>>({});
-  const { notices, notify, dismiss } = useNotices();
-  /** The checkout in flight, if any — a switch can take seconds on a large repository. */
-  const [switching, setSwitching] = useState<{ projectId: string; name: string } | null>(null);
+  /**
+   * The branch command in flight, if any, and what to call it while it runs — a checkout can
+   * take seconds on a large repository, and deleting on a remote goes to the network.
+   */
+  const [branchAction, setBranchAction] = useState<{ projectId: string; label: string } | null>(null);
+  /** The same, read synchronously: a second double-click can land before a re-render does. */
+  const branchActionRef = useRef<{ projectId: string; label: string } | null>(null);
   // Defaults and limits of the draggable panes. Every project's git tab shares the two below,
   // so they are held here rather than in each of them.
   const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240);
@@ -28,16 +33,16 @@ export function App() {
   const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260);
 
   useEffect(() => {
-    const unsubscribe = window.meeseex.repository.onState(({ projectId, state }) =>
+    const unsubscribe = window.meeseek.repository.onState(({ projectId, state }) =>
       setStates((current) => ({ ...current, [projectId]: state }))
     );
 
     void (async () => {
-      const stored = await window.meeseex.projects.list();
+      const stored = await window.meeseek.projects.list();
       setProjects(stored);
       setActiveProjectId((current) => current ?? stored[0]?.id ?? null);
       const loaded = await Promise.all(
-        stored.map(async (project) => [project.id, await window.meeseex.repository.state(project.id)] as const)
+        stored.map(async (project) => [project.id, await window.meeseek.repository.state(project.id)] as const)
       );
       // States pushed while this was in flight are newer than what was just fetched.
       setStates((current) => ({ ...Object.fromEntries(loaded), ...current }));
@@ -46,10 +51,10 @@ export function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => window.meeseex.onNotice(({ severity, message }) => notify(severity, message)), [notify]);
+  useEffect(() => window.meeseek.onNotice(({ severity, message }) => notify(severity, message)), []);
 
   const addProject = useCallback(async () => {
-    const project = await window.meeseex.projects.add();
+    const project = await window.meeseek.projects.add();
     if (!project) {
       return;
     }
@@ -59,7 +64,7 @@ export function App() {
 
   const closeProject = useCallback(
     async (projectId: string) => {
-      await window.meeseex.projects.remove(projectId);
+      await window.meeseek.projects.remove(projectId);
       const remaining = projects.filter((project) => project.id !== projectId);
       setProjects(remaining);
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
@@ -69,30 +74,69 @@ export function App() {
 
   const reorderProjects = useCallback((ordered: Project[]) => {
     setProjects(ordered);
-    void window.meeseex.projects.reorder(ordered.map((project) => project.id));
+    void window.meeseek.projects.reorder(ordered.map((project) => project.id));
   }, []);
 
-  const checkout = useCallback(async (projectId: string, target: CheckoutTarget) => {
-    // Which project is switching, not just that one is: the bar shows the active project, and
-    // that may not be the one still working when the user moves on.
-    setSwitching({ projectId, name: target.name });
-    try {
-      const result = await window.meeseex.repository.checkout(projectId, target);
-      if (!result.ok) {
-        notify("error", result.error ?? "Checkout failed");
+  /**
+   * Runs one branch command per project at a time. Clicking a second branch while the first
+   * switch runs would stack two `git switch` on one repository; the branch tree says so with
+   * its cursor, and this is what enforces it. Per project, since two repositories working at
+   * once is not a conflict at all.
+   */
+  const runBranchAction = useCallback(
+    async (projectId: string, label: string, action: () => Promise<GitActionResult>) => {
+      if (branchActionRef.current?.projectId === projectId) {
+        return;
       }
-    } finally {
-      setSwitching(null);
-    }
-  }, [notify]);
+      // Which project is working, not just that one is: the bar shows the active project, and
+      // that may not be the one still busy when the user moves on.
+      const started = { projectId, label };
+      branchActionRef.current = started;
+      setBranchAction(started);
+      try {
+        const result = await action();
+        if (!result.ok) {
+          notify("error", result.error ?? `${label} failed`);
+        }
+      } finally {
+        branchActionRef.current = null;
+        setBranchAction(null);
+      }
+    },
+    []
+  );
+
+  /** The whole branch menu of one project, in the shape the git tab takes it. */
+  const branchActions = useCallback(
+    (projectId: string) => ({
+      busy: branchAction?.projectId === projectId,
+      checkout: (target: CheckoutTarget) =>
+        void runBranchAction(projectId, `Switching to ${target.name}...`, () =>
+          window.meeseek.repository.checkout(projectId, target)
+        ),
+      create: (name: string, startPoint?: string) =>
+        void runBranchAction(projectId, `Creating ${name}...`, () =>
+          window.meeseek.repository.createBranch(projectId, name, startPoint)
+        ),
+      rename: (from: string, to: string) =>
+        void runBranchAction(projectId, `Renaming ${from} to ${to}...`, () =>
+          window.meeseek.repository.renameBranch(projectId, from, to)
+        ),
+      remove: (name: string, remote?: string) =>
+        void runBranchAction(projectId, `Deleting ${name}...`, () =>
+          window.meeseek.repository.deleteBranch(projectId, name, remote)
+        )
+    }),
+    [branchAction, runBranchAction]
+  );
 
   const refresh = useCallback(() => {
     if (activeProjectId) {
-      void window.meeseex.repository.refresh(activeProjectId);
+      void window.meeseek.repository.refresh(activeProjectId);
     }
   }, [activeProjectId]);
 
-  const switchingTo = switching !== null && switching.projectId === activeProjectId ? switching.name : null;
+  const busyLabel = branchAction?.projectId === activeProjectId ? branchAction.label : null;
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_STATE;
 
@@ -101,7 +145,7 @@ export function App() {
       {/* Just the app name; the bar itself is the drag region and the space the window
           controls overlay needs. */}
       <div className="titlebar">
-        <span className="titlebar-name">MEESEEX</span>
+        <span className="titlebar-name">MEESEEK</span>
       </div>
 
       <div className="body">
@@ -131,7 +175,7 @@ export function App() {
                 treeHeight: branchTreeHeight,
                 onTreeHeight: setBranchTreeHeight
               }}
-              onCheckout={(target) => void checkout(project.id, target)}
+              branch={branchActions(project.id)}
             />
           ))}
           {!activeProject && (
@@ -146,20 +190,19 @@ export function App() {
         </main>
       </div>
 
-      <Notices notices={notices} onDismiss={dismiss} />
+      <Notices />
+      <Dialogs />
 
       <div className="branch-bar">
-        {switchingTo !== null && (
-          <div className="tab-progress">
-            <div className="tab-progress-bit" />
-          </div>
-        )}
-        {activeProject && activeState.error && <span className="branch-error">{activeState.error}</span>}
-        {activeProject && !activeState.error && (
+        {/* A repository that could not be read says so as a notice like everything else; the
+            bar then simply has no branch to name. */}
+        {activeProject && (
           <>
             <BranchIcon />
-            <span className={`branch-name${switchingTo === null ? "" : " switching"}`}>
-              {switchingTo === null ? activeState.head || "..." : `Switching to ${switchingTo}...`}
+            {/* While a branch command runs the bar says what it is doing instead of naming
+                HEAD — for those seconds the branch you are on is not the whole story. */}
+            <span className={`branch-name${busyLabel === null ? "" : " busy"}`}>
+              {busyLabel ?? (activeState.head || "...")}
             </span>
             <button className="icon-button" title="Refresh repository" onClick={refresh}>
               <RefreshIcon />

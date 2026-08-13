@@ -5,7 +5,7 @@ import { useRef, useState, type PointerEvent } from "react";
  * repository, so it lives in the renderer's own storage instead of the project store, and
  * every project sees the same one.
  */
-const STORAGE_PREFIX = "meeseex.layout.";
+const STORAGE_PREFIX = "meeseek.layout.";
 
 /** A pane size the user can drag, restored on the next start. */
 export function usePaneSize(key: string, initial: number): [number, (size: number) => void] {

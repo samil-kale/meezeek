@@ -144,12 +144,12 @@ export function setupClaudeHooks(
     hooks.PreToolUse = [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: notify }] }];
   }
 
-  // The context block points at a file in meeseex's own storage — outside the repository,
+  // The context block points at a file in meeseek's own storage — outside the repository,
   // where reads are denied unless granted. Scoped to that one file rather than the whole
   // directory, which also holds the notify scripts and this settings file.
   const permissions = { allow: context.contextReadPaths.map((file) => `Read(${file})`) };
 
-  const settingsFile = path.join(storageDir, "meeseex-hooks-settings.json");
+  const settingsFile = path.join(storageDir, "meeseek-hooks-settings.json");
   fs.writeFileSync(settingsFile, JSON.stringify({ hooks, permissions }, null, 2));
   return ["--settings", settingsFile];
 }

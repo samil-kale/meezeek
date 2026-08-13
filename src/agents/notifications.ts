@@ -8,7 +8,7 @@ export interface NotificationSettings {
 }
 
 /**
- * What every agent notifies about. Meeseex has no settings layer yet, so these are the
+ * What every agent notifies about. Meeseek has no settings layer yet, so these are the
  * defaults sbc ships with rather than something the user can change.
  */
 export const NOTIFICATIONS: NotificationSettings = {

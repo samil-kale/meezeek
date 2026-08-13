@@ -1,53 +1,58 @@
-import { useCallback, useState } from "react";
-import type { Notice, NoticeSeverity } from "../../shared/types";
+import { useSyncExternalStore } from "react";
+import type { NoticeSeverity } from "../../shared/types";
 import { SeverityIcon } from "./icons";
 
 /** Long enough to read a line, short enough not to sit in the way. VS Code's own is similar. */
 const INFO_DISMISS_MS = 5000;
 
-interface ShownNotice extends Notice {
+interface ShownNotice {
   id: number;
+  severity: NoticeSeverity;
+  message: string;
 }
 
+/**
+ * Everything the user is told goes through here — there is no second way to say something in
+ * this app, and views do not keep messages of their own. A plain function rather than a hook
+ * or a prop, the way VS Code's `window.showErrorMessage` is: whatever fails, wherever, can
+ * report it without a callback having been threaded to it first.
+ */
+let shown: ShownNotice[] = [];
+const listeners = new Set<() => void>();
 let nextId = 0;
 
-/**
- * The one place anything transient is said to the user. Everything that used to set a single
- * error string goes through here instead, so a second message no longer replaces the first.
- */
-export function useNotices(): {
-  notices: ShownNotice[];
-  notify: (severity: NoticeSeverity, message: string) => void;
-  dismiss: (id: number) => void;
-} {
-  const [notices, setNotices] = useState<ShownNotice[]>([]);
+function publish(next: ShownNotice[]): void {
+  shown = next;
+  for (const listener of listeners) {
+    listener();
+  }
+}
 
-  const dismiss = useCallback((id: number) => {
-    setNotices((current) => current.filter((notice) => notice.id !== id));
-  }, []);
+export function notify(severity: NoticeSeverity, message: string): void {
+  const id = ++nextId;
+  // A failure that repeats (a checkout retried on the same dirty tree, say) says nothing new
+  // the second time — better one message standing than a wall of identical ones.
+  if (shown.some((notice) => notice.message === message && notice.severity === severity)) {
+    return;
+  }
+  publish([...shown, { id, severity, message }]);
+  if (severity === "info") {
+    setTimeout(() => dismissNotice(id), INFO_DISMISS_MS);
+  }
+}
 
-  const notify = useCallback(
-    (severity: NoticeSeverity, message: string) => {
-      const id = ++nextId;
-      setNotices((current) =>
-        // A failure that repeats (a checkout retried on the same dirty tree, say) says nothing
-        // new the second time — better one message standing than a wall of identical ones.
-        current.some((notice) => notice.message === message && notice.severity === severity)
-          ? current
-          : [...current, { id, severity, message }]
-      );
-      if (severity === "info") {
-        setTimeout(() => dismiss(id), INFO_DISMISS_MS);
-      }
-    },
-    [dismiss]
-  );
+export function dismissNotice(id: number): void {
+  publish(shown.filter((notice) => notice.id !== id));
+}
 
-  return { notices, notify, dismiss };
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 /** Stacked above the branch bar, newest at the bottom, each dismissed by clicking it. */
-export function Notices({ notices, onDismiss }: { notices: ShownNotice[]; onDismiss: (id: number) => void }) {
+export function Notices() {
+  const notices = useSyncExternalStore(subscribe, () => shown);
   if (notices.length === 0) {
     return null;
   }
@@ -57,7 +62,7 @@ export function Notices({ notices, onDismiss }: { notices: ShownNotice[]; onDism
         <button
           key={notice.id}
           className={`notice ${notice.severity}`}
-          onClick={() => onDismiss(notice.id)}
+          onClick={() => dismissNotice(notice.id)}
           title="Dismiss"
         >
           <SeverityIcon className="notice-icon" severity={notice.severity} />

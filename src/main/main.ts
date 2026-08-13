@@ -5,9 +5,9 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "ele
 import { listAgents } from "../agents";
 import type {
   AgentId,
-  CheckoutResult,
   CheckoutTarget,
   FileDiff,
+  GitActionResult,
   Project,
   RepositoryState,
   TerminalDescriptor,
@@ -54,7 +54,10 @@ function queueOutput(projectId: string, tabId: string, data: string): void {
 }
 
 const store = new ProjectStore(app.getPath("userData"));
-const repositories = new RepositoryManager((projectId, state) => send("repo:state-changed", { projectId, state }));
+const repositories = new RepositoryManager(
+  (projectId, state) => send("repo:state-changed", { projectId, state }),
+  (severity, message) => send("app:notice", { severity, message })
+);
 const sessions = new SessionManagerRegistry(app.getPath("userData"), {
   onTabs: (projectId, tabs) => send("terminal:tabs", { projectId, tabs }),
   onOutput: queueOutput,
@@ -79,7 +82,7 @@ function openProject(project: Project): void {
 
 /** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
 function writeTempFile(name: string, data: Buffer): string {
-  const file = path.join(os.tmpdir(), `meeseex-${Date.now()}-${path.basename(name)}`);
+  const file = path.join(os.tmpdir(), `meeseek-${Date.now()}-${path.basename(name)}`);
   fs.writeFileSync(file, data);
   return file;
 }
@@ -119,13 +122,65 @@ function registerIpc(): void {
     return (await repositories.get(projectId)?.refresh()) ?? MISSING_REPOSITORY;
   });
 
-  ipcMain.handle("repo:checkout", async (_event, projectId: string, target: CheckoutTarget): Promise<CheckoutResult> => {
+  ipcMain.handle("repo:checkout", async (_event, projectId: string, target: CheckoutTarget): Promise<GitActionResult> => {
     const repository = repositories.get(projectId);
     if (!repository) {
       return { ok: false, error: MISSING_REPOSITORY.error };
     }
     return repository.checkout(target);
   });
+
+  ipcMain.handle(
+    "repo:create-branch",
+    async (_event, projectId: string, name: string, startPoint?: string): Promise<GitActionResult> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { ok: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.createBranch(name, startPoint);
+    }
+  );
+
+  ipcMain.handle(
+    "repo:rename-branch",
+    async (_event, projectId: string, from: string, to: string): Promise<GitActionResult> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { ok: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.renameBranch(from, to);
+    }
+  );
+
+  ipcMain.handle(
+    "repo:delete-branch",
+    async (_event, projectId: string, name: string, remote?: string): Promise<GitActionResult> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { ok: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.deleteBranch(name, remote);
+    }
+  );
+
+  ipcMain.handle("repo:discard", async (_event, projectId: string, paths: string[]): Promise<GitActionResult> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return { ok: false, error: MISSING_REPOSITORY.error };
+    }
+    return paths.length > 0 ? repository.discard(paths) : { ok: true };
+  });
+
+  ipcMain.handle(
+    "repo:ignore",
+    async (_event, projectId: string, filePath: string, scope: "file" | "extension"): Promise<GitActionResult> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { ok: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.ignore(filePath, scope);
+    }
+  );
 
   ipcMain.handle("repo:diff", async (_event, projectId: string, filePath: string): Promise<FileDiff> => {
     const repository = repositories.get(projectId);
@@ -212,6 +267,14 @@ function registerIpc(): void {
       send("app:notice", { severity: "error", message: `Could not open file: ${rawPath} (${error})` });
     }
     return null;
+  });
+
+  /** A changed file shown in the OS file manager — the git tab's context menu. */
+  ipcMain.handle("shell:reveal-file", (_event, projectId: string, filePath: string): void => {
+    const repository = repositories.get(projectId);
+    if (repository) {
+      shell.showItemInFolder(path.join(repository.project.path, filePath));
+    }
   });
 
   ipcMain.handle("files:write-temp", (_event, name: string, dataBase64: string): string => {

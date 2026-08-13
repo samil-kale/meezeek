@@ -49,10 +49,10 @@ export interface RepositoryState {
 export type NoticeSeverity = "error" | "warning" | "info";
 
 /**
- * Something that happened and that the user should hear about — a checkout that failed, a
- * session that could not be renamed. Not for a condition that persists: that a folder is no
- * repository, or that a diff could not be read, describes the state of a view and belongs in
- * that view, where it stays visible for as long as it is true.
+ * Anything the user is told, without exception — see the CLAUDE.md section. A view never keeps
+ * a message of its own; what a view may still draw for itself is a *status* (a tab colored for
+ * a missing agent, a progress bar), which is a condition that holds rather than something that
+ * happened.
  */
 export interface Notice {
   severity: NoticeSeverity;
@@ -79,7 +79,8 @@ export interface FileDiff {
   error?: string;
 }
 
-export interface CheckoutResult {
+/** What any git action the UI starts reports back: it worked, or what git said when it didn't. */
+export interface GitActionResult {
   ok: boolean;
   error?: string;
 }

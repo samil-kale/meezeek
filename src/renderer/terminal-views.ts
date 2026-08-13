@@ -29,7 +29,7 @@ function viewKey(projectId: string, tabId: string): string {
   return `${projectId} ${tabId}`;
 }
 
-window.meeseex.terminals.onOutput(({ projectId, tabId, data }) =>
+window.meeseek.terminals.onOutput(({ projectId, tabId, data }) =>
   views.get(viewKey(projectId, tabId))?.term.write(data)
 );
 
@@ -44,11 +44,11 @@ function defaultFontSize(): number {
 }
 
 function openUrl(url: string): void {
-  void window.meeseex.shell.openUrl(url);
+  void window.meeseek.shell.openUrl(url);
 }
 
 function openFile(projectId: string, filePath: string): void {
-  void window.meeseex.shell.openFile(projectId, filePath).then((changedPath) => {
+  void window.meeseek.shell.openFile(projectId, filePath).then((changedPath) => {
     if (changedPath) {
       revealHandlers.get(projectId)?.(changedPath);
     }
@@ -93,7 +93,7 @@ function createWrappedUrlResolver(projectId: string, tabId: string): WrappedUrlR
         return;
       }
       pendingUrlRequests.add(key);
-      void window.meeseex.terminals.resolveUrl(projectId, tabId, fragment).then((url) => {
+      void window.meeseek.terminals.resolveUrl(projectId, tabId, fragment).then((url) => {
         pendingUrlRequests.delete(key);
         resolvedUrls.set(key, url);
         if (url === null) {
@@ -122,12 +122,12 @@ function toBase64(buffer: ArrayBuffer): string {
 async function pasteDroppedFiles(term: Terminal, files: File[]): Promise<void> {
   const paths: string[] = [];
   for (const file of files) {
-    const existing = window.meeseex.files.pathOf(file);
+    const existing = window.meeseek.files.pathOf(file);
     if (existing) {
       paths.push(existing);
       continue;
     }
-    paths.push(await window.meeseex.files.writeTemp(file.name, toBase64(await file.arrayBuffer())));
+    paths.push(await window.meeseek.files.writeTemp(file.name, toBase64(await file.arrayBuffer())));
   }
   if (paths.length > 0) {
     // Through term.paste, like clipboard text, so it can't be misread as individual
@@ -138,7 +138,7 @@ async function pasteDroppedFiles(term: Terminal, files: File[]): Promise<void> {
 
 /** A copied screenshot has no path either — same temp-file trick, from the clipboard. */
 async function pasteClipboardImage(term: Terminal): Promise<boolean> {
-  const file = await window.meeseex.files.clipboardImage();
+  const file = await window.meeseek.files.clipboardImage();
   if (file === null) {
     return false;
   }
@@ -185,7 +185,7 @@ function createView(projectId: string, tabId: string): TerminalView {
   term.registerLinkProvider(createUrlLinkProvider(term, openUrl, createWrappedUrlResolver(projectId, tabId)));
   term.registerLinkProvider(createFileLinkProvider(term, (filePath) => openFile(projectId, filePath)));
 
-  term.onData((data) => window.meeseex.terminals.input(projectId, tabId, data));
+  term.onData((data) => window.meeseek.terminals.input(projectId, tabId, data));
 
   term.attachCustomKeyEventHandler((event) => {
     // xterm can't tell Shift+Enter from plain Enter at the data level — both arrive as "\r".
@@ -195,7 +195,7 @@ function createView(projectId: string, tabId: string): TerminalView {
       event.preventDefault();
       event.stopPropagation();
       if (!event.repeat) {
-        window.meeseex.terminals.input(projectId, tabId, "\x1b\r");
+        window.meeseek.terminals.input(projectId, tabId, "\x1b\r");
       }
       return false;
     }
@@ -248,7 +248,7 @@ export function fitTerminal(projectId: string, tabId: string): void {
     return;
   }
   view.fit.fit();
-  window.meeseex.terminals.resize(projectId, tabId, view.term.cols, view.term.rows);
+  window.meeseek.terminals.resize(projectId, tabId, view.term.cols, view.term.rows);
 }
 
 export function focusTerminal(projectId: string, tabId: string): void {

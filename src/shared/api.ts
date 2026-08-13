@@ -1,9 +1,9 @@
 import type {
   AgentId,
   AgentInfo,
-  CheckoutResult,
   CheckoutTarget,
   FileDiff,
+  GitActionResult,
   Notice,
   Project,
   RepositoryState,
@@ -14,7 +14,7 @@ import type {
 /** Removes a listener registered through one of the `on*` methods. */
 export type Unsubscribe = () => void;
 
-export interface MeeseexApi {
+export interface MeeseekApi {
   projects: {
     list(): Promise<Project[]>;
     /** Opens a folder picker; resolves null when the dialog was cancelled. */
@@ -26,7 +26,17 @@ export interface MeeseexApi {
   repository: {
     state(projectId: string): Promise<RepositoryState>;
     refresh(projectId: string): Promise<RepositoryState>;
-    checkout(projectId: string, target: CheckoutTarget): Promise<CheckoutResult>;
+    checkout(projectId: string, target: CheckoutTarget): Promise<GitActionResult>;
+    /** Creates the branch and switches to it; `startPoint` defaults to HEAD. */
+    createBranch(projectId: string, name: string, startPoint?: string): Promise<GitActionResult>;
+    renameBranch(projectId: string, from: string, to: string): Promise<GitActionResult>;
+    /** Deletes it locally, and on `remote` as well when one is named. Asks nothing — the
+        renderer has already put the question. */
+    deleteBranch(projectId: string, name: string, remote?: string): Promise<GitActionResult>;
+    /** Throws the local changes to these files away; the caller confirms first. */
+    discard(projectId: string, paths: string[]): Promise<GitActionResult>;
+    /** Appends the file, or its whole extension, to the repository's .gitignore. */
+    ignore(projectId: string, path: string, scope: "file" | "extension"): Promise<GitActionResult>;
     diff(projectId: string, path: string): Promise<FileDiff>;
     /** Fires whenever a repository's state changed (git command, file watcher or refresh). */
     onState(listener: (payload: { projectId: string; state: RepositoryState }) => void): Unsubscribe;
@@ -82,6 +92,8 @@ export interface MeeseexApi {
      * and to null when it was handed to the OS instead (or could not be opened).
      */
     openFile(projectId: string, path: string): Promise<string | null>;
+    /** Shows a repository-relative path in the OS file manager, selected. */
+    revealFile(projectId: string, path: string): Promise<void>;
   };
   /** Failures the user should see (a session that could not be renamed or deleted). */
   /** Anything transient the main process wants said — see Notice. */

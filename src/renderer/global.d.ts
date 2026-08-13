@@ -1,8 +1,8 @@
-import type { MeeseexApi } from "../shared/api";
+import type { MeeseekApi } from "../shared/api";
 
 declare global {
   interface Window {
-    meeseex: MeeseexApi;
+    meeseek: MeeseekApi;
   }
 }
 

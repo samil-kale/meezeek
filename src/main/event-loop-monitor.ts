@@ -42,13 +42,13 @@ function tally(): string {
  */
 export function startEventLoopMonitor(logFile: string): void {
   try {
-    fs.writeFileSync(logFile, `# meeseex event loop, from ${new Date().toISOString()}\n`);
+    fs.writeFileSync(logFile, `# meeseek event loop, from ${new Date().toISOString()}\n`);
   } catch (error) {
-    console.error("[meeseex] could not open the event loop log:", error);
+    console.error("[meeseek] could not open the event loop log:", error);
     return;
   }
   const append = (line: string): void => {
-    console.log(`[meeseex] ${line}`);
+    console.log(`[meeseek] ${line}`);
     fs.appendFile(logFile, `${new Date().toISOString().slice(11, 23)} ${line}\n`, () => undefined);
   };
 

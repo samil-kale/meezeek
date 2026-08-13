@@ -6,7 +6,7 @@ import { CloseIcon, PlusIcon } from "./icons";
  * A type of our own rather than text/plain: a project dragged across a terminal must not end
  * up pasted into it, and the terminal only ever reads dropped files and plain text.
  */
-const DRAG_TYPE = "application/x-meeseex-project";
+const DRAG_TYPE = "application/x-meeseek-project";
 
 interface ProjectListProps {
   projects: Project[];

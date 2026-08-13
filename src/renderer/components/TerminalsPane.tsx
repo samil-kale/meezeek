@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  AgentId,
-  AgentInfo,
-  CheckoutTarget,
-  Project,
-  RepositoryState,
-  TerminalDescriptor
-} from "../../shared/types";
+import type { AgentId, AgentInfo, Project, RepositoryState, TerminalDescriptor } from "../../shared/types";
 import { attachTerminal, disposeTerminal, fitTerminal, focusTerminal, setRevealHandler } from "../terminal-views";
 import { AgentIcon } from "./agent-icons";
+import type { BranchActions } from "./BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { GitView, type GitPaneSizes } from "./GitView";
 import { BranchIcon, CloseIcon, PlusIcon } from "./icons";
@@ -39,7 +33,8 @@ interface TerminalsPaneProps {
   state: RepositoryState;
   /** Passed straight through to the git tab, which is where the panels they size live. */
   gitSizes: GitPaneSizes;
-  onCheckout: (target: CheckoutTarget) => void;
+  /** The branch commands the git tab offers; `busy` also drives the tab strip's progress bar. */
+  branch: BranchActions;
 }
 
 function TerminalHost({ projectId, tabId, active }: { projectId: string; tabId: string; active: boolean }) {
@@ -56,7 +51,7 @@ function TerminalHost({ projectId, tabId, active }: { projectId: string; tabId: 
   return <div ref={container} className={`terminal${active ? "" : " hidden"}`} />;
 }
 
-export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }: TerminalsPaneProps) {
+export function TerminalsPane({ project, visible, state, gitSizes, branch }: TerminalsPaneProps) {
   const [tabs, setTabs] = useState<TerminalDescriptor[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -76,9 +71,9 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
   useEffect(() => {
     void (async () => {
       const [existing, available, isStarting] = await Promise.all([
-        window.meeseex.terminals.list(project.id),
-        window.meeseex.agents.list(),
-        window.meeseex.terminals.starting(project.id)
+        window.meeseek.terminals.list(project.id),
+        window.meeseek.agents.list(),
+        window.meeseek.terminals.starting(project.id)
       ]);
       setAgents(available);
       setTabs(existing);
@@ -86,7 +81,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
         setStarting(isStarting);
       }
     })();
-    return window.meeseex.terminals.onTabs((payload) => {
+    return window.meeseek.terminals.onTabs((payload) => {
       if (payload.projectId === project.id) {
         setTabs(payload.tabs);
       }
@@ -95,7 +90,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
 
   useEffect(
     () =>
-      window.meeseex.terminals.onStatus(({ projectId, tabId, status }) => {
+      window.meeseek.terminals.onStatus(({ projectId, tabId, status }) => {
         if (projectId === project.id) {
           setTabs((current) => current.map((tab) => (tab.tabId === tabId ? { ...tab, status } : tab)));
         }
@@ -105,7 +100,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
 
   useEffect(
     () =>
-      window.meeseex.terminals.onStartupProgress(({ projectId, show }) => {
+      window.meeseek.terminals.onStartupProgress(({ projectId, show }) => {
         if (projectId === project.id) {
           progressPushed.current = true;
           setStarting(show);
@@ -199,14 +194,14 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
 
   const createTab = useCallback(
     async (agentId: AgentId) => {
-      const descriptor = await window.meeseex.terminals.create(project.id, agentId);
+      const descriptor = await window.meeseek.terminals.create(project.id, agentId);
       setActiveId(descriptor.tabId);
     },
     [project.id]
   );
 
   const closeTabs = useCallback(
-    (tabIds: string[]) => void window.meeseex.terminals.close(project.id, tabIds),
+    (tabIds: string[]) => void window.meeseek.terminals.close(project.id, tabIds),
     [project.id]
   );
 
@@ -226,7 +221,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
     (tabId: string, title: string) => {
       setRenamingId(null);
       if (title.trim()) {
-        void window.meeseex.terminals.rename(project.id, tabId, title);
+        void window.meeseek.terminals.rename(project.id, tabId, title);
       }
     },
     [project.id]
@@ -358,9 +353,10 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
           </div>
           ))}
         </div>
-        {/* Only while the git tab is the one on screen: a diff it loaded on the way out is
-            nothing the user is still waiting for. */}
-        {(starting || (gitActive && gitBusy)) && (
+        {/* The one progress indicator in the window, so everything slow in this project shares
+            it. The diff only while the git tab is the one on screen: one it loaded on the way
+            out is nothing the user is still waiting for. */}
+        {(starting || branch.busy || (gitActive && gitBusy)) && (
           <div className="tab-progress">
             <div className="tab-progress-bit" />
           </div>
@@ -404,7 +400,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, onCheckout }:
         project={project}
         state={state}
         sizes={gitSizes}
-        onCheckout={onCheckout}
+        branch={branch}
         selected={selectedChange}
         onSelect={setSelectedChange}
         onBusy={setGitBusy}

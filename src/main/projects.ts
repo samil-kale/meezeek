@@ -82,7 +82,7 @@ export class ProjectStore {
     try {
       fs.writeFileSync(this.file, JSON.stringify(this.projects, null, 2), "utf8");
     } catch (error) {
-      console.error("[meeseex] could not persist projects:", error);
+      console.error("[meeseek] could not persist projects:", error);
     }
   }
 }

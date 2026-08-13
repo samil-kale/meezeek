@@ -50,7 +50,9 @@ export function DiffView({ diff, loading, onBusy }: DiffViewProps) {
     return <div className="placeholder">Select a file to see its diff.</div>;
   }
   if (diff.error) {
-    return <div className="placeholder error">{diff.error}</div>;
+    // The reason went out as a notice when the diff was read; the pane only says that there
+    // is nothing to show, so a message the user dismissed does not linger here.
+    return <div className="placeholder">Diff unavailable.</div>;
   }
   if (diff.binary) {
     return <div className="placeholder">Binary file.</div>;

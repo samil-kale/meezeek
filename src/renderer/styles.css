@@ -109,17 +109,21 @@ input:focus {
   flex: none;
 }
 
-.icon-button:hover {
+.icon-button:hover:not(:disabled) {
   background: var(--vscode-list-hoverBackground);
   opacity: 1;
 }
 
+/* Same treatment VS Code gives a disabled action — dimmed, not recolored. */
+.icon-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 /* Branch bar ----------------------------------------------------------------------------- */
 
-/* The window's bottom strip, below everything else. Positioned so it can carry the same
-   indeterminate bar as the tab strip while a checkout is running. */
+/* The window's bottom strip, below everything else. */
 .branch-bar {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -135,22 +139,11 @@ input:focus {
   font-size: 12px;
 }
 
-/* Says what is being switched to rather than what HEAD still is — set apart, because for those
-   seconds the name in this bar is not the branch you are on. */
-.branch-name.switching {
+/* Says what the branch command is doing rather than what HEAD still is — set apart, because
+   for those seconds the name in this bar is not the branch you are on. */
+.branch-name.busy {
   color: var(--vscode-descriptionForeground);
   font-style: italic;
-}
-
-/* On the bar's top edge, where the strip's own line is, rather than the bottom. */
-.branch-bar .tab-progress {
-  top: 0;
-  bottom: auto;
-}
-
-.branch-error {
-  color: var(--vscode-errorForeground);
-  font-size: 12px;
 }
 
 /* Body ----------------------------------------------------------------------------------- */
@@ -253,6 +246,16 @@ input:focus {
   min-height: 0;
 }
 
+/* A branch command is running. The branches stay readable and the filter keeps working — only
+   acting on one is off, because a second command would race the first for the index lock. */
+.branch-tree.busy .tree-item {
+  pointer-events: none;
+}
+
+.branch-tree.busy .tree {
+  cursor: progress;
+}
+
 .branch-filter {
   position: relative;
   padding: 8px 6px;
@@ -280,6 +283,18 @@ input:focus {
 
 .tree-section + .tree-section {
   margin-top: 6px;
+}
+
+/* Holds the section's own action, the way VS Code puts one in a view's title row. */
+.tree-header-row {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+
+.tree-header-row .tree-header {
+  flex: 1;
+  min-width: 0;
 }
 
 .tree-header {
@@ -323,6 +338,14 @@ input:focus {
 .tree-item.current {
   font-weight: 600;
   color: var(--vscode-gitDecoration-untrackedResourceForeground);
+}
+
+/* A name being typed takes the row it will become, indented like the branches around it. */
+.tree-input {
+  width: calc(100% - 26px);
+  margin: 1px 6px 1px 20px;
+  padding: 1px 4px;
+  font-size: 12px;
 }
 
 .tree-icon {
@@ -793,10 +816,6 @@ input:focus {
   font-size: 12px;
 }
 
-.placeholder.error {
-  color: var(--vscode-errorForeground);
-}
-
 .empty-workspace {
   display: flex;
   flex-direction: column;
@@ -819,6 +838,80 @@ input:focus {
 
 .button:hover {
   background: var(--vscode-button-hoverBackground);
+}
+
+/* The other button of a pair, where the first one is the one being suggested. */
+.button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* Dialog --------------------------------------------------------------------------------- */
+
+/* Covers the window while a question stands, so nothing behind it can be clicked or dragged
+   into a second one. */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 40%);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  font-size: 13px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow);
+}
+
+.dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A path or a branch name breaks anywhere rather than widening the box. */
+.dialog-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dialog-detail {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.dialog-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* The one being suggested sits last, where the platform's own dialogs put it. */
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* Notices -------------------------------------------------------------------------------- */

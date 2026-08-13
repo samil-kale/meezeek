@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type {
-  CheckoutResult,
   CheckoutTarget,
   ChangeStatus,
   DiffLine,
   FileChange,
   FileDiff,
+  GitActionResult,
   RemoteInfo,
   RepositoryState
 } from "../shared/types";
@@ -221,25 +221,129 @@ export async function readState(cwd: string): Promise<RepositoryState> {
   }
 }
 
-export async function checkout(cwd: string, target: CheckoutTarget, localBranches: string[]): Promise<CheckoutResult> {
-  // A remote branch is checked out by name once a local branch of that name exists;
-  // otherwise git creates it as a tracking branch.
-  const args =
-    target.remote === undefined || localBranches.includes(target.name)
-      ? ["switch", target.name]
-      : ["switch", "--track", `${target.remote}/${target.name}`];
-
+/**
+ * One git command, reported the way the UI wants it: a non-zero exit is the command's own
+ * message, and a git that could not be started is the thrown error's.
+ */
+async function run(cwd: string, args: string[]): Promise<GitActionResult> {
   try {
-    let result = await git(cwd, args);
-    if (result.code !== 0 && args.includes("--track")) {
-      // The local branch may have appeared since the last refresh — then a plain switch
-      // is what was needed, and its own error is the one worth reporting.
-      result = await git(cwd, ["switch", target.name]);
-    }
+    const result = await git(cwd, args);
     if (result.code === 0) {
       return { ok: true };
     }
     return { ok: false, error: (result.stderr || result.stdout).trim() };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function checkout(cwd: string, target: CheckoutTarget, localBranches: string[]): Promise<GitActionResult> {
+  // A remote branch is checked out by name once a local branch of that name exists;
+  // otherwise git creates it as a tracking branch.
+  if (target.remote === undefined || localBranches.includes(target.name)) {
+    return run(cwd, ["switch", target.name]);
+  }
+  const tracked = await run(cwd, ["switch", "--track", `${target.remote}/${target.name}`]);
+  // The local branch may have appeared since the last refresh — then a plain switch is what
+  // was needed, and its own error is the one worth reporting.
+  return tracked.ok ? tracked : run(cwd, ["switch", target.name]);
+}
+
+/**
+ * Creates a branch and switches to it, which is what GitHub Desktop's "Create branch" does —
+ * a branch you make and do not go to is not what anyone asked for. Without a start point git
+ * branches off HEAD; a remote one like "origin/main" also sets up tracking.
+ */
+export function createBranch(cwd: string, name: string, startPoint?: string): Promise<GitActionResult> {
+  return run(cwd, startPoint ? ["switch", "--create", name, startPoint] : ["switch", "--create", name]);
+}
+
+/**
+ * Force-deletes, like GitHub Desktop: the user confirmed the branch by name in a dialog that
+ * says it cannot be undone, and refusing an unmerged branch afterwards only sends them to a
+ * terminal to repeat themselves.
+ */
+export function deleteBranch(cwd: string, name: string): Promise<GitActionResult> {
+  return run(cwd, ["branch", "--delete", "--force", name]);
+}
+
+/** The only command here that goes to the network — see the CLAUDE.md note on that. */
+export function deleteRemoteBranch(cwd: string, remote: string, name: string): Promise<GitActionResult> {
+  return run(cwd, ["push", remote, "--delete", name]);
+}
+
+export function renameBranch(cwd: string, from: string, to: string): Promise<GitActionResult> {
+  return run(cwd, ["branch", "--move", from, to]);
+}
+
+export interface DiscardTargets {
+  /** Paths that exist in HEAD — index and worktree both go back to what it holds. */
+  restore: string[];
+  /** Paths that do not exist in HEAD; the file is already in the trash, this drops the index
+      entry that a staged addition left behind. */
+  drop: string[];
+}
+
+/**
+ * Throws away local changes. Files HEAD does not know are the caller's to move to the trash
+ * first (GitHub Desktop's rule: nothing that only exists locally is deleted outright), which
+ * is why this takes them already sorted rather than the changes themselves.
+ */
+export async function discard(cwd: string, targets: DiscardTargets): Promise<GitActionResult> {
+  if (targets.drop.length > 0) {
+    // --ignore-unmatch: a path that was never staged has no index entry to remove, and that
+    // is a success here, not a failure.
+    const dropped = await run(cwd, ["rm", "--cached", "--force", "--ignore-unmatch", "--", ...targets.drop]);
+    if (!dropped.ok) {
+      return dropped;
+    }
+  }
+  if (targets.restore.length === 0) {
+    return { ok: true };
+  }
+  return run(cwd, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...targets.restore]);
+}
+
+/** The characters a gitignore line reads as syntax rather than as part of a name. */
+function escapeIgnorePattern(pattern: string): string {
+  return pattern.replace(/[\\!#*?[\]]/g, "\\$&");
+}
+
+export function ignoreRuleForPath(filePath: string): string {
+  return escapeIgnorePattern(filePath);
+}
+
+/** "Ignore all .log files", GitHub Desktop's second ignore action; undefined without one. */
+export function ignoreRuleForExtension(filePath: string): string | undefined {
+  const extension = path.extname(filePath);
+  return extension ? `*${escapeIgnorePattern(extension)}` : undefined;
+}
+
+/**
+ * Appends rules to the repository's .gitignore, skipping any it already holds verbatim.
+ * Written in place rather than through a temp file and a rename: this is a working tree file
+ * the user owns, written once per menu click, and a temp file beside it would show up in the
+ * very list this was started from.
+ */
+export async function appendIgnoreRules(cwd: string, rules: string[]): Promise<GitActionResult> {
+  const file = path.join(cwd, ".gitignore");
+  try {
+    const existing = await fs.readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return "";
+      }
+      throw error;
+    });
+    const held = new Set(existing.split(/\r?\n/).map((line) => line.trim()));
+    const missing = rules.filter((rule) => !held.has(rule));
+    if (missing.length === 0) {
+      return { ok: true };
+    }
+    // Match the file's own line ending, and start on a line of its own.
+    const newline = existing.includes("\r\n") ? "\r\n" : "\n";
+    const separator = existing.length === 0 || existing.endsWith("\n") ? "" : newline;
+    await fs.appendFile(file, `${separator}${missing.join(newline)}${newline}`, "utf8");
+    return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
