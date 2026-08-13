@@ -40,6 +40,8 @@ export function App() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => window.meeseex.onNotice(({ message }) => setError(message)), []);
+
   const addProject = useCallback(async () => {
     const project = await window.meeseex.projects.add();
     if (!project) {

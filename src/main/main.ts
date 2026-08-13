@@ -1,7 +1,6 @@
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { listAgents } from "../agents";
-import { resolveRoot } from "./git";
 import type {
   AgentId,
   CheckoutResult,
@@ -12,9 +11,10 @@ import type {
   TerminalDescriptor,
   TerminalStatus
 } from "../shared/types";
+import { resolveRoot } from "./git";
 import { ProjectStore } from "./projects";
 import { RepositoryManager } from "./repository";
-import { TerminalService } from "./terminals";
+import { SessionManagerRegistry } from "./session-manager";
 
 /** Terminal output arrives in many small chunks; one IPC message per chunk is wasteful. */
 const OUTPUT_FLUSH_MS = 8;
@@ -27,27 +27,35 @@ function send(channel: string, payload: unknown): void {
   }
 }
 
-const pendingOutput = new Map<string, string>();
+const pendingOutput = new Map<string, { projectId: string; tabId: string; data: string }>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
 function flushOutput(): void {
   flushTimer = undefined;
-  for (const [id, data] of pendingOutput) {
-    send("terminal:output", { id, data });
+  for (const chunk of pendingOutput.values()) {
+    send("terminal:output", chunk);
   }
   pendingOutput.clear();
 }
 
-function queueOutput(id: string, data: string): void {
-  pendingOutput.set(id, (pendingOutput.get(id) ?? "") + data);
+function queueOutput(projectId: string, tabId: string, data: string): void {
+  const key = `${projectId}\u0000${tabId}`;
+  const pending = pendingOutput.get(key);
+  if (pending) {
+    pending.data += data;
+  } else {
+    pendingOutput.set(key, { projectId, tabId, data });
+  }
   flushTimer ??= setTimeout(flushOutput, OUTPUT_FLUSH_MS);
 }
 
 const store = new ProjectStore(app.getPath("userData"));
 const repositories = new RepositoryManager((projectId, state) => send("repo:state-changed", { projectId, state }));
-const terminals = new TerminalService({
+const sessions = new SessionManagerRegistry({
+  onTabs: (projectId, tabs) => send("terminal:tabs", { projectId, tabs }),
   onOutput: queueOutput,
-  onStatus: (id, status: TerminalStatus) => send("terminal:status", { id, status })
+  onStatus: (projectId, tabId, status: TerminalStatus) => send("terminal:status", { projectId, tabId, status }),
+  onNotice: (message) => send("app:notice", { message })
 });
 
 const MISSING_REPOSITORY: RepositoryState = {
@@ -58,6 +66,11 @@ const MISSING_REPOSITORY: RepositoryState = {
   changes: [],
   error: "Project not found"
 };
+
+function openProject(project: Project): void {
+  repositories.open(project);
+  sessions.open(project);
+}
 
 function registerIpc(): void {
   ipcMain.handle("projects:list", (): Project[] => store.list());
@@ -74,12 +87,12 @@ function registerIpc(): void {
     // Picking a subdirectory of a repository opens the repository itself: git reports every
     // path relative to the root, and the root is what branches and status describe.
     const project = store.add((await resolveRoot(directory)) ?? directory);
-    repositories.open(project);
+    openProject(project);
     return project;
   });
 
   ipcMain.handle("projects:remove", (_event, projectId: string): void => {
-    terminals.closeProject(projectId);
+    sessions.close(projectId);
     repositories.close(projectId);
     store.remove(projectId);
   });
@@ -108,22 +121,32 @@ function registerIpc(): void {
     return repository.diff(filePath);
   });
 
-  ipcMain.handle("terminal:list", (_event, projectId: string): TerminalDescriptor[] => terminals.list(projectId));
-
-  ipcMain.handle("terminal:create", (_event, projectId: string, agentId: AgentId): TerminalDescriptor => {
-    const project = store.get(projectId);
-    if (!project) {
-      throw new Error(`Unknown project: ${projectId}`);
-    }
-    return terminals.create(project, agentId);
+  ipcMain.handle("terminal:list", (_event, projectId: string): TerminalDescriptor[] => {
+    return sessions.get(projectId)?.snapshot() ?? [];
   });
 
-  ipcMain.handle("terminal:close", (_event, terminalId: string): void => terminals.close(terminalId));
+  ipcMain.handle("terminal:create", (_event, projectId: string, agentId: AgentId): TerminalDescriptor => {
+    const manager = sessions.get(projectId);
+    if (!manager) {
+      throw new Error(`Unknown project: ${projectId}`);
+    }
+    return manager.createTab(agentId);
+  });
 
-  ipcMain.on("terminal:input", (_event, terminalId: string, data: string) => terminals.input(terminalId, data));
+  ipcMain.handle("terminal:close", async (_event, projectId: string, tabIds: string[]): Promise<void> => {
+    await sessions.get(projectId)?.closeTabs(tabIds);
+  });
 
-  ipcMain.on("terminal:resize", (_event, terminalId: string, cols: number, rows: number) => {
-    terminals.resize(terminalId, cols, rows);
+  ipcMain.handle("terminal:rename", async (_event, projectId: string, tabId: string, title: string): Promise<void> => {
+    await sessions.get(projectId)?.renameTab(tabId, title);
+  });
+
+  ipcMain.on("terminal:input", (_event, projectId: string, tabId: string, data: string) => {
+    sessions.get(projectId)?.write(tabId, data);
+  });
+
+  ipcMain.on("terminal:resize", (_event, projectId: string, tabId: string, cols: number, rows: number) => {
+    sessions.get(projectId)?.handleResize(tabId, cols, rows);
   });
 
   ipcMain.handle("agents:list", () => listAgents());
@@ -169,7 +192,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   registerIpc();
   for (const project of store.list()) {
-    repositories.open(project);
+    openProject(project);
   }
   createWindow();
 
@@ -187,6 +210,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  terminals.disposeAll();
+  sessions.disposeAll();
   repositories.disposeAll();
 });

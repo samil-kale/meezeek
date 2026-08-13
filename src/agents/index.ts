@@ -16,5 +16,5 @@ export function getAgent(id: AgentId): AgentDefinition {
 }
 
 export function listAgents(): AgentInfo[] {
-  return AGENTS.map(({ id, displayName }) => ({ id, displayName }));
+  return AGENTS.map(({ id, displayName, sessions }) => ({ id, displayName, hasSessions: sessions !== undefined }));
 }

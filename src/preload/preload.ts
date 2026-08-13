@@ -23,15 +23,18 @@ const api: MeeseexApi = {
   terminals: {
     list: (projectId) => ipcRenderer.invoke("terminal:list", projectId),
     create: (projectId, agentId) => ipcRenderer.invoke("terminal:create", projectId, agentId),
-    close: (terminalId) => ipcRenderer.invoke("terminal:close", terminalId),
-    input: (terminalId, data) => ipcRenderer.send("terminal:input", terminalId, data),
-    resize: (terminalId, cols, rows) => ipcRenderer.send("terminal:resize", terminalId, cols, rows),
+    close: (projectId, tabIds) => ipcRenderer.invoke("terminal:close", projectId, tabIds),
+    rename: (projectId, tabId, title) => ipcRenderer.invoke("terminal:rename", projectId, tabId, title),
+    input: (projectId, tabId, data) => ipcRenderer.send("terminal:input", projectId, tabId, data),
+    resize: (projectId, tabId, cols, rows) => ipcRenderer.send("terminal:resize", projectId, tabId, cols, rows),
+    onTabs: (listener) => subscribe("terminal:tabs", listener),
     onOutput: (listener) => subscribe("terminal:output", listener),
     onStatus: (listener) => subscribe("terminal:status", listener)
   },
   agents: {
     list: () => ipcRenderer.invoke("agents:list")
-  }
+  },
+  onNotice: (listener) => subscribe("app:notice", listener)
 };
 
 contextBridge.exposeInMainWorld("meeseex", api);

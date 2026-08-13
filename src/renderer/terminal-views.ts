@@ -11,22 +11,38 @@ interface TerminalView {
 /**
  * xterm instances live outside React: terminal output is written straight to them instead of
  * going through component state, and they survive view and project switches unchanged.
+ * Tab ids are only unique within their project, so views are keyed by both.
  */
 const views = new Map<string, TerminalView>();
 
-window.meeseex.terminals.onOutput(({ id, data }) => views.get(id)?.term.write(data));
-
-function isModifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
-  return navigator.platform.startsWith("Mac") ? event.metaKey : event.ctrlKey;
+function viewKey(projectId: string, tabId: string): string {
+  return `${projectId} ${tabId}`;
 }
 
-function createView(id: string): TerminalView {
+window.meeseex.terminals.onOutput(({ projectId, tabId, data }) =>
+  views.get(viewKey(projectId, tabId))?.term.write(data)
+);
+
+function isMac(): boolean {
+  return navigator.platform.startsWith("Mac");
+}
+
+function isModifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
+  return isMac() ? event.metaKey : event.ctrlKey;
+}
+
+/** What VS Code's own `terminal.integrated.fontSize` defaults to, per platform. */
+function defaultFontSize(): number {
+  return isMac() ? 12 : 14;
+}
+
+function createView(projectId: string, tabId: string): TerminalView {
   const fontFamily =
     getComputedStyle(document.documentElement).getPropertyValue("--vscode-editor-font-family").trim() || "monospace";
 
   const term = new Terminal({
     fontFamily,
-    fontSize: 13,
+    fontSize: defaultFontSize(),
     theme: buildXtermTheme(),
     scrollback: 4000,
     // The scrollbar is hidden in CSS, but FitAddon's column math still reserves pixel width
@@ -41,7 +57,7 @@ function createView(id: string): TerminalView {
   // ignores without this addon — the CLI's copy would silently go nowhere.
   term.loadAddon(new ClipboardAddon());
 
-  term.onData((data) => window.meeseex.terminals.input(id, data));
+  term.onData((data) => window.meeseex.terminals.input(projectId, tabId, data));
 
   term.attachCustomKeyEventHandler((event) => {
     // xterm can't tell Shift+Enter from plain Enter at the data level — both arrive as "\r".
@@ -51,7 +67,7 @@ function createView(id: string): TerminalView {
       event.preventDefault();
       event.stopPropagation();
       if (!event.repeat) {
-        window.meeseex.terminals.input(id, "\x1b\r");
+        window.meeseex.terminals.input(projectId, tabId, "\x1b\r");
       }
       return false;
     }
@@ -69,36 +85,37 @@ function createView(id: string): TerminalView {
   });
 
   const view: TerminalView = { term, fit };
-  views.set(id, view);
+  views.set(viewKey(projectId, tabId), view);
   return view;
 }
 
-export function attachTerminal(id: string, container: HTMLElement): void {
-  const view = views.get(id) ?? createView(id);
+export function attachTerminal(projectId: string, tabId: string, container: HTMLElement): void {
+  const view = views.get(viewKey(projectId, tabId)) ?? createView(projectId, tabId);
   if (view.term.element?.parentElement !== container) {
     view.term.open(container);
   }
 }
 
 /** Refits the terminal to its container and reports the new size — this starts its process. */
-export function fitTerminal(id: string): void {
-  const view = views.get(id);
+export function fitTerminal(projectId: string, tabId: string): void {
+  const view = views.get(viewKey(projectId, tabId));
   if (!view) {
     return;
   }
   view.fit.fit();
-  window.meeseex.terminals.resize(id, view.term.cols, view.term.rows);
+  window.meeseex.terminals.resize(projectId, tabId, view.term.cols, view.term.rows);
 }
 
-export function focusTerminal(id: string): void {
-  views.get(id)?.term.focus();
+export function focusTerminal(projectId: string, tabId: string): void {
+  views.get(viewKey(projectId, tabId))?.term.focus();
 }
 
-export function disposeTerminal(id: string): void {
-  const view = views.get(id);
+export function disposeTerminal(projectId: string, tabId: string): void {
+  const key = viewKey(projectId, tabId);
+  const view = views.get(key);
   if (!view) {
     return;
   }
-  views.delete(id);
+  views.delete(key);
   view.term.dispose();
 }

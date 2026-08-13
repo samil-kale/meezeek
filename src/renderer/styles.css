@@ -73,22 +73,31 @@ input:focus {
   -webkit-app-region: no-drag;
 }
 
-.project-tab {
+/* Project tabs and session tabs are the same kind of control and share one look; only
+   height and minimum width differ, since the title bar is taller than the tab strip. */
+.project-tab,
+.terminal-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 10px;
-  min-width: 120px;
   max-width: 220px;
+  font-size: 12px;
   color: var(--vscode-tab-inactiveForeground);
   background: var(--vscode-tab-inactiveBackground);
   border-right: 1px solid var(--vscode-tab-border);
   cursor: pointer;
 }
 
-.project-tab.active {
+.project-tab.active,
+.terminal-tab.active {
   color: var(--vscode-tab-activeForeground);
   background: var(--vscode-tab-activeBackground);
+  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
+}
+
+.project-tab {
+  min-width: 120px;
 }
 
 .project-tab-label,
@@ -311,26 +320,19 @@ input:focus {
   flex: none;
   background: var(--vscode-tab-inactiveBackground);
   border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* Only the tabs scroll: an overflow container would clip the new-session menu below it,
+   and the + button stays reachable however many tabs there are. */
+.terminal-tab-strip {
+  display: flex;
+  align-items: stretch;
+  /* Only as wide as its tabs, so the + button sits right behind the last one; it shrinks
+     and scrolls once the tabs no longer fit. */
+  flex: 0 1 auto;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-}
-
-.terminal-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  max-width: 200px;
-  font-size: 12px;
-  color: var(--vscode-tab-inactiveForeground);
-  border-right: 1px solid var(--vscode-tab-border);
-  cursor: pointer;
-}
-
-.terminal-tab.active {
-  color: var(--vscode-tab-activeForeground);
-  background: var(--vscode-tab-activeBackground);
-  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
 }
 
 .terminal-tab.inactive .terminal-tab-label {
@@ -338,10 +340,27 @@ input:focus {
   text-decoration: line-through;
 }
 
+.terminal-tab.unavailable {
+  color: var(--vscode-errorForeground);
+}
+
+.terminal-tab-icon {
+  flex: none;
+  opacity: 0.9;
+}
+
+.tab-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+
 .new-terminal {
   position: relative;
   display: flex;
   align-items: center;
+  flex: none;
   padding: 0 4px;
 }
 

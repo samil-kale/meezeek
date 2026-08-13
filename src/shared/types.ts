@@ -3,6 +3,8 @@ export type AgentId = "claude" | "opencode" | "shell";
 export interface AgentInfo {
   id: AgentId;
   displayName: string;
+  /** Whether this agent persists sessions; the shell does not, so its tabs are just terminals. */
+  hasSessions: boolean;
 }
 
 export interface Project {
@@ -73,12 +75,20 @@ export interface CheckoutTarget {
   remote?: string;
 }
 
-export type TerminalStatus = "starting" | "running" | "exited" | "error";
+export type TerminalStatus = "missing" | "ready" | "running" | "stopped" | "error";
 
 export interface TerminalDescriptor {
-  id: string;
+  /** Unique within its project; equals the agent's session id for a restored tab. */
+  tabId: string;
   projectId: string;
   agentId: AgentId;
+  /** Session title; "" makes the UI show a placeholder. */
   title: string;
   status: TerminalStatus;
+  /** Whether the agent has persisted a session for this tab yet — nothing to rename if not. */
+  hasSession: boolean;
+  /** Last activity, ms since epoch; absent for tabs without a session. */
+  updatedAt?: number;
+  /** Creation time, ms since epoch; absent for tabs without a session. */
+  createdAt?: number;
 }
