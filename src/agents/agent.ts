@@ -41,6 +41,28 @@ export interface SessionProvider {
   watch?(executable: string, cwd: string, onChange: () => void): () => void;
 }
 
+/** Where an agent may write what it needs to set itself up for one repository. */
+export interface AgentPaths {
+  /**
+   * This agent's own scratch directory for this repository, already created. Per repository
+   * because meeseex has several open at once and what is generated in there (notification
+   * texts, hook settings) names the repository it belongs to.
+   */
+  agentDir: string;
+  /**
+   * The repository's context file, kept current by meeseex — the agent's job is only to
+   * arrange for it to reach the model. Blank whenever there is nothing to say.
+   */
+  contextFile: string;
+  /**
+   * The files the context file points at rather than inlining. They sit outside the
+   * repository, so an agent that gates reads by path has to grant these explicitly.
+   */
+  contextReadPaths: string[];
+  /** Meeseex's user-data root, for anything an agent has to install machine-wide. */
+  storageRoot: string;
+}
+
 /**
  * Result of an agent's async spawn preparation — see AgentDefinition.prepareSpawn. `args`
  * and `env` are merged into every session the manager starts, `dispose` runs at shutdown.
@@ -73,7 +95,37 @@ export interface AgentDefinition {
   /**
    * Async setup that has to finish before any session of this agent is spawned, for agents
    * whose spawn arguments aren't known up front — opencode brings up the server its TUI
-   * then attaches to, and only then knows the URL.
+   * then attaches to and only then knows the URL, and Claude Code's hooks are generated
+   * into a settings file it is pointed at.
+   *
+   * It is also where an agent arranges for the repository's context file to reach the model,
+   * which each does its own way — see AgentPaths.
    */
-  prepareSpawn?: (executable: string, cwd: string) => Promise<SpawnPreparation>;
+  prepareSpawn?: (executable: string, cwd: string, paths: AgentPaths) => Promise<SpawnPreparation>;
+  /**
+   * Completes a url the agent's TUI wrapped across rows, from the agent's own record of
+   * what it printed — the terminal buffer can't be told apart from a line that merely ends
+   * in a url (opencode breaks a long token at the last "." that fits, so not even the
+   * right edge marks it). Returns the full url that starts with `prefix`, or undefined
+   * when nothing is known; the renderer then keeps the fragment as it is.
+   *
+   * Called only when the user holds the modifier over such a url, at most once per
+   * fragment, so an implementation may go over HTTP — but must not throw.
+   */
+  resolveUrlPrefix?: (executable: string, cwd: string, sessionId: string, prefix: string) => Promise<string | undefined>;
+  /**
+   * A factory (not the predicate itself!) for the "is this session's CLI ready yet" check —
+   * called once per session start, so each session gets its own fresh, isolated predicate
+   * instead of carrying over one that already passed. The predicate sees each output chunk
+   * (and the ms elapsed since that session started); once it returns true, the progress bar
+   * under the tab strip hides. The CLI's real output keeps flowing to the terminal the whole
+   * time regardless — some CLIs query the terminal for capabilities like its background
+   * colour right at start and need a timely answer, which withholding output would break.
+   *
+   * There's no actual readiness signal to check instead (no port, no log line, no flag), so
+   * this is necessarily a best-effort guess at the CLI's undocumented output behaviour —
+   * which is why the tuning lives per agent and not in the shared terminal layer. Omitted
+   * for agents that are up as soon as they are spawned (the shell).
+   */
+  createIsSessionReady?: () => (chunk: string, elapsedMs: number) => boolean;
 }

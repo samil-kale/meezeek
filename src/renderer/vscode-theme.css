@@ -12,6 +12,7 @@
   --vscode-descriptionForeground: #9d9d9d;
   --vscode-errorForeground: #f85149;
   --vscode-focusBorder: #0078d4;
+  --vscode-sash-hoverBorder: #0078d4;
 
   --vscode-editor-background: #1f1f1f;
   --vscode-editor-foreground: #cccccc;
@@ -22,6 +23,7 @@
   --vscode-sideBar-foreground: #cccccc;
   --vscode-sideBarSectionHeader-foreground: #cccccc;
   --vscode-titleBar-activeBackground: #181818;
+  --vscode-titleBar-activeForeground: #cccccc;
 
   --vscode-panel-background: #181818;
   --vscode-panel-border: #2b2b2b;
@@ -51,6 +53,9 @@
   --vscode-menu-border: #454545;
   --vscode-menu-selectionBackground: #0078d4;
   --vscode-menu-selectionForeground: #ffffff;
+  --vscode-menu-separatorBackground: #454545;
+
+  --vscode-progressBar-background: #0078d4;
 
   --vscode-scrollbarSlider-background: #79797966;
   --vscode-scrollbarSlider-hoverBackground: #646464b3;

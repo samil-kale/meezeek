@@ -1,11 +1,48 @@
+import { useEffect, useState } from "react";
+import type { ThemedToken } from "shiki/core";
 import type { FileDiff } from "../../shared/types";
+import { highlightDiff } from "../diff-highlight";
 
 interface DiffViewProps {
   diff: FileDiff | null;
   loading: boolean;
+  /**
+   * Reports both waits this view goes through — reading the diff and coloring it — so the tab
+   * strip can show them. It is the only place that knows when the second one is over.
+   */
+  onBusy: (busy: boolean) => void;
 }
 
-export function DiffView({ diff, loading }: DiffViewProps) {
+export function DiffView({ diff, loading, onBusy }: DiffViewProps) {
+  /** One token list per line of `diff`, once the grammar has been loaded and run. */
+  const [colored, setColored] = useState<(ThemedToken[] | undefined)[]>([]);
+  const [highlighting, setHighlighting] = useState(false);
+
+  // Colors arrive after the diff itself: bringing up the highlighter and its grammar is
+  // asynchronous, so the diff is on screen as plain text first and repaints once.
+  useEffect(() => {
+    setColored([]);
+    setHighlighting(diff !== null);
+    if (!diff) {
+      return;
+    }
+    let cancelled = false;
+    void highlightDiff(diff).then((tokens) => {
+      if (cancelled) {
+        return;
+      }
+      if (tokens) {
+        setColored(tokens);
+      }
+      setHighlighting(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [diff]);
+
+  useEffect(() => onBusy(loading || highlighting), [loading, highlighting, onBusy]);
+
   if (loading) {
     return <div className="placeholder">Loading diff...</div>;
   }
@@ -31,7 +68,13 @@ export function DiffView({ diff, loading }: DiffViewProps) {
             <span className="diff-gutter">{line.oldLine ?? ""}</span>
             <span className="diff-gutter">{line.newLine ?? ""}</span>
             <span className="diff-marker">{line.type === "add" ? "+" : line.type === "del" ? "-" : ""}</span>
-            <span className="diff-text">{line.text}</span>
+            <span className="diff-text">
+              {colored[index]?.map((token, position) => (
+                <span key={position} style={{ color: token.color }}>
+                  {token.content}
+                </span>
+              )) ?? line.text}
+            </span>
           </div>
         ))}
         {diff.truncated && <div className="placeholder">Diff truncated — open the file in your editor to see the rest.</div>}

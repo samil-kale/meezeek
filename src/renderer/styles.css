@@ -44,72 +44,57 @@ input:focus {
   border-color: var(--vscode-focusBorder);
 }
 
+/* Scrollbars, VS Code's way: no arrows, no track of their own, and a slider translucent
+   enough to read the content through. Declared once for the document — every scrollable pane
+   wants the same ones. Where a pane wants none at all it hides them itself. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+}
+
 .app {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-/* Title bar with the project tabs -------------------------------------------------------- */
+/* Title bar ------------------------------------------------------------------------------ */
 
+/* Carries the app name and, more importantly, the window's drag region and the space the
+   platform's window controls (drawn by Electron's title bar overlay) need. */
 .titlebar {
   display: flex;
-  align-items: flex-end;
-  height: 40px;
+  align-items: center;
+  /* VS Code's own title bar height when the window controls overlay is in use. */
+  height: 35px;
   flex: none;
+  padding: 0 12px;
   background: var(--vscode-titleBar-activeBackground);
-  border-bottom: 1px solid var(--vscode-panel-border);
-  /* Keeps the platform's window controls (drawn by Electron's title bar overlay) clear. */
-  padding-right: 150px;
   -webkit-app-region: drag;
 }
 
-.project-tabs {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-app-region: no-drag;
-}
-
-/* Project tabs and session tabs are the same kind of control and share one look; only
-   height and minimum width differ, since the title bar is taller than the tab strip. */
-.project-tab,
-.terminal-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  max-width: 220px;
-  font-size: 12px;
-  color: var(--vscode-tab-inactiveForeground);
-  background: var(--vscode-tab-inactiveBackground);
-  border-right: 1px solid var(--vscode-tab-border);
-  cursor: pointer;
-}
-
-.project-tab.active,
-.terminal-tab.active {
-  color: var(--vscode-tab-activeForeground);
-  background: var(--vscode-tab-activeBackground);
-  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
-}
-
-.project-tab {
-  min-width: 120px;
-}
-
-.project-tab-label,
-.terminal-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-add {
-  align-self: center;
-  margin-left: 6px;
+.titlebar-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--vscode-titleBar-activeForeground);
 }
 
 .icon-button {
@@ -131,6 +116,7 @@ input:focus {
 
 /* Branch bar ----------------------------------------------------------------------------- */
 
+/* The window's bottom strip, below everything else. */
 .branch-bar {
   display: flex;
   align-items: center;
@@ -140,7 +126,7 @@ input:focus {
   flex: none;
   padding: 0 8px;
   background: var(--vscode-editor-background);
-  border-bottom: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .branch-name {
@@ -154,10 +140,14 @@ input:focus {
 
 /* Body ----------------------------------------------------------------------------------- */
 
+/* Carries the line under the title bar, rather than the title bar carrying it itself: with
+   border-box sizing that border would sit inside the title bar's 35px, which is exactly the
+   strip Electron's window controls overlay paints over. Here it is clear of it. */
 .body {
   display: flex;
   flex: 1;
   min-height: 0;
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .content {
@@ -168,48 +158,69 @@ input:focus {
   background: var(--vscode-editor-background);
 }
 
-/* Sidebar -------------------------------------------------------------------------------- */
+/* Project list --------------------------------------------------------------------------- */
 
-.sidebar {
+/* Width comes from the sash beside it — the default and the limits it can be dragged to live
+   with the state, in App. Same for the two panels of the git tab below. */
+.project-list {
   display: flex;
   flex-direction: column;
-  width: 240px;
   flex: none;
   background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-panel-border);
 }
 
-.sidebar-nav {
+.project-list-header {
   display: flex;
-  flex-direction: column;
-  padding: 6px;
-  gap: 2px;
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-
-.sidebar-nav-item {
-  padding: 5px 8px;
-  text-align: left;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 5px 6px 5px 10px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.4px;
-  border-left: 2px solid transparent;
-  border-radius: 2px;
-  color: var(--vscode-sideBar-foreground);
+  letter-spacing: 0.3px;
+  color: var(--vscode-sideBarSectionHeader-foreground);
 }
 
-.sidebar-nav-item:hover:not(:disabled) {
+.project-list-items {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.project-item:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-.sidebar-nav-item.active {
-  background: var(--vscode-list-inactiveSelectionBackground);
-  border-left-color: var(--vscode-focusBorder);
+.project-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
 }
 
-.sidebar-nav-item:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* Takes the leftover width, so the close button stays at the row's right edge instead of
+   following the label. */
+.project-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Git tab -------------------------------------------------------------------------------- */
+
+.branch-tree {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
 }
 
 .branch-filter {
@@ -309,17 +320,47 @@ input:focus {
   min-width: 0;
 }
 
-.pane-hidden {
-  display: none;
-}
-
 .terminal-tabs {
+  position: relative;
   display: flex;
   align-items: stretch;
-  height: 30px;
+  /* VS Code's own editor tab height. */
+  height: 35px;
   flex: none;
   background: var(--vscode-tab-inactiveBackground);
   border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* Indeterminate: a CLI's startup reports no progress, only that it is or isn't done. */
+.tab-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+}
+
+.tab-progress-bit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 2%;
+  background: var(--vscode-progressBar-background);
+  animation: tab-progress-loop 2s linear infinite;
+}
+
+@keyframes tab-progress-loop {
+  0% {
+    transform: translateX(0%) scaleX(1);
+  }
+  50% {
+    transform: translateX(2500%) scaleX(3);
+  }
+  100% {
+    transform: translateX(4900%) scaleX(1);
+  }
 }
 
 /* Only the tabs scroll: an overflow container would clip the new-session menu below it,
@@ -333,6 +374,43 @@ input:focus {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+/* The tabs scroll by wheel and by the arrow keys, never by a bar of their own — and a
+   ::-webkit-scrollbar rule elsewhere in the file outweighs scrollbar-width above. */
+.terminal-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Less on the right: the close button carries 4px of its own around the glyph. */
+  padding: 0 4px 0 10px;
+  max-width: 220px;
+  font-size: 12px;
+  color: var(--vscode-tab-inactiveForeground);
+  background: var(--vscode-tab-inactiveBackground);
+  border-right: 1px solid var(--vscode-tab-border);
+  cursor: pointer;
+}
+
+.terminal-tab.active {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-tab-activeBackground);
+  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
+}
+
+/* No close button to fill it out, so the space one would take is padding instead. */
+.terminal-tab.git {
+  padding-right: 16px;
+}
+
+.terminal-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-tab.inactive .terminal-tab-label {
@@ -391,6 +469,47 @@ input:focus {
   color: var(--vscode-menu-selectionForeground);
 }
 
+/* Anchored at the pointer, so fixed rather than positioned within any pane. */
+.context-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 160px;
+  padding: 4px 0;
+  font-size: 12px;
+  background: var(--vscode-menu-background);
+  color: var(--vscode-menu-foreground);
+  border: 1px solid var(--vscode-menu-border);
+  border-radius: 5px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 40%);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  height: 2em;
+  padding: 0 26px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.context-menu-item:not(.disabled):hover {
+  background: var(--vscode-menu-selectionBackground);
+  color: var(--vscode-menu-selectionForeground);
+}
+
+/* Same treatment VS Code gives a disabled menu action — dimmed, not recolored. */
+.context-menu-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* VS Code's group separator: a full-width hairline, not a row of its own. */
+.context-menu-separator {
+  height: 0;
+  margin: 4px 0;
+  border-bottom: 1px solid var(--vscode-menu-separatorBackground);
+}
+
 .terminal-stack {
   position: relative;
   flex: 1;
@@ -409,24 +528,41 @@ input:focus {
   visibility: hidden;
 }
 
+/* A TUI repaints its whole viewport, so a bar beside it would only twitch; the terminal
+   scrolls by wheel. Spelled out twice for the same reason as the tab strip. */
 .xterm .xterm-viewport {
   scrollbar-width: none;
 }
 
-/* Local changes -------------------------------------------------------------------------- */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
 
-.changes-view {
+/* Git tab contents ----------------------------------------------------------------------- */
+
+/* A tab of the terminals pane, so it grows down the pane's column and must be allowed to
+   shrink below its content for its panels to scroll. */
+.git-view {
   display: flex;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+}
+
+/* Branches on top, changed files below; the diff gets the rest of the width. */
+.git-panels {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  border-right: 1px solid var(--vscode-panel-border);
 }
 
 .changes-list {
   display: flex;
   flex-direction: column;
-  width: 40%;
-  min-width: 240px;
-  border-right: 1px solid var(--vscode-panel-border);
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .changes-filter {
@@ -560,7 +696,45 @@ input:focus {
   flex: 1;
 }
 
+/* Sashes --------------------------------------------------------------------------------- */
+
+/* The draggable divider between two panes. A 4px hit area straddling the border it sits on,
+   pulled back out of the layout by negative margins so it costs the panes no space. */
+.sash {
+  position: relative;
+  /* Above both neighbours, so their borders and contents don't take the pointer instead. */
+  z-index: 1;
+  flex: none;
+  background: transparent;
+  /* Fades in when the sash is grabbed and back out when it is let go. */
+  transition: background 0.1s linear;
+}
+
+.sash.vertical {
+  width: 4px;
+  margin: 0 -2px;
+  cursor: col-resize;
+}
+
+.sash.horizontal {
+  height: 4px;
+  margin: -2px 0;
+  cursor: row-resize;
+}
+
+/* Only while it is actually being dragged — deliberately not on hover, which would leave the
+   line standing whenever the pointer came to rest anywhere near a pane border. */
+.sash.dragging {
+  background: var(--vscode-sash-hoverBorder);
+}
+
 /* Shared bits ---------------------------------------------------------------------------- */
+
+/* Takes a whole pane off screen. Last in the file on purpose: it has to override the display
+   the panes it hides set on themselves, and every one of those is a single class too. */
+.pane-hidden {
+  display: none;
+}
 
 .placeholder {
   padding: 12px;

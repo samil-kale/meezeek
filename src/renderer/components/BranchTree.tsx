@@ -1,21 +1,15 @@
 import { useMemo, useState } from "react";
-import type { CheckoutTarget, RepositoryState, ViewId } from "../../shared/types";
+import type { CheckoutTarget, RepositoryState } from "../../shared/types";
 import { BranchIcon, ChevronIcon, RemoteIcon, SearchIcon } from "./icons";
 
-interface SidebarProps {
+interface BranchTreeProps {
   state: RepositoryState;
-  view: ViewId;
-  onSelectView: (view: ViewId) => void;
+  /** Dragged on the sash below the tree, which is why it isn't a style of its own. */
+  height: number;
   onCheckout: (target: CheckoutTarget) => void;
-  disabled: boolean;
 }
 
-const VIEWS: { id: ViewId; label: string }[] = [
-  { id: "terminals", label: "TERMINALS" },
-  { id: "changes", label: "LOCAL CHANGES" }
-];
-
-export function Sidebar({ state, view, onSelectView, onCheckout, disabled }: SidebarProps) {
+export function BranchTree({ state, height, onCheckout }: BranchTreeProps) {
   const [filter, setFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -32,20 +26,7 @@ export function Sidebar({ state, view, onSelectView, onCheckout, disabled }: Sid
   const toggle = (key: string): void => setCollapsed((current) => ({ ...current, [key]: !isCollapsed(key) }));
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-nav">
-        {VIEWS.map((entry) => (
-          <button
-            key={entry.id}
-            className={`sidebar-nav-item${view === entry.id ? " active" : ""}`}
-            onClick={() => onSelectView(entry.id)}
-            disabled={disabled}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-
+    <div className="branch-tree" style={{ height }}>
       <div className="branch-filter">
         <SearchIcon className="branch-filter-icon" />
         <input
@@ -53,7 +34,6 @@ export function Sidebar({ state, view, onSelectView, onCheckout, disabled }: Sid
           placeholder="Search branches..."
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          disabled={disabled}
         />
       </div>
 

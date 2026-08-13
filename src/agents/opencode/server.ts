@@ -1,7 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as crypto from "node:crypto";
 import { resolveCommand } from "../../main/pty";
-import type { SpawnPreparation } from "../agent";
+import type { AgentPaths, SpawnPreparation } from "../agent";
+import { NOTIFICATIONS } from "../notifications";
+import { installContextPlugin } from "./context-plugin";
+import { createOpencodeNotifier } from "./notify";
 
 const SERVER_START_TIMEOUT_MS = 15_000;
 const EVENT_RETRY_MS = 2000;
@@ -173,18 +176,49 @@ export async function ensureServer(
 }
 
 /**
+ * The server this repository is already running on, if any — never starts one. For callers
+ * that are only along for the ride (a url lookup triggered by a hover), where starting a
+ * second instance would be the very thing this module exists to avoid.
+ */
+export async function runningServer(executable: string, cwd: string): Promise<OpencodeServer | undefined> {
+  const existing = servers.get(cwd);
+  if (existing?.executable !== executable) {
+    return undefined;
+  }
+  try {
+    const server = await existing.server;
+    return server.running ? server : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Brings the server up before any terminal is spawned and hands the TUI the arguments to
  * attach to it, so the terminal's session and everything else meeseex does run in the same
  * opencode instance rather than two that only share a database.
  */
-export async function prepareOpencodeSpawn(executable: string, cwd: string): Promise<SpawnPreparation> {
-  const server = await ensureServer(executable, cwd);
+export async function prepareOpencodeSpawn(
+  executable: string,
+  cwd: string,
+  paths: AgentPaths
+): Promise<SpawnPreparation> {
+  // On the server, not on the terminal: under `attach` the TUI is only a client, and the
+  // server is what composes messages and therefore what loads the plugin.
+  const server = await ensureServer(executable, cwd, installContextPlugin(paths.storageRoot, cwd, paths.contextFile));
+  // Subscribing here rather than in the notifier keeps the stream's lifetime tied to the
+  // server's: it is torn down in the same dispose that stops the server.
+  const unsubscribe = server.subscribe(
+    cwd,
+    createOpencodeNotifier(paths.agentDir, cwd, "OpenCode", NOTIFICATIONS)
+  );
   return {
     args: ["attach", server.url, "--dir", cwd],
     // attach reads the password from the environment; passing it as --password would put
     // the secret in the process command line, where any local process can read it.
     env: { OPENCODE_SERVER_PASSWORD: server.password },
     dispose: () => {
+      unsubscribe();
       const previous = servers.get(cwd);
       servers.delete(cwd);
       disposeQuietly(previous);

@@ -29,10 +29,11 @@ export function PlusIcon(props: IconProps) {
   );
 }
 
+/** Drawn to the same 3.5–12.5 box as PlusIcon, so the two read as the same size. */
 export function CloseIcon(props: IconProps) {
   return (
     <Svg {...props}>
-      <path d="M4 4l8 8M12 4l-8 8" />
+      <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
     </Svg>
   );
 }

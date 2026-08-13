@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import type { CheckoutTarget, Project, RepositoryState, ViewId } from "../shared/types";
-import { ChangesView } from "./components/ChangesView";
-import { ProjectTabs } from "./components/ProjectTabs";
-import { Sidebar } from "./components/Sidebar";
+import type { CheckoutTarget, Project, RepositoryState } from "../shared/types";
+import { ProjectList } from "./components/ProjectList";
+import { Sash, usePaneSize } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
 import { BranchIcon, PlusIcon, RefreshIcon } from "./components/icons";
 
@@ -17,9 +16,13 @@ const EMPTY_STATE: RepositoryState = {
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [views, setViews] = useState<Record<string, ViewId>>({});
   const [states, setStates] = useState<Record<string, RepositoryState>>({});
   const [error, setError] = useState<string | null>(null);
+  // Defaults and limits of the draggable panes. Every project's git tab shares the two below,
+  // so they are held here rather than in each of them.
+  const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240);
+  const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300);
+  const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260);
 
   useEffect(() => {
     const unsubscribe = window.meeseex.repository.onState(({ projectId, state }) =>
@@ -61,16 +64,10 @@ export function App() {
     [projects]
   );
 
-  const checkout = useCallback(
-    async (target: CheckoutTarget) => {
-      if (!activeProjectId) {
-        return;
-      }
-      const result = await window.meeseex.repository.checkout(activeProjectId, target);
-      setError(result.ok ? null : (result.error ?? "Checkout failed"));
-    },
-    [activeProjectId]
-  );
+  const checkout = useCallback(async (projectId: string, target: CheckoutTarget) => {
+    const result = await window.meeseex.repository.checkout(projectId, target);
+    setError(result.ok ? null : (result.error ?? "Checkout failed"));
+  }, []);
 
   const refresh = useCallback(() => {
     if (activeProjectId) {
@@ -80,59 +77,44 @@ export function App() {
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_STATE;
-  const activeView = (activeProjectId ? views[activeProjectId] : undefined) ?? "terminals";
 
   return (
     <div className="app">
+      {/* Just the app name; the bar itself is the drag region and the space the window
+          controls overlay needs. */}
       <div className="titlebar">
-        <ProjectTabs
+        <span className="titlebar-name">MEESEEX</span>
+      </div>
+
+      <div className="body">
+        <ProjectList
           projects={projects}
           activeProjectId={activeProjectId}
+          width={sidebarWidth}
           onSelect={setActiveProjectId}
           onClose={(projectId) => void closeProject(projectId)}
           onAdd={() => void addProject()}
         />
-      </div>
-
-      <div className="branch-bar">
-        {activeProject && activeState.error && <span className="branch-error">{activeState.error}</span>}
-        {activeProject && !activeState.error && (
-          <>
-            <BranchIcon />
-            <span className="branch-name">{activeState.head || "..."}</span>
-            <button className="icon-button" title="Refresh repository" onClick={refresh}>
-              <RefreshIcon />
-            </button>
-          </>
-        )}
-      </div>
-
-      <div className="body">
-        <Sidebar
-          state={activeState}
-          view={activeView}
-          onSelectView={(view) => {
-            if (activeProjectId) {
-              setViews((current) => ({ ...current, [activeProjectId]: view }));
-            }
-          }}
-          onCheckout={(target) => void checkout(target)}
-          disabled={!activeProject}
-        />
+        <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
 
         <main className="content">
-          {/* Every project's terminals stay mounted so switching view or project keeps their
-              buffers and running processes untouched. */}
+          {/* Every project's terminals stay mounted so switching project keeps their buffers
+              and running processes untouched. */}
           {projects.map((project) => (
             <TerminalsPane
               key={project.id}
               project={project}
-              visible={project.id === activeProjectId && (views[project.id] ?? "terminals") === "terminals"}
+              visible={project.id === activeProjectId}
+              state={states[project.id] ?? EMPTY_STATE}
+              gitSizes={{
+                panelsWidth: gitPanelsWidth,
+                onPanelsWidth: setGitPanelsWidth,
+                treeHeight: branchTreeHeight,
+                onTreeHeight: setBranchTreeHeight
+              }}
+              onCheckout={(target) => void checkout(project.id, target)}
             />
           ))}
-          {activeProject && activeView === "changes" && (
-            <ChangesView project={activeProject} changes={activeState.changes} />
-          )}
           {!activeProject && (
             <div className="empty-workspace">
               <p>No repository open.</p>
@@ -150,6 +132,19 @@ export function App() {
           {error}
         </button>
       )}
+
+      <div className="branch-bar">
+        {activeProject && activeState.error && <span className="branch-error">{activeState.error}</span>}
+        {activeProject && !activeState.error && (
+          <>
+            <BranchIcon />
+            <span className="branch-name">{activeState.head || "..."}</span>
+            <button className="icon-button" title="Refresh repository" onClick={refresh}>
+              <RefreshIcon />
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

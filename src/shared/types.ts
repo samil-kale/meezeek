@@ -15,8 +15,6 @@ export interface Project {
   name: string;
 }
 
-export type ViewId = "terminals" | "changes";
-
 export interface RemoteInfo {
   name: string;
   /** Branch names without the remote prefix, e.g. "development". */

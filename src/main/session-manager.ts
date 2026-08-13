@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { AGENTS, getAgent } from "../agents";
-import type { AgentDefinition, SpawnPreparation } from "../agents/agent";
+import type { AgentDefinition, AgentPaths, SpawnPreparation } from "../agents/agent";
 import type { AgentId, Project, TerminalDescriptor, TerminalStatus } from "../shared/types";
+import { ShellContext } from "./shell-context";
 import { checkAgentInstalled, TerminalSession } from "./terminal-session";
 
 const RECONCILE_DEBOUNCE_MS = 5000;
@@ -19,6 +22,9 @@ const WATCH_DEBOUNCE_MS = 300;
 // A killed CLI gets a moment to die before its transcript is removed, so a final in-flight
 // write can't resurrect the file we just deleted.
 const SESSION_REMOVE_DELAY_MS = 500;
+// Readiness fires on the CLI's first full frame, which is a moment before the terminal
+// actually looks settled — hiding the indicator right then reads as a flicker.
+const INDICATOR_LINGER_MS = 700;
 
 /**
  * `hasSession` is left out here: `sessionId` below is the source of truth for it, and it is
@@ -54,6 +60,8 @@ export interface SessionManagerCallbacks {
   onTabs: (projectId: string, tabs: TerminalDescriptor[]) => void;
   onOutput: (projectId: string, tabId: string, data: string) => void;
   onStatus: (projectId: string, tabId: string, status: TerminalStatus) => void;
+  /** Whether anything in this project is still starting up — drives the tab strip's bar. */
+  onStartupProgress: (projectId: string, show: boolean) => void;
   /** Surfaces a failure the user should see (a session that could not be renamed or deleted). */
   onNotice: (message: string) => void;
 }
@@ -84,11 +92,33 @@ export class ProjectSessionManager {
   /** Tabs already removed from the UI that still need their persisted session claimed for deletion. */
   private readonly detachedTabs: TabState[] = [];
   private newTabCounter = 0;
+  /**
+   * How many things in this project are still starting — the progress bar is shared across
+   * the project's tabs, so it stays up as long as at least one of them hasn't settled.
+   */
+  private indicators = 0;
+
+  private readonly shellContext: ShellContext;
 
   constructor(
     private readonly project: Project,
+    private readonly storageRoot: string,
     private readonly callbacks: SessionManagerCallbacks
-  ) {}
+  ) {
+    this.shellContext = new ShellContext(path.join(storageRoot, "projects", project.id), project.name);
+  }
+
+  /** Where one agent may set itself up for this repository — see AgentDefinition.prepareSpawn. */
+  private pathsFor(agentId: AgentId): AgentPaths {
+    const agentDir = path.join(this.storageRoot, "agents", agentId, this.project.id);
+    fs.mkdirSync(agentDir, { recursive: true });
+    return {
+      agentDir,
+      contextFile: this.shellContext.contextFile,
+      contextReadPaths: [this.shellContext.logFile],
+      storageRoot: this.storageRoot
+    };
+  }
 
   snapshot(): TerminalDescriptor[] {
     return this.tabs.map(toDescriptor);
@@ -98,9 +128,40 @@ export class ProjectSessionManager {
     this.callbacks.onTabs(this.project.id, this.snapshot());
   }
 
+  /**
+   * The current value of what onStartupProgress reports. Needed because the bootstrap of a
+   * project restored at app start runs before the window exists, so its "show" never
+   * reaches a renderer — the pane asks for the state once instead of waiting for a push.
+   */
+  isStarting(): boolean {
+    return this.indicators > 0;
+  }
+
+  private acquireIndicator(): void {
+    this.indicators += 1;
+    if (this.indicators === 1) {
+      this.callbacks.onStartupProgress(this.project.id, true);
+    }
+  }
+
+  private releaseIndicator(): void {
+    this.indicators -= 1;
+    if (this.indicators === 0) {
+      this.callbacks.onStartupProgress(this.project.id, false);
+    }
+  }
+
   /** Restores one tab per persisted session of every installed agent. */
   async bootstrap(): Promise<void> {
-    await Promise.all(AGENTS.map((agent) => this.runtimeFor(agent.id).ready));
+    // Covers the version checks and session listings too, not just the first tab's own CLI
+    // startup afterwards — opencode's server start and listing can take seconds, and
+    // without this that wait would show nothing at all.
+    this.acquireIndicator();
+    try {
+      await Promise.all(AGENTS.map((agent) => this.runtimeFor(agent.id).ready));
+    } finally {
+      this.releaseIndicator();
+    }
   }
 
   private runtimeFor(agentId: AgentId): AgentRuntime {
@@ -143,7 +204,7 @@ export class ProjectSessionManager {
     // server this brings up, and the terminal's own arguments come out of it too.
     if (agent.prepareSpawn) {
       try {
-        runtime.preparation = await agent.prepareSpawn(executable, cwd);
+        runtime.preparation = await agent.prepareSpawn(executable, cwd, this.pathsFor(agent.id));
       } catch (error) {
         // No silent fallback: an agent that asks for preparation can't be run without it in
         // any meaningful way (opencode would start a second instance that shares only the
@@ -227,6 +288,23 @@ export class ProjectSessionManager {
     const resumeArgs = tab.sessionId && agent.sessions ? agent.sessions.resumeArgs(tab.sessionId) : [];
     const tabId = tab.tabId;
 
+    // Called fresh per session, so each one's predicate starts counting from zero rather
+    // than carrying over a previous session's already-passed state.
+    let isSessionReady = agent.createIsSessionReady?.();
+    const startedAt = Date.now();
+    if (isSessionReady) {
+      this.acquireIndicator();
+    }
+    const hideIndicator = (): void => {
+      if (!isSessionReady) {
+        return;
+      }
+      // Cleared before the delay, so a second call (e.g. the session stopping right after)
+      // can't queue a second release.
+      isSessionReady = undefined;
+      setTimeout(() => this.releaseIndicator(), INDICATOR_LINGER_MS);
+    };
+
     const session = new TerminalSession(
       executable,
       this.project.path,
@@ -234,6 +312,13 @@ export class ProjectSessionManager {
       {
         onOutput: (data) => {
           this.callbacks.onOutput(this.project.id, tabId, data);
+          // Only the shells: an agent tab's output is its own TUI redrawing itself.
+          if (!agent.sessions) {
+            this.shellContext.append(data);
+          }
+          if (isSessionReady?.(data, Date.now() - startedAt)) {
+            hideIndicator();
+          }
           // A tab's CLI persists/updates its session shortly after producing output —
           // reconcile a bit after output settles to adopt a fresh session id and to pick up
           // title changes (e.g. once the CLI generates a summary) for tabs that have one.
@@ -244,6 +329,9 @@ export class ProjectSessionManager {
           this.callbacks.onStatus(this.project.id, tabId, status);
           if (status === "stopped" || status === "error") {
             this.scheduleReconcile(runtime);
+            // Safety net: the CLI may exit before ever producing enough output to cross the
+            // heuristic above — don't leave the bar stuck up forever.
+            hideIndicator();
           }
         }
       },
@@ -260,6 +348,27 @@ export class ProjectSessionManager {
 
   write(tabId: string, data: string): void {
     this.sessions.get(tabId)?.write(data);
+  }
+
+  /**
+   * What full url a fragment on screen belongs to — see AgentDefinition.resolveUrlPrefix.
+   * Undefined whenever it can't be answered (agent doesn't implement it, tab has no
+   * session yet, or the lookup failed); the renderer caches that as "don't ask again".
+   */
+  async resolveUrlPrefix(tabId: string, prefix: string): Promise<string | undefined> {
+    const tab = this.tabs.find((candidate) => candidate.tabId === tabId);
+    if (!tab?.sessionId) {
+      return undefined;
+    }
+    const { agent, executable } = this.runtimeFor(tab.agentId);
+    if (!agent.resolveUrlPrefix) {
+      return undefined;
+    }
+    try {
+      return await agent.resolveUrlPrefix(executable, this.project.path, tab.sessionId, prefix);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -456,6 +565,7 @@ export class ProjectSessionManager {
   }
 
   dispose(): void {
+    this.shellContext.dispose();
     for (const runtime of this.runtimes.values()) {
       clearTimeout(runtime.reconcileTimer);
       runtime.stopWatching?.();
@@ -477,14 +587,17 @@ export class ProjectSessionManager {
 export class SessionManagerRegistry {
   private readonly managers = new Map<string, ProjectSessionManager>();
 
-  constructor(private readonly callbacks: SessionManagerCallbacks) {}
+  constructor(
+    private readonly storageRoot: string,
+    private readonly callbacks: SessionManagerCallbacks
+  ) {}
 
   open(project: Project): ProjectSessionManager {
     const existing = this.managers.get(project.id);
     if (existing) {
       return existing;
     }
-    const manager = new ProjectSessionManager(project, this.callbacks);
+    const manager = new ProjectSessionManager(project, this.storageRoot, this.callbacks);
     this.managers.set(project.id, manager);
     void manager.bootstrap();
     return manager;
