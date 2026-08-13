@@ -153,7 +153,8 @@ export function GitView({
     void window.meeseek.terminals
       .close(project.id, [consoleTab.tabId])
       .then(() => window.meeseek.terminals.create(project.id, agentId, true))
-      // Remembered for the next time this project is opened, in its own meeseek.json.
+      // Remembered for the next time this project is opened — on the project, in meeseek's
+      // own store. Only once the console is actually up: a create that failed picked nothing.
       .then(() => window.meeseek.projects.setConsoleAgent(project.id, agentId))
       .finally(() => {
         switchingConsole.current = false;

@@ -34,7 +34,10 @@ function buildWindowsCommand(storageDir: string, id: string, title: string, body
       `[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
 [void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
 
-$template = @"
+# @'...'@, not @"..."@: the literal here-string. The interpolating one would have PowerShell
+# read the text below as code — a repository folder named "cost$analysis" would lose half its
+# name to an empty variable, and one with $(...) in it would run whatever that says.
+$template = @'
 <toast activationType="protocol" launch="">
   <visual>
     <binding template="ToastGeneric">
@@ -43,7 +46,7 @@ $template = @"
     </binding>
   </visual>
 </toast>
-"@
+'@
 
 # activationType="protocol" with an empty launch URI makes the click a no-op — there is
 # nothing to launch, so the toast just dismisses. Without it the click falls back to
@@ -104,6 +107,15 @@ function escapeXml(value: string): string {
 }
 
 /** Wraps a value as a POSIX sh single-quoted string, safe for any content. */
-function shellSingleQuote(value: string): string {
+export function shellSingleQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * The same for PowerShell, whose single-quoted strings are literal too — `$` and `$(...)` in
+ * a path (the user's own name is part of every path we generate) would otherwise be read as
+ * a variable or a command substitution.
+ */
+export function powershellSingleQuote(value: string): string {
+  return "'" + value.replace(/'/g, "''") + "'";
 }

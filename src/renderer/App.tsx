@@ -187,6 +187,7 @@ export function App() {
       {/* Just the app name; the bar itself is the drag region and the space the window
           controls overlay needs. */}
       <div className="titlebar">
+        <img className="titlebar-icon" src="icon.png" alt="" />
         <span className="titlebar-name">MEESEEK</span>
       </div>
 

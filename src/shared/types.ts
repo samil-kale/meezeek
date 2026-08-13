@@ -1,4 +1,11 @@
-export type AgentId = "claude" | "opencode" | "shell";
+/** Every agent there is, as values — so what comes off disk can be checked against them. */
+export const AGENT_IDS = ["claude", "opencode", "shell"] as const;
+
+export type AgentId = (typeof AGENT_IDS)[number];
+
+export function isAgentId(value: unknown): value is AgentId {
+  return typeof value === "string" && (AGENT_IDS as readonly string[]).includes(value);
+}
 
 export interface AgentInfo {
   id: AgentId;

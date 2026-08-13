@@ -207,6 +207,12 @@ async function readStatus(cwd: string): Promise<HeadState & { changes: FileChang
     "--branch"
   ]);
 
+  // Thrown rather than read as an empty status: `readState` turns it into an error the branch
+  // bar reports, where a blank result would have looked like a repository with nothing in it.
+  if (result.code !== 0) {
+    throw new Error((result.stderr || result.stdout).trim() || `git status exited with ${result.code}`);
+  }
+
   const records = result.stdout.split("\0");
   // The header is one record like any other, and always the first one.
   const header = records[0]?.startsWith("## ") ? records[0].slice(3) : "";

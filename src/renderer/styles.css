@@ -103,12 +103,21 @@ input:focus {
 .titlebar {
   display: flex;
   align-items: center;
+  gap: 8px;
   /* VS Code's own title bar height when the window controls overlay is in use. */
   height: 35px;
   flex: none;
   padding: 0 12px;
   background: var(--vscode-titleBar-activeBackground);
   -webkit-app-region: drag;
+}
+
+/* The app's own mark, ahead of its name. The same file the window and taskbar use, scaled
+   down here — it is drawn at 1004px so the taskbar has something to work with. */
+.titlebar-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
 .titlebar-name {
@@ -645,8 +654,13 @@ input:focus {
   color: var(--vscode-errorForeground);
 }
 
+/* 14px, not the 18px an icon has elsewhere: a tab is a label with a mark in front of it, and
+   the mark stays smaller than the text it introduces. Sized here rather than per icon, so the
+   git tab's branch icon (drawn at 18 like all of icons.tsx) matches the agents' own. */
 .terminal-tab-icon {
   flex: none;
+  width: 14px;
+  height: 14px;
   opacity: 0.9;
 }
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AgentId, Project } from "../shared/types";
+import { isAgentId, type AgentId, type Project } from "../shared/types";
 
 /** The open repositories, persisted so the window comes back with the same project tabs. */
 export class ProjectStore {
@@ -90,14 +90,23 @@ export class ProjectStore {
       const raw = fs.readFileSync(this.file, "utf8");
       const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        this.projects = parsed.filter(
-          (entry): entry is Project =>
-            typeof entry === "object" &&
-            entry !== null &&
-            typeof (entry as Project).id === "string" &&
-            typeof (entry as Project).path === "string" &&
-            typeof (entry as Project).name === "string"
-        );
+        this.projects = parsed
+          .filter(
+            (entry): entry is Project =>
+              typeof entry === "object" &&
+              entry !== null &&
+              typeof (entry as Project).id === "string" &&
+              typeof (entry as Project).path === "string" &&
+              typeof (entry as Project).name === "string"
+          )
+          // The two optional fields are checked rather than trusted: an agent id this build
+          // does not know would throw the moment the git tab tried to open its console, and a
+          // file written by another version is exactly where such a value comes from.
+          .map((project) => ({
+            ...project,
+            consoleAgent: isAgentId(project.consoleAgent) ? project.consoleAgent : undefined,
+            consoleSessionId: typeof project.consoleSessionId === "string" ? project.consoleSessionId : undefined
+          }));
       }
     } catch {
       // No file yet (first start) or unreadable — start with an empty workspace.

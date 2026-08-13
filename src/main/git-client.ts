@@ -65,7 +65,14 @@ function call(method: string, args: unknown[]): Promise<unknown> {
   const request: GitRequest = { id, method, args };
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    host().postMessage(request);
+    try {
+      host().postMessage(request);
+    } catch (error) {
+      // A process that could not be forked, or a port that is already gone: without this the
+      // entry would sit in `pending` for a reply that is never coming, and the caller with it.
+      pending.delete(id);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 

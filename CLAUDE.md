@@ -232,6 +232,38 @@ back one command at a time.
 the loop and writes stalls to `event-loop.log` in the app's `userData`, with a tally of what
 ran. It stays silent while nothing blocks.
 
+### the watcher feeds itself — measured, not yet fixed
+
+Every open repository refreshes at the floor of `REFRESH_MIN_INTERVAL_MS` for as long as the
+window is open, whether or not anything changed. The monitor shows it: `git` sits at a steady
+100+ per minute with three projects open, in runs where the user is doing nothing at all.
+
+Where the events come from was measured with a standalone watcher on the same paths, running
+the same `isIgnoredEvent`, for 60s: two repositories meeseek had open reported ~107 events
+past the filter each, and one it did *not* have open reported zero. Nothing external touches
+these repositories — meeseek is the only thing changing them.
+
+They arrive in pairs, `.git\index.lock` and a bare `.git`. `git status` takes the index lock to
+write the refreshed stat cache back, and Windows reports both the file and the *directory* it
+sits in. The filter catches the first (`endsWith(".lock")`) and misses the second: every rule
+in `isIgnoredEvent` matches a `.git/<child>` path, and the bare `.git` matches none of them. So
+it schedules a refresh, whose `git status` writes the lock again. The throttle is the only
+thing bounding that loop; it slows it down but does not end it. Nothing of this is visible,
+because the state comes back identical and the `JSON.stringify` comparison drops it — it costs
+only the three git processes per refresh, per repository, forever.
+
+The fix is not another entry in the filter. `git --no-optional-locks status` skips the lock,
+which is what the flag exists for — VS Code and GitHub Desktop both poll status with it.
+Measured over 5 runs in a repository meeseek did not have open: 50 filesystem events without
+it, **0** with it, at 75ms and 77ms per run. Only `readStatus` takes a lock; `for-each-ref` and
+`stash list` never did, and the commands that write (checkout, fetch, pull, push) need theirs.
+What it costs is that git stops writing the refreshed index back, so a stale index in a large
+repository is re-stated by every status instead of being read from the cache once.
+
+Filtering the bare `.git` event instead was considered and rejected: it guesses at which path
+form each OS reports for a change inside a directory, it was only ever measured on Windows, and
+on a platform that reports *only* the directory it would swallow a real branch switch.
+
 ## Actions
 
 The sidebar's lower half is a project's saved shell commands — a build, a deploy script,
@@ -364,7 +396,11 @@ empty while it reads one.
 
 Each agent gets a folder under `src/agents/` and is described by one `AgentDefinition`
 (`src/agents/agent.ts`). The shared terminal layer never imports an agent's own code — it only
-calls those callbacks, so a new agent is a new folder plus one entry in `src/agents/index.ts`:
+calls those callbacks, so a new agent is a new folder, one entry in `src/agents/index.ts`, and
+one case in `AgentIcon` (`src/renderer/components/agent-icons.tsx`). That last one is the only
+agent-specific thing living outside `src/agents/`, and it is there because that folder belongs
+to the main process: a definition reaches `fs` and `child_process`, so hanging an icon off it
+would pull JSX into that bundle and the agent's setup code into the renderer's.
 
 - `executable`, `args`, `env`, `versionArgs` — how to start it and how to tell "not installed"
   from a spawn that failed for another reason
@@ -416,6 +452,11 @@ for the others.
   (`src/main/pty.ts`).
 - Generated `.ps1` files need a UTF-8 BOM — PowerShell 5.1 decodes BOM-less files as ANSI.
   Generated `sh` scripts must be LF, whatever the source file's line endings are.
+- Anything written *into* a generated script has to be quoted the literal way: `@'...'@` and
+  `'...'` in PowerShell, `'...'` in sh. A repository folder or a user name may hold a `$`, and
+  in the interpolating forms (`@"..."@`, `"..."`) PowerShell reads `$name` as a variable and
+  `$(...)` as a command to run — which is how a toast once printed half a repository's name
+  and would have run whatever the other half said. `os-notify.ts` has the two helpers.
 - Claude Code's hook shell on win32 varies (PowerShell, cmd.exe and Git Bash were all observed).
   Avoid shell builtins and nested quoting; invoke a plain exe, e.g.
   `powershell -NoProfile -ExecutionPolicy Bypass -File "<script>.ps1"`.

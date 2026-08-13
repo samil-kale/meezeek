@@ -1,5 +1,15 @@
 import type { AgentId } from "../../shared/types";
 
+/**
+ * Which icon belongs to which agent. The one piece of agent-specific knowledge outside
+ * `src/agents/`, and it is here because that folder is the main process's: an `AgentDefinition`
+ * reaches node's fs and child_process, so an icon on it would pull JSX into that bundle and
+ * the agent's own setup code into this one.
+ *
+ * Adding an agent therefore means a folder, an entry in `src/agents/index.ts`, and a case
+ * below. Tab icons are 14px rather than the window's usual 18 — `.terminal-tab-icon` is what
+ * settles that for these and for the git tab's branch icon alike.
+ */
 interface AgentIconProps {
   agentId: AgentId;
   className?: string;

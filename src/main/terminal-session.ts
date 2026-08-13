@@ -83,7 +83,11 @@ export class TerminalSession {
   }
 
   private start(cols: number, rows: number): void {
-    if (this.process) {
+    // "ready" is the state a session is in before its first spawn and never again: after one
+    // it is running, and once the process is gone it is stopped or errored. Without that
+    // check any later resize — switching tabs is one — would spawn a second process for a
+    // terminal the user closed with `exit`, or bring a crashed agent back unasked.
+    if (this.process || this.status !== "ready") {
       return;
     }
 

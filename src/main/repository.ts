@@ -75,6 +75,8 @@ export class Repository {
   private autoFetchTimer: ReturnType<typeof setInterval> | undefined;
   /** Checked once when the project opens; without it there is nothing to read or watch. */
   private isGit = false;
+  /** The project was closed; anything still in flight stops short of reporting. */
+  private disposed = false;
 
   constructor(
     readonly project: Project,
@@ -131,7 +133,7 @@ export class Repository {
   }
 
   async refresh(): Promise<RepositoryState> {
-    if (!this.isGit) {
+    if (!this.isGit || this.disposed) {
       return this.state;
     }
     if (this.refreshing) {
@@ -149,8 +151,9 @@ export class Repository {
       }));
       this.reportError(next);
       // Only emit on an actual change: the watcher fires for plenty of edits that leave
-      // the repository state identical, and every emit re-renders the views.
-      if (JSON.stringify(next) !== JSON.stringify(this.state)) {
+      // the repository state identical, and every emit re-renders the views. And not at all
+      // once the project is closed — this call was already in flight when it went.
+      if (!this.disposed && JSON.stringify(next) !== JSON.stringify(this.state)) {
         this.state = next;
         this.onState(next);
       }
@@ -158,7 +161,7 @@ export class Repository {
     } finally {
       this.refreshing = false;
       this.lastRefreshAt = Date.now();
-      if (this.refreshPending) {
+      if (this.refreshPending && !this.disposed) {
         this.refreshPending = false;
         // Back through the schedule rather than straight into another run: under continuous
         // change this was an unbroken chain of git processes, with the debounce bypassed.
@@ -311,6 +314,9 @@ export class Repository {
   }
 
   dispose(): void {
+    // Read by refresh, which may be half-way through a git call that outlives this: what comes
+    // back then belongs to a project the window has already forgotten.
+    this.disposed = true;
     clearTimeout(this.debounceTimer);
     clearInterval(this.autoFetchTimer);
     this.watcher?.close();

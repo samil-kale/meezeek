@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThemedToken } from "shiki/core";
 import type { DiffLine, FileDiff, ImageDiff } from "../../shared/types";
 import { highlightDiff } from "../diff-highlight";
@@ -78,9 +78,14 @@ export function DiffView({
   const [colored, setColored] = useState<(ThemedToken[] | undefined)[]>([]);
   const [highlighting, setHighlighting] = useState(false);
   const [opened, setOpened] = useState<OpenedGaps>({});
+  /** The diff on screen, for a gap that was still being read when it was replaced. */
+  const current = useRef(diff);
 
   // A gap belongs to the diff it was opened in — a reload, or another file, closes it again.
-  useEffect(() => setOpened({}), [diff]);
+  useEffect(() => {
+    current.current = diff;
+    setOpened({});
+  }, [diff]);
 
   /** Where the hunk headers sit in the diff git reported, in order. */
   const hunkIndices = useMemo(
@@ -138,7 +143,9 @@ export function DiffView({
     const header = diff.lines[index];
     const offset = (header.oldLine ?? 1) - (header.newLine ?? 1);
     const texts = await window.meeseek.repository.fileLines(projectId, diff.path, from, to);
-    if (texts.length === 0) {
+    // Reading them took a moment, and in it the file on screen may have become another one —
+    // or the same one reloaded. `index` then points into a diff these lines are not from.
+    if (texts.length === 0 || current.current !== diff) {
       return;
     }
     setOpened((current) => ({

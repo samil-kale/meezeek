@@ -1,6 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { buildNotifyCommand, WIN_BOM, writePosixScript } from "../../main/os-notify";
+import {
+  buildNotifyCommand,
+  powershellSingleQuote,
+  shellSingleQuote,
+  WIN_BOM,
+  writePosixScript
+} from "../../main/os-notify";
 import type { NotificationSettings } from "../notifications";
 
 /**
@@ -70,12 +76,15 @@ ${notifyCommand}
  */
 function buildReadContextCommand(storageDir: string, contextFile: string): string {
   if (process.platform !== "win32") {
-    return `cat "${contextFile}"`;
+    return `cat ${shellSingleQuote(contextFile)}`;
   }
   const scriptFile = path.join(storageDir, "read-context.ps1");
+  // Quoted the literal way in both shells: every path we generate has the user's own name in
+  // it, and a "$" in that would otherwise be read as a variable rather than as a character.
   fs.writeFileSync(
     scriptFile,
-    WIN_BOM + `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\nGet-Content -Raw "${contextFile}"\n`
+    WIN_BOM +
+      `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\nGet-Content -Raw ${powershellSingleQuote(contextFile)}\n`
   );
   return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
 }

@@ -256,9 +256,14 @@ function registerIpc(): void {
     }
     const askable = await findAskableAgent(project.path);
     if (!askable) {
+      // Named from the agents themselves rather than spelled out here: which of them can be
+      // asked a question is theirs to say, and a third one must not need this line edited.
+      const candidates = AGENTS.filter((agent) => agent.askArgs)
+        .map((agent) => agent.displayName)
+        .join(" or ");
       send("app:notice", {
         severity: "warning",
-        message: "Neither claude nor opencode was found — install one to have it find the commands for you."
+        message: `${candidates} not found — install one to have it find the commands for you.`
       });
       return [];
     }
@@ -393,6 +398,9 @@ function createWindow(): void {
     height: 900,
     backgroundColor: "#1f1f1f",
     show: false,
+    // What the taskbar and the window itself show. The same file the title bar draws, so
+    // there is one icon to replace rather than two that can drift apart.
+    icon: path.join(__dirname, "icon.png"),
     // The project tabs live in the title bar, as in the reference views; the platform's
     // own window controls stay in place through the overlay.
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",

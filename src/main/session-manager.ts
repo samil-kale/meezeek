@@ -109,6 +109,8 @@ export class ProjectSessionManager {
   /** Tabs already removed from the UI that still need their persisted session claimed for deletion. */
   private readonly detachedTabs: TabState[] = [];
   private newTabCounter = 0;
+  /** The project was closed; nothing that was still in flight may start anything back up. */
+  private disposed = false;
   /**
    * How many things in this project are still starting — the progress bar is shared across
    * the project's tabs, so it stays up as long as at least one of them hasn't settled.
@@ -274,6 +276,11 @@ export class ProjectSessionManager {
     }
     try {
       runtime.preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(agent.id));
+      // A setup that worked clears the earlier failure. Without this, an agent released while
+      // idle whose next preparation failed once (opencode's port taken, say) would stay
+      // unstartable for the rest of the session even after a later attempt succeeded —
+      // `canStart` reads this flag, and nothing else ever puts it back.
+      runtime.prepareFailed = false;
       return true;
     } catch (error) {
       console.error("[meeseek] spawn preparation failed:", error);
@@ -530,8 +537,11 @@ export class ProjectSessionManager {
       await agent.sessions.remove(executable, this.project.path, sessionId);
     } catch (error) {
       this.callbacks.onNotice("error", `Could not delete ${agent.displayName} session: ${String(error)}`);
-      // The persisted session still exists — put its tab back.
+      // The persisted session still exists — put its tab back, but as an ordinary one. Its
+      // place in the git console has been taken by whatever replaced it, and a second tab
+      // marked as the console would be one nothing shows and nothing can close.
       tab.status = "ready";
+      tab.console = undefined;
       this.tabs.splice(Math.min(index, this.tabs.length), 0, tab);
       this.postTabs();
     } finally {
@@ -578,6 +588,12 @@ export class ProjectSessionManager {
   }
 
   private armReconcileTimer(runtime: AgentRuntime, delayMs: number): void {
+    // The retry below re-arms this timer after every run, so a reconcile that was in flight
+    // when the project closed would put a fresh one in place behind dispose's back — and
+    // opencode's listing brings its server back up, leaving a process nobody owns.
+    if (this.disposed) {
+      return;
+    }
     clearTimeout(runtime.reconcileTimer);
     const cappedDelay =
       runtime.reconcileDeadline === undefined
@@ -614,7 +630,8 @@ export class ProjectSessionManager {
     countActivity("reconcile");
     const { agent, executable } = runtime;
     // A released runtime has nothing to reconcile, and listing would start its server back up.
-    if (runtime.released || !agent.sessions || !this.canStart(runtime)) {
+    // A disposed project is the same case: the listing is what would revive it.
+    if (this.disposed || runtime.released || !agent.sessions || !this.canStart(runtime)) {
       return;
     }
     const infos = await agent.sessions.list(executable, this.project.path);
@@ -673,6 +690,9 @@ export class ProjectSessionManager {
   }
 
   dispose(): void {
+    // Read by the reconcile loop, whose calls can outlive this and would otherwise arm
+    // themselves again — see armReconcileTimer.
+    this.disposed = true;
     this.shellContext.dispose();
     for (const runtime of this.runtimes.values()) {
       clearTimeout(runtime.reconcileTimer);

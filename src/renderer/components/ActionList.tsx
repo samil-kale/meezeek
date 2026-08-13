@@ -36,10 +36,15 @@ export function ActionList({ projectId, height }: ActionListProps) {
   /** The projects the wand is out for, same reasoning. */
   const [suggestingIn, setSuggestingIn] = useState<string[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; action: ProjectAction } | null>(null);
-  /** The project the automatic lookup has already run for; it is not offered a second time. */
-  const autoSuggested = useRef<string | null>(null);
+  /**
+   * The projects the automatic lookup has already run for. A set, not one id: switching away
+   * and back would otherwise start it over, and it costs an agent run each time.
+   */
+  const autoSuggested = useRef(new Set<string>());
   /** Which project is on screen, readable from a callback that started before a switch. */
   const shown = useRef(projectId);
+  /** The list as it stands now, for callbacks that were made before the last change to it. */
+  const latest = useRef<ProjectAction[]>([]);
   const [dragged, setDragged] = useState<number | null>(null);
   /** Where the dragged action would land: the index it would take among the others. */
   const [dropAt, setDropAt] = useState<number | null>(null);
@@ -54,7 +59,7 @@ export function ActionList({ projectId, height }: ActionListProps) {
 
   useEffect(() => {
     if (!projectId) {
-      setActions([]);
+      applyActions([]);
       return;
     }
     let cancelled = false;
@@ -62,12 +67,12 @@ export function ActionList({ projectId, height }: ActionListProps) {
       if (cancelled) {
         return;
       }
-      setActions(saved ?? []);
+      applyActions(saved ?? []);
       // No meeseek.json at all: nobody has set this project up here, which is the one moment
       // where looking its commands up unasked is worth the wait. A file with an empty list is
       // someone having deleted them all, and stays empty.
-      if (saved === null && autoSuggested.current !== projectId) {
-        autoSuggested.current = projectId;
+      if (saved === null && !autoSuggested.current.has(projectId)) {
+        autoSuggested.current.add(projectId);
         void suggest(projectId);
       }
     });
@@ -76,12 +81,23 @@ export function ActionList({ projectId, height }: ActionListProps) {
     };
   }, [projectId]);
 
+  /**
+   * Every change to the list goes through here, and `latest` is what it is computed from
+   * rather than the `actions` a callback closed over: a dialog is awaited, and the wand can
+   * finish while one stands open — adding a command off the pre-dialog list would then write
+   * the found ones straight back out of the file.
+   */
+  const applyActions = (next: ProjectAction[]): void => {
+    latest.current = next;
+    setActions(next);
+  };
+
   /** The list is written whole; the file is the record, this is only what is on screen. */
   const save = (next: ProjectAction[]): void => {
     if (!projectId) {
       return;
     }
-    setActions(next);
+    applyActions(next);
     void window.meeseek.actions.save(projectId, next);
   };
 
@@ -98,8 +114,9 @@ export function ActionList({ projectId, height }: ActionListProps) {
       return;
     }
     const action: ProjectAction = answer.extra ? { command: answer.value, cwd: answer.extra } : { command: answer.value };
-    if (!actions.some((entry) => entry.command === action.command && entry.cwd === action.cwd)) {
-      save([...actions, action]);
+    const current = latest.current;
+    if (!current.some((entry) => entry.command === action.command && entry.cwd === action.cwd)) {
+      save([...current, action]);
     }
   };
 
@@ -111,7 +128,7 @@ export function ActionList({ projectId, height }: ActionListProps) {
       confirmLabel: "Delete"
     });
     if (answer.confirmed) {
-      save(actions.filter((entry) => entry !== action));
+      save(latest.current.filter((entry) => entry !== action));
     }
   };
 
@@ -131,7 +148,7 @@ export function ActionList({ projectId, height }: ActionListProps) {
     try {
       const found = await window.meeseek.actions.suggest(project);
       if (shown.current === project) {
-        setActions(found);
+        applyActions(found);
       }
     } finally {
       setSuggestingIn((current) => current.filter((entry) => entry !== project));

@@ -24,6 +24,12 @@ interface ProjectFile {
 
 /** How many characters of a command's or an agent's output a notice is worth. */
 const MAX_OUTPUT = 600;
+/**
+ * How much a command may write before node stops buffering it. Its own default is 1MB, and
+ * going over it does not truncate — node *kills* the process and reports ENOBUFS, which for a
+ * build with a lot to say would look like a failure it never had. Same figure as git.ts.
+ */
+const MAX_BUFFER = 64 * 1024 * 1024;
 
 function file(root: string): string {
   return path.join(root, FILE);
@@ -167,7 +173,7 @@ export function suggestActions(root: string, executable: string, args: string[])
     execFile(
       command,
       resolved,
-      { cwd: root, windowsHide: true, encoding: "utf8", timeout: SUGGEST_TIMEOUT_MS },
+      { cwd: root, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8", timeout: SUGGEST_TIMEOUT_MS },
       (error, stdout, stderr) => {
         if (error && !stdout.includes("[")) {
           reject(new Error((stderr.trim() || error.message).slice(0, MAX_OUTPUT)));
@@ -244,7 +250,7 @@ export function runAction(root: string, action: ProjectAction): Promise<ActionRe
   const cwd = action.cwd ? path.resolve(root, action.cwd) : root;
 
   return new Promise((resolve) => {
-    execFile(shell, args, { cwd, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
+    execFile(shell, args, { cwd, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
       const output = (stderr.trim() || stdout.trim()).slice(0, MAX_OUTPUT);
       if (!error) {
         resolve({ code: 0, output });

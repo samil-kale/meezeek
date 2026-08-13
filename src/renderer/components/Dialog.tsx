@@ -72,8 +72,16 @@ function ask<T>(build: (answer: (value: T) => void) => Pending, cancelled: T): P
     return Promise.resolve(cancelled);
   }
   return new Promise((resolve) => {
+    // Answered once. A second call — an Escape that lands in the moment between the click and
+    // the listener coming down — would otherwise clear whatever dialog is up by then, which
+    // may already be the next one.
+    let answered = false;
     publish(
       build((value) => {
+        if (answered) {
+          return;
+        }
+        answered = true;
         publish(null);
         resolve(value);
       })
