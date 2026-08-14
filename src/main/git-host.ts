@@ -2,12 +2,12 @@ import * as git from "./git";
 
 /**
  * The git process. Everything in `git.ts` runs here, in a `utilityProcess` of its own, and the
- * main process only ever sends it a method name and arguments — see `git-client.ts` for the
- * other half and CLAUDE.md for why the two are apart at all: a fetch against a slow remote
- * would otherwise be time a keystroke on its way to a terminal waits for.
+ * main process only sends it a method name and arguments — see `git-client.ts` for the other
+ * half and CLAUDE.md for why the two are apart: a fetch against a slow remote would otherwise
+ * be time a keystroke on its way to a terminal waits for.
  *
- * Nothing here touches Electron. It is a plain node process that runs the git CLI and reads
- * files, so it can block for as long as git does without anything noticing.
+ * Nothing here touches Electron. A plain node process running the git CLI and reading files,
+ * so it can block for as long as git does without anything noticing.
  */
 export interface GitRequest {
   id: number;

@@ -5,10 +5,10 @@ import "./styles.css";
 import { Startup } from "./Startup";
 
 /**
- * A file dropped anywhere but on a terminal would otherwise be handled by the browser, and in
- * Electron that means navigating the window to it — the app replaced by the file, with no way
- * back. The terminals prevent this themselves and act on the drop; here it is only swallowed.
- * Files alone: text dragged into a field is a drop the field itself still has to get.
+ * A file dropped anywhere but on a terminal would be handled by the browser, and in Electron
+ * that means navigating the window to it — the app replaced by the file, with no way back. The
+ * terminals prevent this themselves and act on the drop; here it is only swallowed. Files
+ * alone: text dragged into a field is a drop the field itself still has to get.
  */
 function swallowStrayDrop(event: DragEvent): void {
   if (event.dataTransfer?.types.includes("Files")) {

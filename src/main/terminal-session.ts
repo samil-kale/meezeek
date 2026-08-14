@@ -68,9 +68,9 @@ export class TerminalSession {
   }
 
   /**
-   * Called with the terminal's real dimensions (from the renderer). Starts the agent on
-   * the first call so it never renders for a size the view doesn't have; afterwards it
-   * just forwards resizes.
+   * Called with the terminal's real dimensions (from the renderer). Starts the agent on the
+   * first call, so it never renders for a size the view does not have; afterwards it only
+   * forwards resizes.
    */
   ensureStarted(cols: number, rows: number): void {
     if (this.process) {

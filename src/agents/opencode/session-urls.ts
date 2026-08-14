@@ -2,10 +2,10 @@ import { findUrls } from "../../shared/urls";
 import { runningServer } from "./server";
 
 /**
- * A url too long for the terminal width is broken across rows by opencode's TUI at the
- * last "." that still fits, which leaves nothing in the terminal buffer to tell that break
- * from an ordinary one. The session's messages still hold the url whole, so what the
- * screen shows gets completed from those — see AgentDefinition.resolveUrlPrefix.
+ * A url too long for the terminal width is broken across rows by opencode's TUI at the last "."
+ * that still fits, which leaves nothing in the buffer to tell that break from an ordinary one.
+ * The session's messages hold the url whole, so what the screen shows is completed from those —
+ * see AgentDefinition.resolveUrlPrefix.
  */
 
 /** Long enough that holding the modifier over the same link twice doesn't refetch, short

@@ -13,9 +13,9 @@ interface ShownNotice {
 
 /**
  * Everything the user is told goes through here — there is no second way to say something in
- * this app, and views do not keep messages of their own. A plain function rather than a hook
- * or a prop, the way VS Code's `window.showErrorMessage` is: whatever fails, wherever, can
- * report it without a callback having been threaded to it first.
+ * this app, and views keep no messages of their own. A plain function rather than a hook or a
+ * prop, the way VS Code's `window.showErrorMessage` is: whatever fails, wherever, can report it
+ * without a callback threaded to it first.
  */
 let shown: ShownNotice[] = [];
 const listeners = new Set<() => void>();

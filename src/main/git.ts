@@ -52,9 +52,9 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promi
 }
 
 /**
- * Whether the git CLI can be started at all. Everything else in here takes that for granted,
- * which is why the startup check asks it before a single repository is opened. Run from the
- * temp directory: it is the one folder that exists everywhere and is no repository's business.
+ * Whether the git CLI can be started at all — everything else in here takes that for granted.
+ * Run from the temp directory: the one folder that exists everywhere and is no repository's
+ * business.
  */
 export async function isAvailable(): Promise<boolean> {
   try {
@@ -75,9 +75,9 @@ export async function isRepository(cwd: string): Promise<boolean> {
 }
 
 /**
- * The repository root of `cwd`, or undefined when it is not inside one. A picked folder may
- * well be a subdirectory of the repository, and every path git reports is relative to the
- * root — so the root is what the project has to work against.
+ * The repository root of `cwd`, or undefined when it is not inside one. A picked folder may be
+ * a subdirectory, and every path git reports is relative to the root — so the root is what the
+ * project works against.
  */
 export async function resolveRoot(cwd: string): Promise<string | undefined> {
   try {
@@ -94,12 +94,11 @@ type HeadState = Pick<RepositoryState, "head" | "detached" | "upstream" | "ahead
 
 /**
  * What `--branch` puts in front of the status output: the current branch, its upstream, and
- * how far the two have drifted apart. Read from there rather than from a `rev-parse` and a
- * `rev-list` of their own, because starting git is by far the most expensive part of a
- * refresh — one process instead of three.
+ * how far the two have drifted. Read from there rather than from a `rev-parse` and a
+ * `rev-list` of their own — one process instead of three.
  *
- * Only a detached HEAD still needs a second call: the header names no ref then, and a commit
- * id is what the UI has to show instead.
+ * Only a detached HEAD needs a second call: the header names no ref then, and the UI has to
+ * show a commit id instead.
  */
 async function readHead(cwd: string, header: string): Promise<HeadState> {
   const base = { upstream: undefined, ahead: 0, behind: 0 };
@@ -131,16 +130,14 @@ async function readHead(cwd: string, header: string): Promise<HeadState> {
 
 /**
  * Every ref the tree shows, from one `for-each-ref`. Tags ride along with the branches rather
- * than costing a `git tag` of their own: it is the same process either way, and the rule in
- * CLAUDE.md is to count invocations.
+ * than costing a `git tag` of their own — the same process either way.
  */
 async function readRefs(
   cwd: string
 ): Promise<{ localBranches: string[]; remotes: RemoteInfo[]; tags: string[]; defaultBranch?: string }> {
   // Full ref names, not %(refname:short): git shortens "refs/remotes/origin/HEAD" to plain
   // "origin", which cannot be told apart from a branch named after its remote. %(symref) is
-  // empty for everything but "<remote>/HEAD", where it names the remote's default branch —
-  // one more field on a process that was going to run anyway.
+  // empty for everything but "<remote>/HEAD", where it names the remote's default branch.
   const result = await git(cwd, [
     "for-each-ref",
     "--format=%(refname)%00%(symref)",
@@ -168,9 +165,9 @@ async function readRefs(
       continue;
     }
     const remoteRef = refname.slice("refs/remotes/".length);
-    // "origin/HEAD" is a symbolic pointer at the remote's default branch, not a branch
-    // of its own — listing it would duplicate an entry that is already there. What it points
-    // at is worth keeping: it is the branch "Update from ..." merges in.
+    // "origin/HEAD" is a symbolic pointer at the remote's default branch, not a branch of its
+    // own — listing it would duplicate an entry that is already there. What it points at is
+    // worth keeping: the branch "Update from ..." merges in.
     const separator = remoteRef.indexOf("/");
     if (separator < 0 || remoteRef.endsWith("/HEAD")) {
       const prefix = `refs/remotes/${remoteRef.slice(0, separator)}/`;
@@ -225,10 +222,10 @@ function toChangeStatus(code: string): ChangeStatus {
 /** The changed files and, from the `--branch` header, what HEAD is — in one git process. */
 async function readStatus(cwd: string): Promise<HeadState & { changes: FileChange[] }> {
   // --no-optional-locks: without it `git status` takes the index lock to write its refreshed
-  // stat cache back, and the working-tree watcher reports that write as a change — which
-  // schedules the refresh that runs this again, forever. Measured: 50 filesystem events per
-  // run without the flag, 0 with it, at the same runtime. What it costs is that a stale index
-  // is re-stated by every status instead of being read from the cache once.
+  // stat cache back, the watcher reports that write as a change, and the refresh it schedules
+  // runs this again — forever. Measured: 50 filesystem events per run without the flag, 0 with
+  // it, same runtime. It costs a stale index being re-stated by every status instead of read
+  // from the cache once.
   // core.quotePath=false keeps non-ASCII paths readable instead of octal-escaped.
   const result = await git(cwd, [
     "--no-optional-locks",
@@ -294,10 +291,9 @@ async function resolveGitDir(cwd: string): Promise<string> {
 }
 
 /**
- * A merge or rebase git stopped in the middle of, which is what the "Abort" entry needs to
- * know about. Read off the filesystem the way GitHub Desktop reads it, rather than from a
- * command of its own: a refresh's cost is the git processes it starts, and this is three
- * stats of a directory that is in the page cache anyway.
+ * A merge or rebase git stopped in the middle of, which is what the "Abort" entry needs. Read
+ * off the filesystem the way GitHub Desktop reads it rather than from a command of its own:
+ * three stats of a directory that is in the page cache anyway, and no git process.
  */
 async function readOperation(cwd: string): Promise<GitOperation | undefined> {
   const gitDir = await resolveGitDir(cwd);
@@ -316,12 +312,12 @@ async function readOperation(cwd: string): Promise<GitOperation | undefined> {
 export async function readState(cwd: string): Promise<RepositoryState> {
   try {
     // No `isRepository` check here: a folder does not stop being a repository, so Repository
-    // asks that once when it opens. On a machine where starting git is slow, dropping it took
-    // a quarter off every refresh.
+    // asks once when it opens. Where starting git is slow, dropping it took a quarter off
+    // every refresh.
     //
-    // The stash list is the third process a refresh spends. It earns it by being a list the
-    // user acts on: one that only updated when something else happened would offer to pop a
-    // stash that is no longer there. All three run at once, so it costs no extra wall time.
+    // The stash list is the third process a refresh spends, and earns it by being a list the
+    // user acts on: one updating only when something else happened would offer to pop a stash
+    // that is no longer there. All three run at once, so it costs no extra wall time.
     const [status, refs, stashes, operation] = await Promise.all([
       readStatus(cwd),
       readRefs(cwd),
@@ -344,9 +340,9 @@ async function run(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
     if (result.code === 0) {
       return { ok: true };
     }
-    // Without the "hint:" block: a pull that hits diverged branches or a conflict answers with
-    // eight lines of advice, all of it about what to type next in a terminal. What went wrong
-    // is in the lines above it, and those are what a notice has room for.
+    // Without the "hint:" block: a pull hitting diverged branches or a conflict answers with
+    // eight lines of advice about what to type next in a terminal. What went wrong is in the
+    // lines above it, and that is what a notice has room for.
     const message = (result.stderr || result.stdout)
       .split("\n")
       .filter((line) => !line.startsWith("hint:"))
@@ -361,9 +357,7 @@ async function run(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
 /**
  * What every command that reaches a remote runs with. git must never stop to ask for a
  * password here: there is no terminal it could ask in, and a command waiting for an answer
- * that cannot come would hold this repository's one action slot open forever. Credentials
- * come from the user's own credential helper, from an account's token, or they do not come at
- * all.
+ * that cannot come would hold this repository's one action slot open forever.
  */
 const NETWORK_ENV: NodeJS.ProcessEnv = {
   GIT_TERMINAL_PROMPT: "0",
@@ -374,21 +368,18 @@ const NETWORK_ENV: NodeJS.ProcessEnv = {
   // Keeps a host key it has never seen from turning into a question nobody can answer.
   GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
   // git translates its own messages, and the two below are matched as text. Pinned to C, or a
-  // machine running with LANG=de_DE answers "Authentifizierung fehlgeschlagen" and matches none
-  // of them.
+  // machine with LANG=de_DE answers "Authentifizierung fehlgeschlagen" and matches neither.
   LC_ALL: "C"
 };
 
 /**
  * The two messages that mean git stopped for want of credentials. There is no exit code for
  * it — every fatal error of a clone is 128 — so this reads the message, the way GitHub Desktop
- * maps git's stderr onto its own error codes. Both lines are git's own and read the same
- * whatever host answered: `GIT_TERMINAL_PROMPT=0` above is what produces the first, and a 401
- * or 403 the second.
+ * maps git's stderr onto its own error codes. Both are git's own and read the same whatever
+ * host answered: `GIT_TERMINAL_PROMPT=0` above produces the first, a 401 or 403 the second.
  *
- * A repository git could not find is deliberately not in here. GitHub and GitLab answer 404
- * for a private repository *and* for a typo, so credentials would be a guess rather than the
- * answer, and asking for them would put the blame on the wrong thing.
+ * A repository git could not find is deliberately not in here: GitHub and GitLab answer 404
+ * for a private repository *and* for a typo, so credentials would be a guess.
  */
 const AUTH_FAILURES = [/could not read Username/i, /Authentication failed/i];
 
@@ -434,7 +425,7 @@ export function pullRebase(cwd: string): Promise<GitActionResult> {
 /**
  * Clones into `directory`, which git creates itself — leading folders included — and refuses
  * when it exists and is not empty, with a message that says so. The cwd only anchors a
- * relative path; the home directory is one that always exists.
+ * relative path, and the home directory always exists.
  */
 export function clone(url: string, directory: string): Promise<GitActionResult> {
   return runNetwork(os.homedir(), ["clone", "--", url, directory]);
@@ -443,9 +434,8 @@ export function clone(url: string, directory: string): Promise<GitActionResult> 
 /**
  * A GIT_ASKPASS script answering with what two environment variables hold — VS Code's
  * askpass.sh pattern, and like there the same sh script on every platform: Git for Windows
- * runs a non-exe askpass through its own sh. The script itself holds no secret, only the
- * environment of the one command using it does; LF and a temp+rename write, since another
- * process reads it.
+ * runs a non-exe askpass through its own sh. The script holds no secret, only the environment
+ * of the one command using it does; LF and a temp+rename write, since another process reads it.
  */
 const ASKPASS_SCRIPT = [
   "#!/bin/sh",
@@ -521,8 +511,8 @@ export function renameBranch(cwd: string, from: string, to: string): Promise<Git
 
 /**
  * `--force`, like GitHub Desktop: a branch whose commits are not merged anywhere would
- * otherwise be refused with a message about a state the user cannot see here. What that risks
- * is what the confirmation says out loud.
+ * otherwise be refused with a message about a state the user cannot see here. The confirmation
+ * says out loud what that risks.
  */
 export function deleteBranch(cwd: string, name: string): Promise<GitActionResult> {
   return run(cwd, ["branch", "--delete", "--force", name]);
@@ -622,8 +612,8 @@ export interface DiscardTargets {
 
 /**
  * Throws away local changes. Files HEAD does not know are the caller's to move to the trash
- * first (GitHub Desktop's rule: nothing that only exists locally is deleted outright), which
- * is why this takes them already sorted rather than the changes themselves.
+ * first (GitHub Desktop's rule: nothing that only exists locally is deleted outright), hence
+ * the targets already sorted rather than the changes themselves.
  */
 export async function discard(cwd: string, targets: DiscardTargets): Promise<GitActionResult> {
   if (targets.drop.length > 0) {
@@ -650,9 +640,9 @@ function escapeIgnorePattern(pattern: string): string {
  * second ignore action), to the repository's .gitignore — skipping a rule it already holds
  * verbatim.
  *
- * Written in place rather than through a temp file and a rename: this is a working tree file
- * the user owns, written once per menu click, and a temp file beside it would show up in the
- * very list this was started from.
+ * Written in place rather than through a temp file and a rename: a working tree file the user
+ * owns, written once per menu click, and a temp file beside it would show up in the very list
+ * this was started from.
  */
 export async function ignorePath(cwd: string, filePath: string, scope: "file" | "extension"): Promise<GitActionResult> {
   const extension = path.extname(filePath);
@@ -757,7 +747,7 @@ function toDataUrl(filePath: string, content: Buffer): string | undefined {
 
 /**
  * The committed and the current version of an image. Either may be missing — the file was
- * added, or deleted — and each is simply left out then, which is what the view draws around.
+ * added, or deleted — and is simply left out then; the view draws around it.
  */
 async function readImageDiff(cwd: string, filePath: string, origPath?: string): Promise<ImageDiff> {
   const image: ImageDiff = {};

@@ -5,7 +5,7 @@ import { AgentIcon } from "./agent-icons";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { TerminalHost } from "./TerminalHost";
-import { BranchIcon, CloseIcon, PlusIcon } from "./icons";
+import { BranchIcon, CloseIcon, CommentIcon, PlusIcon } from "./icons";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
 const RESIZE_DEBOUNCE_MS = 100;
@@ -24,6 +24,8 @@ function formatIso(ms: number): string {
 
 interface TerminalsPaneProps {
   project: Project;
+  /** This project's tabs. Held by App, since the project list needs every project's. */
+  tabs: TerminalDescriptor[];
   visible: boolean;
   /** Whether the git pane beside this one is open; the button in the strip shows which. */
   gitOpen: boolean;
@@ -34,21 +36,28 @@ interface TerminalsPaneProps {
   onOpenDiff: (path: string) => void;
   /**
    * A tab opened from outside this pane — a shell from the project's row, a saved command's own
-   * terminal — that should be brought to the front once the host reports it.
+   * terminal, a session the project row's mark points at — to be brought to the front once the
+   * host reports it. The nonce is what makes asking for the *same* tab twice work.
    */
-  openedTabId: string | null;
+  openedTab: { tabId: string; nonce: number } | null;
+  /** Which tab is in front, so App can tell a finished session that was seen from one that wasn't. */
+  onActiveTab: (projectId: string, tabId: string | null) => void;
+  /** Tabs whose finished turn is still waiting to be looked at — App decides, this draws it. */
+  markedTabIds: string[];
 }
 
 export function TerminalsPane({
   project,
+  tabs,
   visible,
   gitOpen,
   onToggleGit,
   externalBusy,
   onOpenDiff,
-  openedTabId
+  openedTab,
+  onActiveTab,
+  markedTabIds
 }: TerminalsPaneProps) {
-  const [tabs, setTabs] = useState<TerminalDescriptor[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -57,40 +66,27 @@ export function TerminalsPane({
   const stack = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   const knownTabs = useRef<TerminalDescriptor[]>([]);
-  /** The last tab this pane was told to bring to the front, so it does so exactly once. */
-  const opened = useRef<string | null>(null);
+  /** The last request this pane was told to act on, so each one brings a tab up exactly once. */
+  const opened = useRef<number | null>(null);
   /** Whether onStartupProgress has fired; the initial query must not overwrite a push. */
   const progressPushed = useRef(false);
 
   useEffect(() => {
     void (async () => {
-      const [existing, available, isStarting] = await Promise.all([
-        window.meezeek.terminals.list(project.id),
+      const [available, isStarting] = await Promise.all([
         window.meezeek.agents.list(),
         window.meezeek.terminals.starting(project.id)
       ]);
       setAgents(available);
-      setTabs(existing);
       if (!progressPushed.current) {
         setStarting(isStarting);
       }
     })();
-    return window.meezeek.terminals.onTabs((payload) => {
-      if (payload.projectId === project.id) {
-        setTabs(payload.tabs);
-      }
-    });
   }, [project.id]);
 
-  useEffect(
-    () =>
-      window.meezeek.terminals.onStatus(({ projectId, tabId, status }) => {
-        if (projectId === project.id) {
-          setTabs((current) => current.map((tab) => (tab.tabId === tabId ? { ...tab, status } : tab)));
-        }
-      }),
-    [project.id]
-  );
+  // App is what holds the tabs, and it is the half that can tell "this session finished while
+  // its terminal was in front of the user" from "it finished out of sight".
+  useEffect(() => onActiveTab(project.id, activeId), [onActiveTab, project.id, activeId]);
 
   useEffect(
     () =>
@@ -194,17 +190,19 @@ export function TerminalsPane({
   );
 
   /**
-   * Selects a tab someone else opened, once it has arrived in the list. Only ever once per
-   * tab: the id stays set afterwards, and the list changes for every status update — without
-   * this the pointer would jump back to it while the user is somewhere else.
+   * Selects a tab someone else opened, once it has arrived in the list. Only once per request:
+   * the value stays set afterwards, and the list changes for every status update — without
+   * this the selection would jump back while the user is somewhere else. Keyed by the nonce
+   * rather than the tab id, because the *same* tab can be asked for twice: a session the mark
+   * already took the user to can finish again while they are elsewhere.
    */
   useEffect(() => {
-    if (!openedTabId || opened.current === openedTabId || !tabs.some((tab) => tab.tabId === openedTabId)) {
+    if (!openedTab || opened.current === openedTab.nonce || !tabs.some((tab) => tab.tabId === openedTab.tabId)) {
       return;
     }
-    opened.current = openedTabId;
-    setActiveId(openedTabId);
-  }, [openedTabId, tabs]);
+    opened.current = openedTab.nonce;
+    setActiveId(openedTab.tabId);
+  }, [openedTab, tabs]);
 
   const closeTabs = useCallback(
     (tabIds: string[]) => void window.meezeek.terminals.close(project.id, tabIds),
@@ -260,9 +258,9 @@ export function TerminalsPane({
   };
 
   /**
-   * VS Code's editor tab context menu, reduced to its close actions plus rename. For a close
-   * action the set of tabs it would close is what decides whether it's enabled, so "nothing
-   * to close" (a right-click on the only tab, or on the last one) renders it disabled.
+   * VS Code's editor tab context menu, reduced to its close actions plus rename. What a close
+   * action would close is what decides whether it is enabled, so "nothing to close" (a
+   * right-click on the only tab, or on the last one) renders it disabled.
    */
   const tabMenuEntries = (tabId: string): ContextMenuEntry[] => {
     const ids = tabs.map((tab) => tab.tabId);
@@ -326,6 +324,9 @@ export function TerminalsPane({
           >
             <AgentIcon agentId={tab.agentId} className="terminal-tab-icon" />
             <span className="terminal-tab-label">{tabLabel(tab)}</span>
+            {/* Not a button: the tab itself is what opens the session, and clicking anywhere
+                on it is already the way to make this go away. */}
+            {markedTabIds.includes(tab.tabId) && <CommentIcon className="session-mark" />}
             <button
               className="icon-button"
               title={tab.hasSession ? "Close tab and delete its session" : "Close tab"}
@@ -378,7 +379,13 @@ export function TerminalsPane({
 
       <div className="terminal-stack" ref={stack}>
         {tabs.map((tab) => (
-          <TerminalHost key={tab.tabId} projectId={project.id} tabId={tab.tabId} active={tab.tabId === activeId} />
+          <TerminalHost
+            key={tab.tabId}
+            projectId={project.id}
+            tabId={tab.tabId}
+            agentId={tab.agentId}
+            active={tab.tabId === activeId}
+          />
         ))}
         {tabs.length === 0 && <div className="placeholder">No sessions open.</div>}
       </div>

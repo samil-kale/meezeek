@@ -23,12 +23,11 @@ const COMMAND_DETAIL = "Saved to meezeek.json in the project. The command is sta
 
 /**
  * What the dialog was answered with as an entry, carrying only what was filled in: a folder or
- * an environment written into every one of them would put the long form in meezeek.json for
- * commands that have nothing to say beyond themselves.
+ * an environment written into every one would put the long form in meezeek.json for commands
+ * that have nothing to say beyond themselves.
  *
  * `shell` is carried over from the command being edited rather than asked for — the dialog does
- * not offer it (a command that needs a shell only runs where it was written), and editing one
- * must not quietly change how it is started.
+ * not offer it, and editing a command must not quietly change how it is started.
  */
 function toCommand(answer: PromptAnswer, edited?: ProjectCommand): ProjectCommand {
   const [name, cwd, env] = answer.extras;
@@ -75,11 +74,11 @@ interface CommandListProps {
 
 /**
  * A project's saved shell commands, under the project list. They come from a meezeek.json in
- * the repository's own root, so they belong to the project rather than to this machine — and
+ * the repository's own root, so they belong to the project rather than to this machine, and
  * they change with the project the sidebar has selected.
  *
- * Running one opens a terminal tab and hands it over: the command is that tab's process, so
- * this list has nothing to report afterwards and keeps no state about what is going.
+ * Running one opens a terminal tab and hands it over, so this list keeps no state about what
+ * is running.
  */
 export function CommandList({ projectId, height, onOpenTab }: CommandListProps) {
   const [commands, setCommands] = useState<ProjectCommand[]>([]);
@@ -165,7 +164,8 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
       value: "",
       confirmLabel: "Save",
       extras: EXTRA_FIELDS,
-      valueIndex: 1
+      valueIndex: 1,
+      wide: true
     });
     if (answer === null) {
       return;
@@ -190,7 +190,8 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
         { ...EXTRA_FIELDS[1], value: command.cwd },
         { ...EXTRA_FIELDS[2], value: formatEnv(command.env) }
       ],
-      valueIndex: 1
+      valueIndex: 1,
+      wide: true
     });
     if (answer === null) {
       return;
@@ -218,12 +219,11 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
   };
 
   /**
-   * The wand. The agent reads the project and names what it can run; whatever comes back is
-   * added to the list, and the whole list comes back so this does not have to re-read the
-   * file. It can take minutes, which is long enough for the user to have moved on — the
-   * result then belongs to a project this view is no longer showing, and only the file it was
-   * already written to. Putting it on screen anyway would show one project's commands under
-   * another's name, and the next drag would save them there.
+   * The wand. The agent reads the project and names what it can run; the whole list comes
+   * back, so this does not have to re-read the file. It can take minutes, long enough for the
+   * user to have moved on — the result then belongs to a project this view no longer shows,
+   * and only to the file it was already written to. Putting it on screen anyway would show one
+   * project's commands under another's name, and the next drag would save them there.
    */
   const suggest = async (project: string): Promise<void> => {
     if (suggestingIn.includes(project)) {

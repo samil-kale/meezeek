@@ -1,10 +1,10 @@
 import { useState, type DragEvent, type HTMLAttributes } from "react";
 
 /**
- * Reordering a list's rows by dragging, the one way both sidebar lists do it — the projects
- * and the saved commands. It was the same seventy lines in each, pointing at each other with
- * "see the other one for why", and the two must not drift apart: the CSS that draws the drop
- * line is already declared once for both.
+ * Reordering a list's rows by dragging, the one way both sidebar lists do it — the projects and
+ * the saved commands. It was the same seventy lines in each, pointing at each other with "see
+ * the other one for why", and the two must not drift apart: the CSS that draws the drop line is
+ * already declared once for both.
  *
  * What stays with each list is only what differs: its own drag type (a row dragged across a
  * terminal must not end up pasted into it, and no other list may take the drop), what a row's
@@ -102,10 +102,10 @@ export function useDragReorder({ dragType, count, payloadOf, indexOf, onMove }: 
   });
 
   /**
-   * The empty space below the last row, which stands for the end of the list. Without it the
-   * only way to drop a row last would be the lower half of the last one, a strip a few pixels
-   * tall. Bubbling brings the rows' own drags here too, so anything that landed on a row is
-   * left to the row.
+   * The empty space below the last row, standing for the end of the list. Without it the only
+   * way to drop a row last would be the lower half of the last one, a strip a few pixels tall.
+   * Bubbling brings the rows' own drags here too, so anything that landed on a row is left to
+   * the row.
    */
   const isBelowList = (event: DragEvent<RowElement>): boolean => event.target === event.currentTarget;
 

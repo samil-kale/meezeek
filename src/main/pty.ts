@@ -19,11 +19,11 @@ export interface SpawnOptions {
 const WIN32_NATIVE_EXTENSIONS = [".exe", ".com"];
 
 /**
- * node-pty spawns via CreateProcessW on win32, which does not apply PATHEXT resolution
- * and cannot launch ".cmd"/".bat"/".ps1" shims directly. Returns the resolved path to a
- * native executable if one is found (so the caller can spawn it without a shell
- * wrapper), or undefined if `executable` only resolves to a shim (or can't be resolved
- * at all), in which case the cmd.exe wrapper is still needed.
+ * node-pty spawns via CreateProcessW on win32, which does not apply PATHEXT resolution and
+ * cannot launch ".cmd"/".bat"/".ps1" shims directly. Returns the resolved path of a native
+ * executable where there is one, so the caller can spawn it without a shell wrapper — or
+ * undefined where `executable` only resolves to a shim (or not at all), which still needs the
+ * cmd.exe wrapper.
  */
 function resolveWin32NativeExecutable(executable: string): string | undefined {
   const ext = path.extname(executable).toLowerCase();

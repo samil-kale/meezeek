@@ -3,9 +3,9 @@ import * as crypto from "node:crypto";
 import { countActivity } from "../../main/event-loop-monitor";
 import { resolveCommand } from "../../main/pty";
 import type { AgentPaths, SpawnPreparation } from "../agent";
-import { NOTIFICATIONS } from "../notifications";
 import { installContextPlugin } from "./context-plugin";
-import { createOpencodeNotifier } from "./notify";
+import { createOpencodeNotifier, SESSION_FINISHED_EVENT } from "./notify";
+import { installTuiConfig } from "./tui-config";
 
 const SERVER_START_TIMEOUT_MS = 15_000;
 const EVENT_RETRY_MS = 2000;
@@ -16,14 +16,23 @@ const EVENT_RETRY_MS = 2000;
  * runs that server itself and points everything at it — the session listing, renames, the
  * event stream, and the terminal's own TUI.
  *
- * Talking to opencode any other way means running a second, unrelated instance that only
- * shares the database file. Measured costs of that: every `session list` boots an instance
- * (~1.2s, versus ~12ms over HTTP), a read writes to the database, and events never cross
- * the process boundary — a change made in the terminal's TUI stays invisible to us.
+ * Talking to opencode any other way means a second, unrelated instance sharing only the
+ * database file. Measured: every `session list` boots one (~1.2s, versus ~12ms over HTTP), a
+ * read writes to the database, and events never cross the process boundary — a change made in
+ * the terminal's TUI stays invisible to us.
  */
+/**
+ * One event off the server's stream, reduced to what anything here acts on. `sessionId` is
+ * absent for the events that are about the server rather than about one session.
+ */
+export interface OpencodeEvent {
+  type: string;
+  sessionId?: string;
+}
+
 export class OpencodeServer {
   private eventsAborted: AbortController | undefined;
-  private readonly subscribers = new Set<(type: string) => void>();
+  private readonly subscribers = new Set<(event: OpencodeEvent) => void>();
   private readonly child: ChildProcess;
   readonly url: string;
   readonly password: string;
@@ -80,11 +89,11 @@ export class OpencodeServer {
   }
 
   /**
-   * Reports each event's type until dispose(), reconnecting if the stream drops. One
-   * stream serves every subscriber — opencode delivers the same events to each connection,
-   * so a second one would only cost another server-side subscriber for the same payload.
+   * Reports each event until dispose(), reconnecting if the stream drops. One stream serves
+   * every subscriber: opencode delivers the same events to each connection, so a second would
+   * only cost another server-side subscriber for the same payload.
    */
-  subscribe(cwd: string, onEvent: (type: string) => void): () => void {
+  subscribe(cwd: string, onEvent: (event: OpencodeEvent) => void): () => void {
     this.subscribers.add(onEvent);
     if (!this.eventsAborted) {
       this.eventsAborted = new AbortController();
@@ -117,10 +126,10 @@ export class OpencodeServer {
             buffer = buffer.slice(boundary + 2);
             countActivity("sse");
             const data = frame.split("\n").find((line) => line.startsWith("data: "));
-            const type = data === undefined ? undefined : eventType(data.slice("data: ".length));
-            if (type !== undefined) {
+            const event = data === undefined ? undefined : parseEvent(data.slice("data: ".length));
+            if (event !== undefined) {
               for (const subscriber of this.subscribers) {
-                subscriber(type);
+                subscriber(event);
               }
             }
           }
@@ -178,9 +187,9 @@ export async function ensureServer(
 }
 
 /**
- * The server this repository is already running on, if any — never starts one. For callers
- * that are only along for the ride (a url lookup triggered by a hover), where starting a
- * second instance would be the very thing this module exists to avoid.
+ * The server this repository is already running on, if any — never starts one. For callers only
+ * along for the ride (a url lookup triggered by a hover), where starting a second instance
+ * would be the very thing this module exists to avoid.
  */
 export async function runningServer(executable: string, cwd: string): Promise<OpencodeServer | undefined> {
   const existing = servers.get(cwd);
@@ -196,9 +205,8 @@ export async function runningServer(executable: string, cwd: string): Promise<Op
 }
 
 /**
- * Brings the server up before any terminal is spawned and hands the TUI the arguments to
- * attach to it, so the terminal's session and everything else meezeek does run in the same
- * opencode instance rather than two that only share a database.
+ * Brings the server up before any terminal is spawned and hands the TUI the arguments to attach
+ * to it, so the terminal's session and everything else meezeek does run in one instance.
  */
 export async function prepareOpencodeSpawn(
   executable: string,
@@ -210,18 +218,26 @@ export async function prepareOpencodeSpawn(
   const server = await ensureServer(executable, cwd, installContextPlugin(paths.storageRoot, cwd, paths.contextFile));
   // Subscribing here rather than in the notifier keeps the stream's lifetime tied to the
   // server's: it is torn down in the same dispose that stops the server.
-  const unsubscribe = server.subscribe(
-    cwd,
-    createOpencodeNotifier(paths.agentDir, cwd, "OpenCode", NOTIFICATIONS)
-  );
+  const notify = createOpencodeNotifier(paths.agentDir, cwd, "OpenCode", paths.notifications);
+  const unsubscribe = server.subscribe(cwd, (event) => {
+    notify(event.type);
+    // The very event the "Finished" toast is built on. Unlike Claude Code, opencode says so
+    // itself over a stream meezeek already holds — nothing has to be read off the TUI, and
+    // nothing has to be written to disk to carry it across a process boundary.
+    if (event.type === SESSION_FINISHED_EVENT && event.sessionId) {
+      paths.onSessionFinished(event.sessionId);
+    }
+  });
   return {
     args: ["attach", server.url, "--dir", cwd],
     // A whole process per repository, started for the session listing alone — not worth
     // keeping up for a project whose opencode is never used.
     releaseWhenIdle: true,
     // attach reads the password from the environment; passing it as --password would put
-    // the secret in the process command line, where any local process can read it.
-    env: { OPENCODE_SERVER_PASSWORD: server.password },
+    // the secret in the process command line, where any local process can read it. The tui
+    // config is on the terminal for the other reason the plugin is on the server: the TUI is
+    // the half that draws.
+    env: { OPENCODE_SERVER_PASSWORD: server.password, ...installTuiConfig(paths.storageRoot) },
     dispose: () => {
       unsubscribe();
       const previous = servers.get(cwd);
@@ -231,10 +247,19 @@ export async function prepareOpencodeSpawn(
   };
 }
 
-function eventType(payload: string): string | undefined {
+/**
+ * An event carries what it is about under `properties`, in opencode's own spelling
+ * (`sessionID`). Read defensively like every field that crosses from another program: one
+ * without it is still an event, just not about a session.
+ */
+function parseEvent(payload: string): OpencodeEvent | undefined {
   try {
-    const event = JSON.parse(payload) as { type?: unknown };
-    return typeof event.type === "string" ? event.type : undefined;
+    const event = JSON.parse(payload) as { type?: unknown; properties?: { sessionID?: unknown } };
+    if (typeof event.type !== "string") {
+      return undefined;
+    }
+    const sessionId = event.properties?.sessionID;
+    return { type: event.type, sessionId: typeof sessionId === "string" ? sessionId : undefined };
   } catch {
     return undefined;
   }

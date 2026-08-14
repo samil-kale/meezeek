@@ -6,8 +6,7 @@ import { RequirementsDialog } from "./components/RequirementsDialog";
 /**
  * The app, once the programs it runs on are there. The check lives in the main process, which
  * opens the stored projects only when it passed — so a machine missing git or every agent gets
- * the dialog and nothing else: no repository is watched, no terminal is started, and the app
- * below this is never mounted.
+ * the dialog and nothing else: nothing watched, nothing spawned, `App` never mounted.
  */
 export function Startup() {
   const [requirements, setRequirements] = useState<Requirements | null>(null);

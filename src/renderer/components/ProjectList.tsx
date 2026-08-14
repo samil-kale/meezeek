@@ -5,7 +5,7 @@ import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { reorder, useDragReorder } from "./drag-reorder";
 import { notify } from "./Notices";
-import { CloseIcon, PlusIcon } from "./icons";
+import { CloseIcon, CommentIcon, PlusIcon } from "./icons";
 
 /**
  * A type of our own rather than text/plain: a project dragged across a terminal must not end
@@ -25,6 +25,10 @@ interface ProjectListProps {
   remoteOf: (projectId: string) => RemoteInfo | undefined;
   /** Opens a shell tab in that project, which is what "open in terminal" means here. */
   onOpenTerminal: (projectId: string) => void;
+  /** Whether a session of this project finished a turn nobody has looked at yet. */
+  hasFinished: (projectId: string) => boolean;
+  /** Opens the oldest of those; pressing the mark again moves on to the next. */
+  onShowFinished: (projectId: string) => void;
 }
 
 /**
@@ -65,7 +69,9 @@ export function ProjectList({
   onReorder,
   onAdd,
   remoteOf,
-  onOpenTerminal
+  onOpenTerminal,
+  hasFinished,
+  onShowFinished
 }: ProjectListProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; project: Project } | null>(null);
 
@@ -153,6 +159,20 @@ export function ProjectList({
             }}
           >
             <span className="project-item-label">{project.name}</span>
+            {/* A session of this project finished while its terminal was out of sight. Pressing
+                it goes there, which is also what takes it away again. */}
+            {hasFinished(project.id) && (
+              <button
+                className="icon-button"
+                title="Open the session that finished"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onShowFinished(project.id);
+                }}
+              >
+                <CommentIcon className="session-mark" />
+              </button>
+            )}
             <button
               className="icon-button"
               title="Close repository"

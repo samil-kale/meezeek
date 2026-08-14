@@ -44,6 +44,25 @@ export interface Project {
   name: string;
 }
 
+/** What every agent notifies the OS about. */
+export interface NotificationSettings {
+  /** The agent finished responding, with nothing it started still running. */
+  finished: boolean;
+  /** The agent is blocked mid-turn on a permission prompt, an elicitation, or a question. */
+  needsYou: boolean;
+  /** The agent has been idle waiting for the next prompt — usually redundant with `finished`. */
+  idleReminder: boolean;
+}
+
+/**
+ * Everything the settings dialog holds, and everything meezeek keeps about itself rather than
+ * about one repository. Written whole, so a new group is a new key here and a new section
+ * there.
+ */
+export interface AppSettings {
+  notifications: NotificationSettings;
+}
+
 /** How clone and create answer: the project once its folder is open, or git's own message. */
 export interface AddRepositoryResult {
   project?: Project;
@@ -117,9 +136,9 @@ export interface ProjectCommand {
   env?: Record<string, string>;
   /**
    * Hands the command to a shell instead of starting the program itself — for the one that
-   * really needs a pipe or a redirection, and which then only works on the platform it was
-   * written for. Off by default: with no shell in the way there is no syntax to differ
-   * between machines.
+   * really needs a pipe or a redirection, and then only works on the platform it was written
+   * for. Off by default: with no shell in the way there is no syntax to differ between
+   * machines.
    */
   shell?: boolean;
 }
@@ -130,8 +149,7 @@ export interface RemoteInfo {
   branches: string[];
   /**
    * What it was configured with, e.g. "git@github.com:owner/repo.git". Read when the project
-   * opens rather than on every refresh: a remote's url changes about never, and the refresh
-   * path spends its git processes on what does.
+   * opens rather than on every refresh — a remote's url changes about never.
    */
   url?: string;
 }
@@ -187,9 +205,8 @@ export interface RepositoryState {
 
 /**
  * A repository nothing has been read from — the state before the first refresh, behind an
- * error, or of a project that is not open. One constant rather than a literal per caller:
- * four copies of it drifted around the code, and each had to name every field. Never mutated,
- * only spread from.
+ * error, or of a project that is not open. One constant rather than a literal per caller: four
+ * copies of it drifted around the code. Never mutated, only spread from.
  */
 export const EMPTY_REPOSITORY_STATE: RepositoryState = {
   head: "",
@@ -210,10 +227,9 @@ export const EMPTY_REPOSITORY_STATE: RepositoryState = {
 export type NoticeSeverity = "error" | "warning" | "info";
 
 /**
- * Anything the user is told, without exception — see the CLAUDE.md section. A view never keeps
- * a message of its own; what a view may still draw for itself is a *status* (a tab colored for
- * a missing agent, a progress bar), which is a condition that holds rather than something that
- * happened.
+ * Anything the user is told, without exception — see the CLAUDE.md section. Not to be confused
+ * with a *status* (a tab colored for a missing agent, a progress bar), which a view does draw
+ * for itself.
  */
 export interface Notice {
   severity: NoticeSeverity;
@@ -274,8 +290,8 @@ export interface CheckoutTarget {
 
 /**
  * One terminal's output since the last flush. They cross to the renderer in batches: with
- * several agents redrawing their TUIs at once, one message per tab per flush is a message
- * count that grows with the number of open terminals for no gain.
+ * several agents redrawing their TUIs at once, one message per tab per flush would grow the
+ * message count with the number of open terminals for no gain.
  */
 export interface TerminalOutput {
   projectId: string;
@@ -299,4 +315,11 @@ export interface TerminalDescriptor {
   updatedAt?: number;
   /** Creation time, ms since epoch; absent for tabs without a session. */
   createdAt?: number;
+  /**
+   * When this session last finished a turn without having been looked at since, ms since
+   * epoch — what the mark in the tab and in the project row stands for. Cleared the moment the
+   * tab is on screen (`terminals.seen`). A time rather than a flag because the project row's
+   * mark opens the *oldest* one first, and clicking it again the next.
+   */
+  finishedAt?: number;
 }

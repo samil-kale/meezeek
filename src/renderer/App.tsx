@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
-import type { GitActionResult, Project, RepositoryState } from "../shared/types";
+import type { GitActionResult, Project, RepositoryState, TerminalDescriptor } from "../shared/types";
 import { AddRepositoryDialog } from "./components/AddRepositoryDialog";
 import { BranchBar } from "./components/BranchBar";
 import { CommandList } from "./components/CommandList";
@@ -10,6 +10,7 @@ import { Dialogs } from "./components/Dialog";
 import { GitPane } from "./components/GitPane";
 import { Notices, notify } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
+import { SettingsDialog } from "./components/SettingsDialog";
 import {
   MIN_CONTENT_WIDTH,
   MIN_PANE_HEIGHT,
@@ -20,15 +21,35 @@ import {
 } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
 import { disposeProjectTerminals } from "./terminal-views";
-import { PlusIcon } from "./components/icons";
+import { GearIcon, PlusIcon } from "./components/icons";
 
 /** A little over `.git-pane-host.sliding`'s 0.15s, so the class outlives the transition. */
 const GIT_SLIDE_MS = 180;
+
+/**
+ * A copy of one of the per-project records without that project in it. Nothing pushes anything
+ * for a closed project, so what was mirrored of it has to be dropped by hand — and a folder
+ * opened again gets the same id, which would otherwise show its own stale tabs for a frame,
+ * marks and all.
+ */
+function forget<T>(record: Record<string, T>, projectId: string): Record<string, T> {
+  const rest = { ...record };
+  delete rest[projectId];
+  return rest;
+}
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RepositoryState>>({});
+  /**
+   * Every project's terminal tabs, held here rather than in each pane for the same reason the
+   * repository states above are: the project list needs all of them at once. What it takes
+   * from them is `finishedAt` — the sessions that finished while nobody was looking.
+   */
+  const [tabs, setTabs] = useState<Record<string, TerminalDescriptor[]>>({});
+  /** Which tab each pane has in front; a pane still owns its own selection and reports it here. */
+  const [activeTabs, setActiveTabs] = useState<Record<string, string | null>>({});
   /**
    * The branch command in flight, if any, and what to call it while it runs — a checkout can
    * take seconds on a large repository, and deleting on a remote goes to the network.
@@ -48,19 +69,17 @@ export function App() {
     MIN_PANE_HEIGHT
   );
   /**
-   * Whether the git pane is out. Closed until it is asked for — the terminals are what the
-   * window is for, and the repository is something you look at now and then. Remembered like
-   * a pane size, since it is one.
+   * Whether the git pane is out. Closed until it is asked for, and remembered like a pane
+   * size, since it is one.
    */
   const [gitOpen, setGitOpen] = usePaneToggle("git-pane", false);
   /**
    * Drives the slide: `gitMounted` keeps the pane in the DOM through the closing transition,
-   * `gitExpanded` is what the width transition actually animates. Opening flips `gitExpanded`
-   * only once the browser has painted the freshly mounted, still-0-width frame — a single
-   * `requestAnimationFrame` fires before that paint as often as after it, which is what made
-   * opening jump straight to full width instead of animating; two nested ones wait out the
-   * paint reliably. Closing reverses that and only unmounts once the transition has had time
-   * to finish.
+   * `gitExpanded` is what the width transition animates. Opening flips `gitExpanded` only once
+   * the browser has painted the freshly mounted, still-0-width frame — a single
+   * `requestAnimationFrame` fires before that paint as often as after it, which made opening
+   * jump straight to full width; two nested ones wait it out reliably. Closing reverses that
+   * and unmounts once the transition has had time to finish.
    */
   const [gitMounted, setGitMounted] = useState(gitOpen);
   const [gitExpanded, setGitExpanded] = useState(gitOpen);
@@ -101,30 +120,59 @@ export function App() {
   const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
   /** Whether the add-repository dialog (clone, add, create) is up. */
   const [addOpen, setAddOpen] = useState(false);
+  /** Whether the settings are up; they belong to the window, not to a project. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /**
    * A tab that was just opened from outside its own pane — a shell asked for from a project's
-   * row, or the terminal a saved command runs in. The pane brings it to the front once it
-   * arrives; a tab id is only ever created once, so it acts exactly once.
+   * row, the terminal a saved command runs in, or the session a project row's mark points at.
+   * The pane brings it to the front once it arrives. The nonce is what lets the *same* tab be
+   * asked for twice: a session the mark already took the user to can finish again later.
    */
-  const [openedTab, setOpenedTab] = useState<{ projectId: string; tabId: string } | null>(null);
+  const [openedTab, setOpenedTab] = useState<{ projectId: string; tabId: string; nonce: number } | null>(null);
 
   useEffect(() => {
-    const unsubscribe = window.meezeek.repository.onState(({ projectId, state }) =>
-      setStates((current) => ({ ...current, [projectId]: state }))
-    );
+    const unsubscribers = [
+      window.meezeek.repository.onState(({ projectId, state }) =>
+        setStates((current) => ({ ...current, [projectId]: state }))
+      ),
+      window.meezeek.terminals.onTabs(({ projectId, tabs: list }) =>
+        setTabs((current) => ({ ...current, [projectId]: list }))
+      ),
+      // A status arrives on its own rather than as a whole list, so it is patched into the one
+      // tab it names instead of replacing the project's.
+      window.meezeek.terminals.onStatus(({ projectId, tabId, status }) =>
+        setTabs((current) => {
+          const list = current[projectId];
+          return list
+            ? { ...current, [projectId]: list.map((tab) => (tab.tabId === tabId ? { ...tab, status } : tab)) }
+            : current;
+        })
+      )
+    ];
 
     void (async () => {
       const stored = await window.meezeek.projects.list();
       setProjects(stored);
       setActiveProjectId((current) => current ?? stored[0]?.id ?? null);
       const loaded = await Promise.all(
-        stored.map(async (project) => [project.id, await window.meezeek.repository.state(project.id)] as const)
+        stored.map(async (project) => {
+          const [state, list] = await Promise.all([
+            window.meezeek.repository.state(project.id),
+            window.meezeek.terminals.list(project.id)
+          ]);
+          return [project.id, state, list] as const;
+        })
       );
-      // States pushed while this was in flight are newer than what was just fetched.
-      setStates((current) => ({ ...Object.fromEntries(loaded), ...current }));
+      // Both were pushed while this was in flight if the project bootstrapped before the window
+      // existed, and what was pushed is newer than what was just fetched.
+      setStates((current) => ({
+        ...Object.fromEntries(loaded.map(([id, state]) => [id, state])),
+        ...current
+      }));
+      setTabs((current) => ({ ...Object.fromEntries(loaded.map(([id, , list]) => [id, list])), ...current }));
     })();
 
-    return unsubscribe;
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
   useEffect(() => window.meezeek.onNotice(({ severity, message }) => notify(severity, message)), []);
@@ -141,6 +189,8 @@ export function App() {
       const remaining = projects.filter((project) => project.id !== projectId);
       setProjects(remaining);
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
+      setTabs((current) => forget(current, projectId));
+      setActiveTabs((current) => forget(current, projectId));
       // The xterm instances live outside React and outlive the pane that mounted them, so
       // this is where they are let go of — the one moment a project ends for good.
       disposeProjectTerminals(projectId);
@@ -154,10 +204,9 @@ export function App() {
   }, []);
 
   /**
-   * Runs one branch command per project at a time. Clicking a second branch while the first
-   * switch runs would stack two `git switch` on one repository; the branch tree says so with
-   * its cursor, and this is what enforces it. Per project, since two repositories working at
-   * once is not a conflict at all.
+   * Runs one branch command per project at a time: clicking a second branch mid-switch would
+   * stack two `git switch` on one repository. The branch tree says so with its cursor, this
+   * enforces it. Per project, since two repositories working at once is no conflict.
    */
   const runBranchAction = useCallback(
     async (projectId: string, label: string, action: () => Promise<GitActionResult>) => {
@@ -194,8 +243,58 @@ export function App() {
   /** Shows a tab something outside the terminals pane opened: its project, then the tab. */
   const showTab = useCallback((projectId: string, tabId: string) => {
     setActiveProjectId(projectId);
-    setOpenedTab({ projectId, tabId });
+    setOpenedTab((current) => ({ projectId, tabId, nonce: (current?.nonce ?? 0) + 1 }));
   }, []);
+
+  /** What a pane reports its own selection through; it stays the owner of it. */
+  const setActiveTab = useCallback((projectId: string, tabId: string | null) => {
+    setActiveTabs((current) => (current[projectId] === tabId ? current : { ...current, [projectId]: tabId }));
+  }, []);
+
+  /**
+   * A project's sessions that finished a turn nobody has looked at since, oldest first — the
+   * mark in the tab strip, and what the project row's own mark opens one of at a time.
+   *
+   * The one thing it leaves out is the tab in front of the user: a session that finishes while
+   * its terminal is on screen was never out of sight. Decided here rather than in the main
+   * process, which holds the mark but cannot know what is on screen — and here rather than in
+   * each of the two views, which would then have to agree with each other about it.
+   */
+  const markedTabs = useCallback(
+    (projectId: string): TerminalDescriptor[] => {
+      const onScreen = projectId === activeProjectId ? activeTabs[projectId] : undefined;
+      return (tabs[projectId] ?? [])
+        .filter((tab) => tab.finishedAt !== undefined && tab.tabId !== onScreen)
+        .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
+    },
+    [tabs, activeTabs, activeProjectId]
+  );
+
+  /** The project row's mark: the session that finished first, then the next one the time after. */
+  const showFinished = useCallback(
+    (projectId: string) => {
+      const next = markedTabs(projectId)[0];
+      if (next) {
+        showTab(projectId, next.tabId);
+      }
+    },
+    [markedTabs, showTab]
+  );
+
+  /**
+   * The tab in front of the user has been seen, so the mark on it goes. The main process holds
+   * it but never learns which tab is on screen, which is why this is the renderer's half.
+   */
+  useEffect(() => {
+    if (!activeProjectId) {
+      return;
+    }
+    const onScreen = activeTabs[activeProjectId];
+    const seen = tabs[activeProjectId]?.find((tab) => tab.tabId === onScreen && tab.finishedAt !== undefined);
+    if (seen) {
+      window.meezeek.terminals.seen(activeProjectId, seen.tabId);
+    }
+  }, [activeProjectId, activeTabs, tabs]);
 
   /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
   const openTerminal = useCallback(
@@ -208,8 +307,8 @@ export function App() {
   /**
    * Coming back to the window is when a change the watcher missed would show, so that is when
    * the repository is read again — GitHub Desktop refreshes on focus for the same reason. Only
-   * the project on screen: it is the one being looked at, and a refresh of every open one would
-   * spend three git processes each for a state nobody is reading.
+   * the project on screen: refreshing every open one would spend three git processes each for
+   * a state nobody is reading.
    */
   useEffect(() => {
     if (!activeProjectId) {
@@ -228,11 +327,14 @@ export function App() {
 
   return (
     <div className="app">
-      {/* Just the app name; the bar itself is the drag region and the space the window
-          controls overlay needs. */}
+      {/* The app name and the one button that belongs to the window rather than to a project;
+          the bar itself is the drag region and the space the window controls overlay needs. */}
       <div className="titlebar">
         <img className="titlebar-icon" src="icon.png" alt="" />
         <span className="titlebar-name">MEEZEEK</span>
+        <button className="titlebar-button" title="Settings" onClick={() => setSettingsOpen(true)}>
+          <GearIcon />
+        </button>
       </div>
 
       <div className="body">
@@ -247,6 +349,8 @@ export function App() {
             onAdd={() => setAddOpen(true)}
             remoteOf={(projectId) => states[projectId]?.remotes[0]}
             onOpenTerminal={openTerminal}
+            hasFinished={(projectId) => markedTabs(projectId).length > 0}
+            onShowFinished={showFinished}
           />
           <Sash
             orientation="horizontal"
@@ -304,12 +408,15 @@ export function App() {
             <TerminalsPane
               key={project.id}
               project={project}
+              tabs={tabs[project.id] ?? []}
               visible={project.id === activeProjectId}
               gitOpen={gitOpen}
               onToggleGit={() => setGitOpen(!gitOpen)}
               externalBusy={branchAction?.projectId === project.id || (project.id === activeProjectId && gitBusy)}
               onOpenDiff={(path) => setDiffFile({ projectId: project.id, path })}
-              openedTabId={openedTab?.projectId === project.id ? openedTab.tabId : null}
+              openedTab={openedTab?.projectId === project.id ? openedTab : null}
+              onActiveTab={setActiveTab}
+              markedTabIds={markedTabs(project.id).map((tab) => tab.tabId)}
             />
           ))}
           {!activeProject && (
@@ -337,6 +444,8 @@ export function App() {
       )}
 
       {addOpen && <AddRepositoryDialog onAdded={projectAdded} onClose={() => setAddOpen(false)} />}
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
 
       <Notices />
       <Dialogs />

@@ -15,10 +15,9 @@ const GIT: Omit<Requirement, "installed"> = {
 };
 
 /**
- * The commands `--simulate` names, reported missing however installed they are. On a machine
- * that has everything the dialog is unreachable otherwise, and it is the one view in here
- * nobody can call up on purpose: `npm start -- --simulate=git,claude`, where npm's own `--`
- * is what hands the flag past the script to electron.
+ * The commands `--simulate` names, reported missing however installed they are — otherwise the
+ * dialog is unreachable on a machine that has everything: `npm start -- --simulate=git,claude`,
+ * where npm's own `--` hands the flag past the script to electron.
  */
 const SIMULATED_MISSING = (process.argv.find((arg) => arg.startsWith("--simulate=")) ?? "")
   .slice("--simulate=".length)
@@ -31,9 +30,9 @@ const SIMULATED_MISSING = (process.argv.find((arg) => arg.startsWith("--simulate
  * local CLI, and one of the agents, because the terminals are what meezeek is for.
  *
  * Nothing is cached — the dialog this feeds offers a re-check for the user who installs
- * something while it stands. What a re-check cannot do is see a program that was installed
- * into a folder this process does not have on its PATH yet; only a restart picks that up,
- * which is what the dialog says.
+ * something while it stands. What a re-check cannot see is a program installed into a folder
+ * this process does not have on its PATH yet; only a restart picks that up, and the dialog
+ * says so.
  */
 export async function checkRequirements(): Promise<Requirements> {
   // Somewhere every machine has and no repository owns: the checks are about the programs,

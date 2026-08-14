@@ -8,6 +8,7 @@ import { registerIpc } from "./ipc";
 import { ProjectStore } from "./projects";
 import { RepositoryManager } from "./repository";
 import { SessionManagerRegistry } from "./session-manager";
+import { SettingsStore } from "./settings";
 
 /** Terminal output arrives in many small chunks; one IPC message per chunk is wasteful. */
 const OUTPUT_FLUSH_MS = 8;
@@ -45,12 +46,13 @@ function queueOutput(projectId: string, tabId: string, data: string): void {
 }
 
 const store = new ProjectStore(app.getPath("userData"));
+const settings = new SettingsStore(app.getPath("userData"));
 const accounts = new AccountStore(app.getPath("userData"));
 const repositories = new RepositoryManager(
   (projectId, state) => send("repo:state-changed", { projectId, state }),
   (severity, message) => send("app:notice", { severity, message })
 );
-const sessions = new SessionManagerRegistry(app.getPath("userData"), {
+const sessions = new SessionManagerRegistry(app.getPath("userData"), settings, {
   onTabs: (projectId, tabs) => send("terminal:tabs", { projectId, tabs }),
   onOutput: queueOutput,
   onStatus: (projectId, tabId, status: TerminalStatus) => send("terminal:status", { projectId, tabId, status }),
@@ -66,10 +68,10 @@ function openProject(project: Project): void {
 let workspaceOpen = false;
 
 /**
- * The stored projects, brought up once. Not at startup any more: the renderer's requirements
- * check is what calls this, and only when it passed — without git or an agent there is nothing
- * a restored repository or terminal could do. Idempotent, since the check runs again on every
- * window and after every re-check the user asks for.
+ * The stored projects, brought up once. Not at startup: the renderer's requirements check
+ * calls this, and only when it passed — without git or an agent there is nothing a restored
+ * repository or terminal could do. Idempotent, since the check runs again on every window and
+ * after every re-check the user asks for.
  */
 function openWorkspace(): void {
   if (workspaceOpen) {
@@ -138,11 +140,11 @@ function createWindow(): void {
 }
 
 /**
- * One instance, because there is one of everything it keeps: the projects and the accounts are
- * rewritten whole from what this process holds in memory, so a second window saving after the
- * first would drop whatever the first had added; the agents' sessions are listed, adopted and
- * deleted in the same directories by both; and the two would run git in the same repository
- * without either knowing, which `Repository.runAction` only prevents within one process.
+ * One instance, because there is one of everything it keeps: projects and accounts are
+ * rewritten whole from memory, so a second window saving after the first would drop what the
+ * first had added; the agents' sessions are listed, adopted and deleted in the same
+ * directories by both; and the two would run git in one repository without either knowing,
+ * which `Repository.runAction` only prevents within a process.
  *
  * The second start therefore hands over and leaves. Asked before anything is opened — the lock
  * is the app's, not the window's, and Electron only tells the first instance about the others.
@@ -168,7 +170,7 @@ if (!app.requestSingleInstanceLock()) {
     // Up front rather than on the first repository: forking it costs a moment, and every
     // project that opens below is about to ask it something.
     startGitProcess();
-    registerIpc({ store, accounts, repositories, sessions, send, openProject, openWorkspace });
+    registerIpc({ store, settings, accounts, repositories, sessions, send, openProject, openWorkspace });
     createWindow();
 
     app.on("activate", () => {

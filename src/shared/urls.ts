@@ -1,12 +1,11 @@
 /**
- * Considers everything starting with a `<scheme>://` up to the first whitespace, `"` or
- * `'` as a url. Adapted from @xterm/addon-web-links's WebLinksAddon, except the scheme is
- * matched generically (RFC 3986: a letter followed by letters/digits/`+`/`-`/`.`) rather
- * than just http(s), so the app deep links an agent prints — `msteams://`, `vscode://` —
- * are recognized as well.
+ * Considers everything from a `<scheme>://` up to the first whitespace, `"` or `'` a url.
+ * Adapted from @xterm/addon-web-links's WebLinksAddon, except the scheme is matched generically
+ * (RFC 3986: a letter followed by letters/digits/`+`/`-`/`.`) rather than just http(s), so the
+ * app deep links an agent prints — `msteams://`, `vscode://` — are recognized too.
  *
- * Used on terminal rows, where the input is one line at a time. findUrls() below exists
- * because this must not be let loose on large text — see there.
+ * Used on terminal rows, one line at a time. findUrls() below exists because this must not be
+ * let loose on large text — see there.
  */
 export const URL_REGEX = /[A-Za-z][A-Za-z0-9+.-]*:[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/;
 
@@ -22,13 +21,12 @@ const LETTER = /[A-Za-z]/;
 /**
  * Every url in a chunk of text, in order of appearance.
  *
- * Deliberately not URL_REGEX: its `[A-Za-z][A-Za-z0-9+.-]*` prefix has to backtrack
- * through every alphanumeric run that turns out not to be followed by a colon, which is
- * quadratic on the kind of text this gets called with (a session's messages as raw JSON,
- * with base64 blobs and file contents in it). Anchoring on "://" and expanding outwards
- * visits each character a bounded number of times instead. The result matches what
- * URL_REGEX would find, bar a url ending in "*" — which the regex accepts as a final
- * character but not inside the body.
+ * Deliberately not URL_REGEX: its `[A-Za-z][A-Za-z0-9+.-]*` prefix backtracks through every
+ * alphanumeric run that turns out not to be followed by a colon, which is quadratic on the kind
+ * of text this gets called with (a session's messages as raw JSON, base64 blobs and file
+ * contents in it). Anchoring on "://" and expanding outwards visits each character a bounded
+ * number of times. The result matches what URL_REGEX would find, bar a url ending in "*" —
+ * which the regex accepts as a final character but not inside the body.
  */
 export function findUrls(text: string): string[] {
   const urls: string[] = [];

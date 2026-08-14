@@ -7,8 +7,8 @@ import type { AgentId } from "../../shared/types";
  * the agent's own setup code into this one.
  *
  * Adding an agent therefore means a folder, an entry in `src/agents/index.ts`, and a case
- * below. Tab icons are 14px rather than the window's usual 18 — `.terminal-tab-icon` is what
- * settles that for these and for the git tab's branch icon alike.
+ * below. Tab icons are 14px rather than the window's usual 18 — `.terminal-tab-icon` settles
+ * that for these and for the git toggle's branch icon alike.
  */
 interface AgentIconProps {
   agentId: AgentId;

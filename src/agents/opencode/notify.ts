@@ -1,12 +1,19 @@
 import { exec } from "node:child_process";
 import * as path from "node:path";
 import { buildNotifyCommand } from "../../main/os-notify";
-import type { NotificationSettings } from "../notifications";
+import type { NotificationSettings } from "../../shared/types";
 
 /**
- * Fires the OS notifications for opencode. No hooks and no generated plugin are involved:
- * the server's own event stream carries what a notification would be about, and meezeek is
- * already subscribed to it for everything else — opencode's configuration stays untouched.
+ * What opencode calls a finished turn. Named here rather than spelled out twice: the toast
+ * below and the mark on the tab answer the same event, and two copies of the string could
+ * drift into disagreeing about when a session is done.
+ */
+export const SESSION_FINISHED_EVENT = "session.idle";
+
+/**
+ * Fires the OS notifications for opencode. No hooks and no generated plugin: the server's own
+ * event stream carries what a notification would be about, and meezeek is already subscribed
+ * to it for everything else — opencode's configuration stays untouched.
  */
 export function createOpencodeNotifier(
   storageDir: string,
@@ -24,7 +31,7 @@ export function createOpencodeNotifier(
       `${displayName}: Finished`,
       `Finished in ${repositoryName}`
     );
-    commands.set("session.idle", command);
+    commands.set(SESSION_FINISHED_EVENT, command);
   }
   if (notifications.needsYou) {
     const command = buildNotifyCommand(

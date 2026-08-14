@@ -12,6 +12,10 @@ const api: MeezeekApi = {
     check: () => ipcRenderer.invoke("startup:check"),
     quit: () => ipcRenderer.send("startup:quit")
   },
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    save: (settings) => ipcRenderer.invoke("settings:save", settings)
+  },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     pickDirectory: (title, defaultPath) => ipcRenderer.invoke("projects:pick-directory", title, defaultPath),
@@ -70,6 +74,7 @@ const api: MeezeekApi = {
     create: (projectId, agentId) => ipcRenderer.invoke("terminal:create", projectId, agentId),
     close: (projectId, tabIds) => ipcRenderer.invoke("terminal:close", projectId, tabIds),
     rename: (projectId, tabId, title) => ipcRenderer.invoke("terminal:rename", projectId, tabId, title),
+    seen: (projectId, tabId) => ipcRenderer.send("terminal:seen", projectId, tabId),
     input: (projectId, tabId, data) => ipcRenderer.send("terminal:input", projectId, tabId, data),
     resize: (projectId, tabId, cols, rows) => ipcRenderer.send("terminal:resize", projectId, tabId, cols, rows),
     resolveUrl: (projectId, tabId, fragment) =>

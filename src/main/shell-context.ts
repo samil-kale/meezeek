@@ -15,11 +15,10 @@ const LOG_TRUNCATION_NOTE = "... [earlier output dropped, showing most recent]\n
 const CONTEXT_FILE_BOM = process.platform === "win32" ? "﻿" : "";
 
 /**
- * Replaces a file's contents without ever holding it open for writing. Everything written
- * here is read by another process — an agent's prompt hook, or the agent's own file reads —
- * and on Windows opening a file that is mid-write fails outright rather than returning
- * partial data. Writing beside it and renaming into place means a reader gets either the
- * previous file or the new one, never one under construction.
+ * Replaces a file's contents without ever holding it open for writing. Everything written here
+ * is read by another process — an agent's prompt hook, or the agent's own file reads — and on
+ * Windows opening a file mid-write fails outright rather than returning partial data. Writing
+ * beside it and renaming into place gives a reader either the previous file or the new one.
  */
 async function replaceFile(file: string, contents: string): Promise<void> {
   const temp = `${file}.tmp`;
@@ -84,10 +83,10 @@ function cleanTerminalOutput(data: string): string {
 }
 
 /**
- * What meezeek tells an agent about the repository it is working in: the running transcript
- * of the shell tabs the user opened next to it. Modelled on how the VS Code extension passes
- * a debug session's console output — a capped file the agent is pointed at and reads on
- * demand, rather than an excerpt inlined into every prompt.
+ * What meezeek tells an agent about the repository it is working in: the running transcript of
+ * the shell tabs the user opened next to it. Modelled on how the VS Code extension passed a
+ * debug session's console output — a capped file the agent is pointed at and reads on demand,
+ * not an excerpt inlined into every prompt.
  *
  * Only shell tabs feed it. An agent tab's output is its TUI redrawing itself, and handing
  * that back to the agent that produced it is noise at best.

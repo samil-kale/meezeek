@@ -29,13 +29,12 @@ export async function getJson(url: string, headers: Record<string, string>): Pro
 }
 
 /**
- * Every page of a listing, up to the cap. The first one is what says how many there are: both
- * hosts send `rel="last"` alongside `rel="next"`, so the rest are fetched at once rather than
- * one after the other — a page costs about a second, and waiting for each to name the next
- * spends that many seconds in a row for nothing.
+ * Every page of a listing, up to the cap. The first says how many there are: both hosts send
+ * `rel="last"` alongside `rel="next"`, so the rest are fetched at once — a page costs about a
+ * second, and waiting for each to name the next spends that many seconds in a row for nothing.
  *
- * Where there is no `rel="last"` — a listing short enough to fit on one page sends neither, and
- * an instance may leave it out past a certain size — it falls back to following `rel="next"`.
+ * Where there is no `rel="last"` — a listing that fits on one page sends neither, and an
+ * instance may leave it out past a certain size — it follows `rel="next"` instead.
  */
 export async function getPaged(first: string, headers: Record<string, string>): Promise<unknown[]> {
   const response = await fetch(first, { headers });

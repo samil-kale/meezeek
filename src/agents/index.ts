@@ -10,8 +10,8 @@ export const AGENTS: AgentDefinition[] = [claudeAgent, opencodeAgent, shellAgent
 
 /**
  * The first installed agent that can be asked a question without a terminal, in registration
- * order. The shell has no `askArgs` and is skipped by that alone. Which agent that is, is this
- * registry's knowledge — a caller only wants *someone* to put a question to.
+ * order — the shell has no `askArgs` and is skipped by that alone. Which one it is stays this
+ * registry's knowledge: a caller only wants *someone* to put a question to.
  */
 export async function findAskableAgent(
   cwd: string

@@ -8,10 +8,9 @@ import * as path from "node:path";
  * `plugins/` directory) hooking `chat.message`, and the HTTP API has no equivalent.
  *
  * `OPENCODE_CONFIG_DIR` points opencode at meezeek's own install dir additively: it does not
- * replace the user's `.opencode/plugins/` or `~/.config/opencode/plugins/`. It is set on the
- * server process rather than on the terminal, since under `attach` the TUI is only a client
- * and the server is what loads plugins. Nothing here touches the repository or the user's
- * own opencode configuration.
+ * replace the user's `.opencode/plugins/` or `~/.config/opencode/plugins/`. Set on the server
+ * process rather than on the terminal, since under `attach` the TUI is only a client and the
+ * server is what loads plugins. Nothing here touches the repository or the user's own config.
  *
  * The install dir is shared across repositories, not per repository: opencode bun-installs
  * `@opencode-ai/plugin` and its transitive dependencies the first time it sees a plugins/

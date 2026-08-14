@@ -79,8 +79,8 @@ export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
 
   /**
    * Deleting is `git branch -D`, like GitHub Desktop's, so a branch whose work is not merged
-   * anywhere goes too — which is what the question has to say. The remote copy is the same
-   * question's checkbox, and only where there is one to delete.
+   * anywhere goes too — which is what the question says. The remote copy is that question's
+   * checkbox, and only where there is one to delete.
    */
   const askDeleteBranch = async (name: string): Promise<void> => {
     const onRemote = remote !== undefined && state.remotes[0].branches.includes(name);
@@ -151,8 +151,8 @@ export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
 
   /**
    * What can be done with a branch, following GitHub Desktop: check it out, base something new
-   * on it, and bring it into the branch you are on. Rewriting history in more than these two
-   * ways stays a job for a terminal.
+   * on it, bring it into the branch you are on. Rewriting history in more than these two ways
+   * stays a job for a terminal.
    */
   const branchEntries = (menu: Extract<BranchMenu, { kind: "branch" }>): ContextMenuEntry[] => {
     const { name, remote: from } = menu;

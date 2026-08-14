@@ -13,18 +13,18 @@ import type {
   TerminalStatus
 } from "../shared/types";
 import { countActivity } from "./event-loop-monitor";
+import type { SettingsStore } from "./settings";
 import { ShellContext } from "./shell-context";
 import { checkAgentInstalled, TerminalSession } from "./terminal-session";
 
 const RECONCILE_DEBOUNCE_MS = 5000;
-// A tab's CLI can persist a title (e.g. a generated summary) well after its output has
-// gone idle, so one reconcile right after the debounce isn't always enough — keep retrying
-// a few times at the same interval before giving up.
+// A tab's CLI can persist a title (a generated summary) well after its output went idle, so
+// one reconcile after the debounce is not always enough — retry a few times before giving up.
 const RECONCILE_RETRY_MS = 5000;
 const RECONCILE_MAX_RETRIES = 3;
-// A busy CLI redraws its TUI continuously, so the debounce above would be pushed out for
-// the whole turn and a tab whose session/title isn't known yet would keep showing the
-// placeholder long after the CLI persisted its title. Cap how far output can push it out.
+// A busy CLI redraws continuously, so the debounce above would be pushed out for the whole
+// turn and a tab whose session or title is not known yet would keep its placeholder long
+// after the CLI persisted one. Caps how far output can push it.
 const RECONCILE_MAX_WAIT_MS = 10000;
 // A watcher event is the change itself, not a guess that one may have happened, so it only
 // needs enough of a debounce to collapse the handful of events a single write produces.
@@ -82,6 +82,8 @@ interface AgentRuntime {
   reconcileRetriesLeft: number;
   /** Latest point in time the debounced reconcile may be pushed to; unset once it fires. */
   reconcileDeadline?: number;
+  /** Sessions reported finished before any tab had claimed their id — see markFinished. */
+  readonly pendingFinished: Set<string>;
 }
 
 export interface SessionManagerCallbacks {
@@ -101,7 +103,7 @@ function titleUnsettled(tab: TabState): boolean {
 }
 
 function toDescriptor(tab: TabState): TerminalDescriptor {
-  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId } = tab;
+  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt } = tab;
   return {
     tabId,
     projectId,
@@ -110,6 +112,7 @@ function toDescriptor(tab: TabState): TerminalDescriptor {
     updatedAt,
     createdAt,
     status,
+    finishedAt,
     hasSession: sessionId !== undefined
   };
 }
@@ -142,20 +145,25 @@ export class ProjectSessionManager {
   constructor(
     private readonly project: Project,
     private readonly storageRoot: string,
+    private readonly settings: SettingsStore,
     private readonly callbacks: SessionManagerCallbacks
   ) {
     this.shellContext = new ShellContext(path.join(storageRoot, "projects", project.id), project.name);
   }
 
   /** Where one agent may set itself up for this repository — see AgentDefinition.prepareSpawn. */
-  private pathsFor(agentId: AgentId): AgentPaths {
-    const agentDir = path.join(this.storageRoot, "agents", agentId, this.project.id);
+  private pathsFor(runtime: AgentRuntime): AgentPaths {
+    const agentDir = path.join(this.storageRoot, "agents", runtime.agent.id, this.project.id);
     fs.mkdirSync(agentDir, { recursive: true });
     return {
       agentDir,
       contextFile: this.shellContext.contextFile,
       contextReadPaths: [this.shellContext.logFile],
-      storageRoot: this.storageRoot
+      storageRoot: this.storageRoot,
+      // Read here rather than held: an agent prepares once per project, so this is the moment
+      // the current settings apply, and a change reaches the ones set up after it.
+      notifications: this.settings.get().notifications,
+      onSessionFinished: (sessionId) => this.markFinished(runtime, sessionId)
     };
   }
 
@@ -168,9 +176,9 @@ export class ProjectSessionManager {
   }
 
   /**
-   * The current value of what onStartupProgress reports. Needed because the bootstrap of a
-   * project restored at app start runs before the window exists, so its "show" never
-   * reaches a renderer — the pane asks for the state once instead of waiting for a push.
+   * The current value of what onStartupProgress reports. The bootstrap of a project restored
+   * at app start runs before the window exists, so its "show" never reaches a renderer — the
+   * pane asks for the state once instead of waiting for a push.
    */
   isStarting(): boolean {
     return this.indicators > 0;
@@ -192,9 +200,9 @@ export class ProjectSessionManager {
 
   /** Restores one tab per persisted session of every installed agent. */
   async bootstrap(): Promise<void> {
-    // Covers the version checks and session listings too, not just the first tab's own CLI
-    // startup afterwards — opencode's server start and listing can take seconds, and
-    // without this that wait would show nothing at all.
+    // Covers the version checks and session listings too, not just the first tab's CLI
+    // startup: opencode's server start and listing take seconds that would otherwise show
+    // nothing at all.
     this.acquireIndicator();
     try {
       await Promise.all(AGENTS.map((agent) => this.runtimeFor(agent.id).ready));
@@ -205,16 +213,14 @@ export class ProjectSessionManager {
   }
 
   /**
-   * A project that restored no session at all — a repository just cloned, or one whose
-   * sessions were all deleted — opens with one agent tab rather than an empty pane: the
-   * terminals are what the window is for, and the first thing anyone does here is start an
-   * agent. Which agent is registration order, so Claude Code where it is installed and
-   * opencode otherwise; the shell is skipped by having no sessions, the same rule that
-   * decides whether a tab takes its title from one.
+   * A project that restored no session at all — just cloned, or every session deleted — opens
+   * with one agent tab rather than an empty pane. Which agent is registration order, so Claude
+   * Code where it is installed and opencode otherwise; the shell is skipped by having no
+   * sessions, the same rule that decides whether a tab takes its title from one.
    *
-   * Nothing is spawned by this. `addTab` only puts the tab in the list, and the pane's first
-   * resize is what starts the CLI — so a project the user never switches to costs nothing,
-   * and a fresh tab persists no session, which is why this runs again on the next start.
+   * Nothing is spawned by this: the tab only goes in the list, and the pane's first resize is
+   * what starts the CLI — so a project the user never switches to costs nothing, and a fresh
+   * tab persists no session, which is why this runs again on the next start.
    */
   private openFirstAgentTab(): void {
     if (this.disposed || this.tabs.length > 0) {
@@ -240,7 +246,8 @@ export class ProjectSessionManager {
       ready: Promise.resolve(),
       prepareFailed: false,
       released: false,
-      reconcileRetriesLeft: 0
+      reconcileRetriesLeft: 0,
+      pendingFinished: new Set()
     };
     this.runtimes.set(agentId, runtime);
     runtime.ready = this.prepareRuntime(runtime);
@@ -297,10 +304,10 @@ export class ProjectSessionManager {
 
   /**
    * Runs the agent's setup, at most one at a time. False means it failed and the agent must
-   * not be started at all — an agent that asks for preparation can't be run without it in any
-   * meaningful way (opencode would start a second instance that shares only the database — no
-   * events, renames invisible to it). Better to say so and start nothing than to hand over a
-   * terminal that quietly misbehaves.
+   * not be started at all — one that asks for preparation cannot run without it in any
+   * meaningful way (opencode would start a second instance sharing only the database: no
+   * events, renames invisible to it). Better to start nothing than a terminal that quietly
+   * misbehaves.
    */
   private prepare(runtime: AgentRuntime): Promise<boolean> {
     runtime.preparing ??= this.doPrepare(runtime).finally(() => {
@@ -315,11 +322,10 @@ export class ProjectSessionManager {
       return !runtime.prepareFailed;
     }
     try {
-      runtime.preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(agent.id));
-      // A setup that worked clears the earlier failure. Without this, an agent released while
-      // idle whose next preparation failed once (opencode's port taken, say) would stay
-      // unstartable for the rest of the session even after a later attempt succeeded —
-      // `canStart` reads this flag, and nothing else ever puts it back.
+      runtime.preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(runtime));
+      // A setup that worked clears the earlier failure: `canStart` reads this flag and nothing
+      // else puts it back, so one failed preparation (opencode's port taken, say) would leave
+      // the agent unstartable for the rest of the session.
       runtime.prepareFailed = false;
       return true;
     } catch (error) {
@@ -376,15 +382,13 @@ export class ProjectSessionManager {
   }
 
   /**
-   * A tab that runs one of the project's saved commands and ends with it. Its process *is*
-   * the command: the output arrives while it runs and stays readable afterwards, which is
-   * what a build wants and what a notice could never give. The command is its label, since a
-   * shell tab has no session to take a title from.
+   * A tab that runs one of the project's saved commands and ends with it. Its process *is* the
+   * command, and the command is its label, since a shell tab has no session to take a title
+   * from.
    *
-   * The program is started directly, without a shell — that is what makes one saved entry run
-   * the same everywhere, and `resolveCommand` is where "the same everywhere" is decided (a
-   * `.cmd` shim on win32 goes through cmd.exe). Only a command that asked for a shell gets
-   * one, and then it is the same one the project's shell tabs use.
+   * The program is started directly, without a shell; `resolveCommand` is where the platform
+   * difference is settled (a `.cmd` shim on win32 goes through cmd.exe). Only a command that
+   * asked for a shell gets one, and then it is the same one the project's shell tabs use.
    */
   createCommandTab(command: ProjectCommand): TerminalDescriptor | undefined {
     const shared = {
@@ -401,9 +405,9 @@ export class ProjectSessionManager {
     if (!executable) {
       return undefined;
     }
-    // Shell syntax would be handed to the program as an ordinary argument here — `rm x && y`
-    // would ask rm to delete "&&" and "y". Said out loud rather than run: a file written when
-    // saved commands still went through a shell is exactly where this comes from.
+    // Shell syntax would reach the program as an ordinary argument — `rm x && y` would ask rm
+    // to delete "&&" and "y". Said out loud rather than run: a file written when saved
+    // commands still went through a shell is where such a line comes from.
     const operator = [executable, ...runArgs].find((token) => SHELL_OPERATOR.test(token));
     if (operator) {
       this.callbacks.onNotice(
@@ -507,9 +511,9 @@ export class ProjectSessionManager {
           if (isSessionReady?.(data, Date.now() - startedAt)) {
             hideIndicator();
           }
-          // A tab's CLI persists/updates its session shortly after producing output —
-          // reconcile a bit after output settles to adopt a fresh session id and to pick up
-          // title changes (e.g. once the CLI generates a summary) for tabs that have one.
+          // A CLI persists or updates its session shortly after producing output, so
+          // reconciling once output settles adopts a fresh session id and picks up a title
+          // the CLI generated for one it already had.
           this.scheduleReconcile(runtime);
         },
         onStatusChange: (status) => {
@@ -659,11 +663,51 @@ export class ProjectSessionManager {
     this.postTabs();
   }
 
+  /**
+   * One of this project's sessions has finished a turn, as the agent itself reported it — see
+   * AgentPaths.onSessionFinished. Whether the mark is *shown* is not decided here: the
+   * renderer is the half that knows which tab is in front of the user.
+   */
+  private markFinished(runtime: AgentRuntime, sessionId: string): void {
+    if (this.disposed || this.applyFinished(runtime, sessionId)) {
+      return;
+    }
+    // No tab holds that id yet — a fresh tab whose first turn ended before the reconcile that
+    // adopts its session ran, the common short-first-question case. Held rather than dropped,
+    // and re-listed at once so the wait is as short as it can be.
+    runtime.pendingFinished.add(sessionId);
+    this.scheduleReconcile(runtime, 0);
+  }
+
+  private applyFinished(runtime: AgentRuntime, sessionId: string): boolean {
+    const tab = this.tabsOf(runtime).find((candidate) => candidate.sessionId === sessionId);
+    if (!tab) {
+      return false;
+    }
+    tab.finishedAt = Date.now();
+    this.postTabs();
+    return true;
+  }
+
+  /**
+   * The tab is in front of the user, so whatever was waiting on it has been seen. Nothing is
+   * checked here: the renderer calls it for the active tab of the project on screen, which is
+   * the one thing this process cannot know for itself.
+   */
+  markSeen(tabId: string): void {
+    const tab = this.tabs.find((candidate) => candidate.tabId === tabId);
+    if (tab?.finishedAt === undefined) {
+      return;
+    }
+    tab.finishedAt = undefined;
+    this.postTabs();
+  }
+
   private scheduleReconcile(runtime: AgentRuntime, delayMs = RECONCILE_DEBOUNCE_MS): void {
     runtime.reconcileRetriesLeft = RECONCILE_MAX_RETRIES;
-    // Only tabs whose label isn't settled need the mid-output reconcile; for everything else
-    // the debounce alone keeps the extra session listings out of a turn. A stand-in title
-    // counts as unsettled — it's non-empty, but the agent can still replace it mid-turn.
+    // Only tabs whose label is unsettled need the mid-output reconcile; elsewhere the debounce
+    // alone keeps the extra session listings out of a turn. A stand-in title counts as
+    // unsettled — non-empty, but the agent can still replace it mid-turn.
     if (runtime.reconcileDeadline === undefined && this.tabsOf(runtime).some(titleUnsettled)) {
       runtime.reconcileDeadline = Date.now() + RECONCILE_MAX_WAIT_MS;
     }
@@ -671,9 +715,9 @@ export class ProjectSessionManager {
   }
 
   private armReconcileTimer(runtime: AgentRuntime, delayMs: number): void {
-    // The retry below re-arms this timer after every run, so a reconcile that was in flight
-    // when the project closed would put a fresh one in place behind dispose's back — and
-    // opencode's listing brings its server back up, leaving a process nobody owns.
+    // The retry below re-arms this timer after every run, so a reconcile in flight when the
+    // project closed would put a fresh one in place behind dispose's back — and opencode's
+    // listing brings its server back up, leaving a process nobody owns.
     if (this.disposed) {
       return;
     }
@@ -762,6 +806,20 @@ export class ProjectSessionManager {
       }
     }
 
+    // Turns reported before their tab had claimed the session — see markFinished. One gone
+    // from the listing is dropped rather than waited on: no tab will claim an id no session
+    // has any more, and that is what bounds this set.
+    for (const sessionId of runtime.pendingFinished) {
+      const tab = ownTabs.find((candidate) => candidate.sessionId === sessionId);
+      if (tab) {
+        tab.finishedAt = Date.now();
+        runtime.pendingFinished.delete(sessionId);
+        changed = true;
+      } else if (!infos.some((info) => info.id === sessionId)) {
+        runtime.pendingFinished.delete(sessionId);
+      }
+    }
+
     if (changed) {
       this.postTabs();
     }
@@ -795,6 +853,7 @@ export class SessionManagerRegistry {
 
   constructor(
     private readonly storageRoot: string,
+    private readonly settings: SettingsStore,
     private readonly callbacks: SessionManagerCallbacks
   ) {}
 
@@ -803,7 +862,7 @@ export class SessionManagerRegistry {
     if (existing) {
       return existing;
     }
-    const manager = new ProjectSessionManager(project, this.storageRoot, this.callbacks);
+    const manager = new ProjectSessionManager(project, this.storageRoot, this.settings, this.callbacks);
     this.managers.set(project.id, manager);
     void manager.bootstrap();
     return manager;

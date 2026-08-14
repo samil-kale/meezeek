@@ -8,6 +8,7 @@ import type {
   AddAccountResult,
   AddRepositoryResult,
   AgentId,
+  AppSettings,
   CheckoutTarget,
   DiffOptions,
   FileDiff,
@@ -31,15 +32,16 @@ import type { ProjectStore } from "./projects";
 import type { Repository, RepositoryManager } from "./repository";
 import { checkRequirements } from "./requirements";
 import type { SessionManagerRegistry } from "./session-manager";
+import type { SettingsStore } from "./settings";
 
 /**
- * Everything the renderer can ask the main process for, in one place — main.ts is the
- * bootstrap that builds these singletons and the window, and this is the surface between the
- * two processes. A new capability (the providers, say) is a new block here, not a longer
- * main.ts.
+ * Everything the renderer can ask the main process for, in one place — main.ts builds these
+ * singletons and the window, this is the surface between the two processes. A new capability
+ * (the providers, say) is a new block here, not a longer main.ts.
  */
 export interface IpcDeps {
   store: ProjectStore;
+  settings: SettingsStore;
   accounts: AccountStore;
   repositories: RepositoryManager;
   sessions: SessionManagerRegistry;
@@ -62,6 +64,7 @@ function writeTempFile(name: string, data: Buffer): string {
 
 export function registerIpc({
   store,
+  settings,
   accounts,
   repositories,
   sessions,
@@ -71,8 +74,8 @@ export function registerIpc({
 }: IpcDeps): void {
   /**
    * The gate the window opens with: nothing is restored until git and an agent are there, so a
-   * machine that is missing one never gets as far as a repository or a terminal. The renderer
-   * asks again after every re-check, and passing is what starts the app.
+   * machine missing one never gets as far as a repository or a terminal. Asked again after
+   * every re-check, and passing is what starts the app.
    */
   ipcMain.handle("startup:check", async (): Promise<Requirements> => {
     const requirements = await checkRequirements();
@@ -83,6 +86,12 @@ export function registerIpc({
   });
 
   ipcMain.on("startup:quit", () => app.quit());
+
+  ipcMain.handle("settings:get", (): AppSettings => settings.get());
+
+  // Written whole, like a project's saved commands: the dialog holds all of it and every
+  // switch it draws is one the user could have flipped since it was opened.
+  ipcMain.handle("settings:save", (_event, next: AppSettings): void => settings.save(next));
 
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
@@ -277,8 +286,7 @@ export function registerIpc({
   });
 
   /**
-   * Running one is opening a tab for it: the command is the tab's process, so its output
-   * arrives while it works and is still there afterwards.
+   * Running one is opening a tab for it: the command is the tab's process.
    */
   ipcMain.handle(
     "commands:run",
@@ -289,8 +297,8 @@ export function registerIpc({
 
   /**
    * The wand: asks whichever agent is installed what this project can run, and adds what it
-   * names to the list. Whatever it gets wrong is one right-click away from being deleted,
-   * which is why its answer goes straight in rather than through a review step.
+   * names to the list. Its answer goes straight in rather than through a review step —
+   * whatever it gets wrong is one right-click away from being deleted.
    */
   ipcMain.handle("commands:suggest", async (_event, projectId: string): Promise<ProjectCommand[]> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
@@ -352,6 +360,14 @@ export function registerIpc({
 
   ipcMain.handle("terminal:rename", async (_event, projectId: string, tabId: string, title: string): Promise<void> => {
     await sessions.get(projectId)?.renameTab(tabId, title);
+  });
+
+  /**
+   * The tab is in front of the user, so the mark a finished turn left on it goes away. Only
+   * the renderer knows which tab that is, hence the call rather than a rule applied here.
+   */
+  ipcMain.on("terminal:seen", (_event, projectId: string, tabId: string) => {
+    sessions.get(projectId)?.markSeen(tabId);
   });
 
   ipcMain.on("terminal:input", (_event, projectId: string, tabId: string, data: string) => {

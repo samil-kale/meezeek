@@ -5,11 +5,11 @@ import * as path from "node:path";
 export const WIN_BOM = "﻿";
 
 /**
- * Builds a shell command that shows a native OS notification. Uses each platform's built-in
- * notifier — no extra dependency, no registry writes, no installs. Notification-only, no
- * click action: making a toast act on a click requires registering an app identity, which
- * would mean writing to the registry. `id` must be unique per call site — it names the
- * generated script file, so notifications for different events don't overwrite each other's.
+ * Builds a shell command that shows a native OS notification through each platform's built-in
+ * notifier — no extra dependency, no registry writes, no installs. Notification-only, no click
+ * action: making a toast act on a click requires registering an app identity, which would mean
+ * writing to the registry. `id` must be unique per call site — it names the generated script
+ * file, so two events do not overwrite each other's.
  */
 export function buildNotifyCommand(storageDir: string, id: string, title: string, body: string): string {
   if (process.platform === "win32") {

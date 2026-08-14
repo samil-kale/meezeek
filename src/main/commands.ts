@@ -8,15 +8,14 @@ import { resolveCommand } from "./pty";
 /**
  * Shell commands a project keeps around — "npm run build", a deploy script, whatever is typed
  * often enough to be worth a button. They live in the repository rather than in meezeek's own
- * storage, so they travel with it and can be shared like any other project file.
+ * storage, so they travel with it like any other project file.
  */
 const FILE = "meezeek.json";
 
 /**
- * What that file holds. A command is written as a plain string while the command line alone
- * says everything, and as an object once it needs a directory, variables or a shell of its own
- * — so the common case stays a one-line entry a person can read, and an older file full of
- * strings is still a valid one.
+ * What that file holds. A command is a plain string while the command line alone says
+ * everything, and an object once it needs a directory, variables or a shell — so the common
+ * case stays a one-line entry a person can read, and a file full of strings stays valid.
  */
 type StoredCommand =
   | string
@@ -40,13 +39,12 @@ function file(root: string): string {
 }
 
 /**
- * The project's saved commands, or **null** when it has no meezeek.json at all — which is the
- * one case worth telling apart, since that is when the caller offers to fill the list itself.
- * A file that is there but unreadable or shaped differently is no commands rather than none:
- * it is a file in the user's repository, and half of it being someone else's is a good enough
- * reason neither to throw nor to go and write over it.
+ * The file's contents, or **null** when there is no meezeek.json at all — the one case worth
+ * telling apart, since that is when the caller offers to fill the list itself. One that is
+ * there but unreadable or shaped differently is no commands rather than none: it is a file in
+ * the user's repository, and half of it being someone else's is reason neither to throw nor to
+ * write over it.
  */
-/** The file's contents, or null when there is none — the one case callers tell apart. */
 async function read(root: string): Promise<ProjectFile | null> {
   let content: string;
   try {
@@ -128,8 +126,8 @@ export function writeCommands(root: string, commands: ProjectCommand[]): Promise
 
 /**
  * What an agent is asked when the wand is pressed. Deliberately concrete about where commands
- * hide — a model that is only told "find the commands" answers with what it would type in a
- * generic project of that kind, rather than with what this one actually declares.
+ * hide — a model told only "find the commands" answers with what it would type in a generic
+ * project of that kind rather than with what this one declares.
  */
 const SUGGEST_PROMPT = [
   "List the commands this project can actually run.",

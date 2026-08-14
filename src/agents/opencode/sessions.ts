@@ -63,8 +63,8 @@ export const opencodeSessionProvider: SessionProvider = {
     void ensureServer(executable, cwd)
       .then((server) => {
         if (!stopped) {
-          unsubscribe = server.subscribe(cwd, (type) => {
-            if (type.startsWith("session.")) {
+          unsubscribe = server.subscribe(cwd, (event) => {
+            if (event.type.startsWith("session.")) {
               onChange();
             }
           });

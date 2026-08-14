@@ -1,4 +1,4 @@
-import type { AgentId } from "../shared/types";
+import type { AgentId, NotificationSettings } from "../shared/types";
 
 export interface AgentSessionInfo {
   /** Agent-native session id (Claude: transcript uuid; opencode: "ses_..."). */
@@ -10,10 +10,10 @@ export interface AgentSessionInfo {
   /** Creation time, ms since epoch — determines tab order, independent of `updatedAt`. */
   createdAt: number;
   /**
-   * True while `title` is only standing in for a name the agent hasn't assigned yet
-   * (Claude: the first prompt, shown until an agent-name/ai-title lands). Those arrive from
-   * a background call that can finish after the CLI has gone quiet, so the manager keeps
-   * polling a while longer for sessions flagged here — see reconcile.
+   * True while `title` is only standing in for a name the agent hasn't assigned yet (Claude:
+   * the first prompt, shown until an agent-name/ai-title lands). Those arrive from a background
+   * call that can finish after the CLI has gone quiet, so the manager keeps polling a while
+   * longer for sessions flagged here — see reconcile.
    */
   provisionalTitle?: boolean;
 }
@@ -33,20 +33,23 @@ export interface SessionProvider {
   /** Renames the session's persisted title. Rejects on failure (caller surfaces the error). */
   rename(executable: string, cwd: string, sessionId: string, title: string): Promise<void>;
   /**
-   * Optional: calls `onChange` whenever this repository's sessions change, so the manager
-   * can re-list right away instead of waiting out its polling. Returns a stop function,
-   * called on shutdown — an implementation that owns a process or connection tears it
-   * down there.
+   * Optional: calls `onChange` whenever this repository's sessions change, so the manager can
+   * re-list right away instead of waiting out its polling. Returns a stop function, called on
+   * shutdown — an implementation owning a process or connection tears it down there.
    */
   watch?(executable: string, cwd: string, onChange: () => void): () => void;
 }
 
-/** Where an agent may write what it needs to set itself up for one repository. */
+/**
+ * What one agent is handed to set itself up for one repository: where it may write, and the
+ * one thing it reports back out of band. Everything else an agent says goes through the
+ * return value of the call it was made from.
+ */
 export interface AgentPaths {
   /**
    * This agent's own scratch directory for this repository, already created. Per repository
-   * because meezeek has several open at once and what is generated in there (notification
-   * texts, hook settings) names the repository it belongs to.
+   * because several are open at once and what is generated in there (notification texts, hook
+   * settings) names the one it belongs to.
    */
   agentDir: string;
   /**
@@ -61,6 +64,22 @@ export interface AgentPaths {
   contextReadPaths: string[];
   /** Meezeek's user-data root, for anything an agent has to install machine-wide. */
   storageRoot: string;
+  /**
+   * What this agent may notify the OS about, as the settings dialog last left it. Handed over
+   * rather than imported, so the one persisted copy stays the only one — and read here, at
+   * setup, because that is where each agent bakes it in: Claude Code into the settings file it
+   * reads once at startup, opencode into the notifier around its event stream.
+   */
+  notifications: NotificationSettings;
+  /**
+   * Called whenever one of this repository's sessions has finished a turn. Each agent knows
+   * this its own way, and neither way is the terminal's output — see "A session that finished
+   * out of sight" in CLAUDE.md.
+   *
+   * A session id, not a tab id: an agent knows nothing about tabs. One that has no tab yet is
+   * held until the next reconcile claims it, so a fresh session's first turn is not lost.
+   */
+  onSessionFinished(sessionId: string): void;
 }
 
 /**
@@ -73,10 +92,10 @@ export interface SpawnPreparation {
   dispose(): void;
   /**
    * Whether this may be disposed again while the project has no session and no open tab of
-   * this agent, and prepared afresh once it does. Set it when the preparation holds something
-   * that costs while it sits idle — opencode's is a server process per repository, started
-   * only so its sessions could be listed. A preparation that is just a generated file is
-   * cheaper to keep than to redo, and leaves this unset.
+   * this agent, and prepared afresh once it does. Set it when the preparation costs while it
+   * sits idle — opencode's is a server process per repository, started only so its sessions
+   * could be listed. One that is just a generated file is cheaper to keep than to redo, and
+   * leaves this unset.
    *
    * Whatever the agent's `watch` holds goes with it, since it may well be a subscription on
    * the very thing being disposed.
@@ -109,14 +128,14 @@ export interface AgentDefinition {
   installUrl?: string;
   /**
    * Args that put one question to the agent without a terminal, answered on stdout and then
-   * over. Omitted for an agent that cannot be asked anything (the shell), which is also what
-   * marks it as no candidate for the jobs that use this.
+   * over. Omitted for an agent that cannot be asked anything (the shell), which is what keeps
+   * it out of the jobs that use this.
    */
   askArgs?: (question: string) => string[];
   /**
    * Args that hand one command to this agent *in a terminal*, ending when it does. Only the
-   * shell has it, and only a saved command that asked for a shell uses it — a saved command
-   * is otherwise started as the program it names, with nothing in between.
+   * shell has it, and only a saved command that asked for a shell uses it — one otherwise
+   * starts as the program it names, with nothing in between.
    */
   runArgs?: (command: string) => string[];
   /**
@@ -129,38 +148,36 @@ export interface AgentDefinition {
   sessions?: SessionProvider;
   /**
    * Async setup that has to finish before any session of this agent is spawned, for agents
-   * whose spawn arguments aren't known up front — opencode brings up the server its TUI
-   * then attaches to and only then knows the URL, and Claude Code's hooks are generated
-   * into a settings file it is pointed at.
+   * whose spawn arguments aren't known up front — opencode brings up the server its TUI then
+   * attaches to and only then knows the URL, and Claude Code's hooks are generated into a
+   * settings file it is pointed at.
    *
-   * It is also where an agent arranges for the repository's context file to reach the model,
-   * which each does its own way — see AgentPaths.
+   * Also where an agent arranges for the repository's context file to reach the model, which
+   * each does its own way — see AgentPaths.
    */
   prepareSpawn?: (executable: string, cwd: string, paths: AgentPaths) => Promise<SpawnPreparation>;
   /**
-   * Completes a url the agent's TUI wrapped across rows, from the agent's own record of
-   * what it printed — the terminal buffer can't be told apart from a line that merely ends
-   * in a url (opencode breaks a long token at the last "." that fits, so not even the
-   * right edge marks it). Returns the full url that starts with `prefix`, or undefined
-   * when nothing is known; the renderer then keeps the fragment as it is.
+   * Completes a url the agent's TUI wrapped across rows, from the agent's own record of what
+   * it printed — in the buffer such a row cannot be told apart from one that merely ends in a
+   * url (opencode breaks a long token at the last "." that fits, so not even the right edge
+   * marks it). Returns the full url starting with `prefix`, or undefined when nothing is
+   * known; the renderer then keeps the fragment as it is.
    *
-   * Called only when the user holds the modifier over such a url, at most once per
-   * fragment, so an implementation may go over HTTP — but must not throw.
+   * Called only when the user holds the modifier over such a url, at most once per fragment,
+   * so an implementation may go over HTTP — but must not throw.
    */
   resolveUrlPrefix?: (executable: string, cwd: string, sessionId: string, prefix: string) => Promise<string | undefined>;
   /**
-   * A factory (not the predicate itself!) for the "is this session's CLI ready yet" check —
-   * called once per session start, so each session gets its own fresh, isolated predicate
-   * instead of carrying over one that already passed. The predicate sees each output chunk
-   * (and the ms elapsed since that session started); once it returns true, the progress bar
-   * under the tab strip hides. The CLI's real output keeps flowing to the terminal the whole
-   * time regardless — some CLIs query the terminal for capabilities like its background
-   * colour right at start and need a timely answer, which withholding output would break.
+   * A factory (not the predicate itself!) for the "is this session's CLI ready yet" check, so
+   * each session gets a fresh one instead of carrying over one that already passed. It sees
+   * each output chunk and the ms since that session started; once it returns true, the
+   * progress bar under the tab strip hides. Output keeps flowing to the terminal throughout —
+   * some CLIs query it for capabilities like the background colour at start and need a timely
+   * answer, which withholding would break.
    *
-   * There's no actual readiness signal to check instead (no port, no log line, no flag), so
-   * this is necessarily a best-effort guess at the CLI's undocumented output behaviour —
-   * which is why the tuning lives per agent and not in the shared terminal layer. Omitted
-   * for agents that are up as soon as they are spawned (the shell).
+   * There is no real readiness signal (no port, no log line, no flag), so this is a
+   * best-effort guess at undocumented output behaviour — which is why the tuning lives per
+   * agent. Omitted for agents that are up as soon as they are spawned (the shell).
    */
   createIsSessionReady?: () => (chunk: string, elapsedMs: number) => boolean;
 }

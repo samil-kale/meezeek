@@ -21,9 +21,9 @@ function toAccount(entry: StoredAccount): ProviderAccount {
 }
 
 /**
- * The configured accounts, persisted like the projects are — except for the token, which only
- * ever leaves this class decrypted on its way into a provider call or a clone. The renderer
- * sees accounts without tokens, full stop.
+ * The configured accounts, persisted like the projects — except for the token, which only
+ * leaves this class decrypted on its way into a provider call or a clone. The renderer sees
+ * accounts without tokens, full stop.
  */
 export class AccountStore {
   private readonly file: string;

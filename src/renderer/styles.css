@@ -149,7 +149,13 @@ option {
   /* VS Code's own title bar height when the window controls overlay is in use. */
   height: 35px;
   flex: none;
-  padding: 0 12px;
+  padding-left: 12px;
+  /* Where the platform's own controls end up, so what the bar draws stops just short of them
+     rather than under them. The overlay publishes its geometry as the Window Controls Overlay
+     environment variables, and `100% - <the part left over for us>` is the width it took. Both
+     fall away where there is no overlay — macOS, whose controls sit on the *left* — and the
+     fallback leaves the padding at 0, which is the right edge. */
+  padding-right: calc(100% - env(titlebar-area-width, 100%));
   background: var(--vscode-titleBar-activeBackground);
   -webkit-app-region: drag;
 }
@@ -162,11 +168,50 @@ option {
   flex: none;
 }
 
+/* The one thing in the bar that may be cut: the icon and the button beside it keep their box
+   however narrow the window gets, the way the platform's own controls do. */
 .titlebar-name {
+  overflow: hidden;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--vscode-titleBar-activeForeground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The settings, at the end of the bar's own half — on Windows and Linux directly against the
+   platform's minimize (see .titlebar's padding), on macOS at the right edge, since the controls
+   are on the other side there.
+   Deliberately not an .icon-button: it stands in the row of window controls, so it takes their
+   box instead — 46px wide and the full height of the bar, which is what VS Code gives each of
+   its own and what the overlay reserves per control. No radius either: the controls fill their
+   boxes, corners included, and a rounded patch in that row reads as a different kind of thing. */
+.titlebar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  margin-left: auto;
+  flex: none;
+  color: var(--vscode-titleBar-activeForeground);
+  /* The bar is the window's drag region, and a button in it has to be taken back out. */
+  -webkit-app-region: no-drag;
+}
+
+/* Every other icon in the window is rendered at 18. Its neighbours here are the platform's
+   caption glyphs, which are hairlines around 10px, so at 18 the gear would be the heaviest
+   thing in the bar by some way. */
+.titlebar-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The translucent hover every action button in the window takes, which is also about what the
+   platform draws behind minimize and maximize. */
+.titlebar-button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
 }
 
 /* 24px around an 18px icon — the box only has to leave the hover background something to
@@ -580,13 +625,24 @@ option {
   background: var(--vscode-list-hoverBackground);
 }
 
+/* HEAD, in the blue the active tab underlines itself with — the one colour here that singles
+   something out. It was green, borrowed from `gitDecoration-untrackedResourceForeground`, a
+   variable meaning "git does not know this file" and so nothing to do with which branch is
+   checked out. */
 .tree-item.current {
-  font-weight: 600;
-  color: var(--vscode-gitDecoration-untrackedResourceForeground);
+  color: var(--vscode-focusBorder);
+}
+
+/* The row icon size the branch bar and the tab strip already use. */
+.tree-icon,
+.tree-header svg,
+.tree-item.remote > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
 .tree-icon {
-  flex: none;
   opacity: 0.8;
 }
 
@@ -732,6 +788,22 @@ option {
 
 .terminal-tab.unavailable {
   color: var(--vscode-errorForeground);
+}
+
+/* A session finished a turn out of sight — the speech bubble on its tab and the one on its
+   project's row. The same shape in both places and declared once, in the colour everything
+   that points at something here is drawn in: two marks for one thing must not come to read
+   as two different things. */
+.session-mark {
+  flex: none;
+  color: var(--vscode-focusBorder);
+}
+
+/* On a tab, at the size of the agent icon at the other end of the label rather than the 18 an
+   icon is drawn at everywhere else. */
+.terminal-tab .session-mark {
+  width: 14px;
+  height: 14px;
 }
 
 /* 14px, not the 18px an icon has elsewhere: a tab is a label with a mark in front of it, and
@@ -988,6 +1060,13 @@ option {
   white-space: nowrap;
 }
 
+/* The letter git itself uses for the change, in the colour VS Code gives that same change in
+   its own SCM list. The one place in the window where a hue carries meaning, and it is not an
+   invention: `gitDecoration-*` is Dark Modern's own set for exactly this, low-saturation and
+   made to sit in a file list rather than shout over it. They were taken out once for reading
+   as decoration and put back for being the theme's answer to the question.
+   `renamed` deliberately has none of its own — git treats it as a modification of a file that
+   moved, and the R already says the rest. */
 .change-status {
   flex: none;
   width: 14px;
@@ -1326,6 +1405,13 @@ option {
   box-shadow: 0 8px 24px var(--vscode-widget-shadow);
 }
 
+/* The add-repository dialog's width rather than a third one of its own: a question whose
+   fields hold command lines needs the room, and two dialogs side by side should not differ by
+   40px for no reason. */
+.dialog.wide {
+  width: 560px;
+}
+
 .dialog-title {
   font-size: 15px;
   font-weight: 600;
@@ -1353,6 +1439,12 @@ option {
   align-items: center;
   gap: 6px;
   cursor: pointer;
+}
+
+/* What one group of settings is called, above its switches. The body's own gap is the spacing;
+   nothing here needs a second one. */
+.settings-group {
+  font-weight: 600;
 }
 
 /* The field a name is typed into, with its label above it. */

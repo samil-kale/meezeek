@@ -40,9 +40,9 @@ export function usePaneToggle(key: string, initial: boolean): [boolean, (open: b
 }
 
 /**
- * A pane size the user can drag, restored on the next start. The floor is applied to what
- * comes back as well, not only to the drag: a size stored before that floor existed would
- * otherwise disagree with the pane's own `min-*` for as long as nobody grabbed the sash.
+ * A pane size the user can drag, restored on the next start. The floor applies to what comes
+ * back as well, not only to the drag: a size stored before that floor existed would otherwise
+ * disagree with the pane's own `min-*` until somebody grabbed the sash.
  */
 export function usePaneSize(key: string, initial: number, min: number): [number, (size: number) => void] {
   const [size, setSize] = useState(() => {
@@ -74,7 +74,7 @@ interface SashProps {
   minOther: number;
   /**
    * The pane it sizes is the one *behind* it, not in front — dragging towards it makes it
-   * smaller. What the git console needs, since it is the bottom one that keeps its height.
+   * smaller. What the commands list needs, since it is the bottom one that keeps its height.
    */
   reverse?: boolean;
   onResize: (size: number) => void;

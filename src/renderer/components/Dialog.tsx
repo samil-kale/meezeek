@@ -36,10 +36,15 @@ export interface PromptOptions {
   extras?: { label: string; placeholder?: string; value?: string }[];
   /**
    * Where the answer's own field sits among the extras, first by default. A saved command's
-   * name is the one that goes above it: it is what the row will be called, and a label reads
-   * as the heading of what it names rather than as a note under it.
+   * name goes above it: it is what the row will be called, and a label reads as the heading of
+   * what it names rather than as a note under it.
    */
   valueIndex?: number;
+  /**
+   * The add-repository dialog's width instead of the default one, for a question whose fields
+   * hold lines rather than words — a command with its arguments, a list of variables.
+   */
+  wide?: boolean;
 }
 
 export interface PromptAnswer {
@@ -58,9 +63,8 @@ type Pending =
  * rather than through Electron's `dialog.showMessageBox`, so a question looks like the rest of
  * the app instead of like the OS.
  *
- * `confirm` is for something that cannot be undone — a question the user answers the same way
- * every time is one not worth asking. `prompt` is for a name, and is where every rename in the
- * app happens.
+ * `confirm` is for something that cannot be undone — a question answered the same way every
+ * time is not worth asking. `prompt` is for a name, and is where every rename happens.
  */
 let pending: Pending | null = null;
 const listeners = new Set<() => void>();
@@ -117,17 +121,19 @@ interface FrameProps {
   confirmLabel: string;
   /** Nothing to go through with yet — an empty name, say. */
   disabled?: boolean;
+  /** See PromptOptions.wide. */
+  wide?: boolean;
   onSubmit: () => void;
   onCancel: () => void;
   children: React.ReactNode;
 }
 
-function Frame({ title, confirmLabel, disabled, onSubmit, onCancel, children }: FrameProps) {
+function Frame({ title, confirmLabel, disabled, wide, onSubmit, onCancel, children }: FrameProps) {
   return (
     <div className="dialog-overlay">
       {/* A form, so Enter answers from wherever the focus sits — the field or the checkbox. */}
       <form
-        className="dialog"
+        className={wide ? "dialog wide" : "dialog"}
         onSubmit={(event) => {
           event.preventDefault();
           if (!disabled) {
@@ -218,6 +224,7 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
       title={dialog.title}
       confirmLabel={dialog.confirmLabel}
       disabled={value.trim().length === 0}
+      wide={dialog.wide}
       onSubmit={() => dialog.answer({ value: value.trim(), extras: extras.map((entry) => entry.trim()) })}
       onCancel={() => dialog.answer(null)}
     >

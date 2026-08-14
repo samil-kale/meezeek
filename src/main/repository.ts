@@ -77,8 +77,8 @@ export class Repository {
   private autoFetchTimer: ReturnType<typeof setInterval> | undefined;
   /**
    * Each remote's url, read when the project opens and again after it is changed here. Not
-   * part of a refresh: a url changes about never, and a refresh's cost is the git processes
-   * it starts.
+   * part of a refresh: a url changes about never, and a refresh costs the git processes it
+   * starts.
    */
   private remoteUrls: Record<string, string> = {};
   /** Checked once when the project opens; without it there is nothing to read or watch. */
@@ -127,10 +127,9 @@ export class Repository {
   }
 
   /**
-   * The periodic fetch. It says nothing when it fails: a repository whose remote needs
-   * credentials nobody entered, or a machine that is offline, would otherwise put the same
-   * notice up every ten minutes for something the user never asked for. A fetch they *did*
-   * ask for reports as loudly as anything else.
+   * The periodic fetch. Silent when it fails: a remote whose credentials nobody entered, or a
+   * machine that is offline, would otherwise put the same notice up every ten minutes for
+   * something the user never asked for. A fetch they *did* ask for reports like anything else.
    */
   private async autoFetch(): Promise<void> {
     if (this.actionRunning || this.state.remotes.length === 0) {
@@ -168,9 +167,9 @@ export class Repository {
         remotes: read.remotes.map((remote) => ({ ...remote, url: this.remoteUrls[remote.name] }))
       };
       this.reportError(next);
-      // Only emit on an actual change: the watcher fires for plenty of edits that leave
-      // the repository state identical, and every emit re-renders the views. And not at all
-      // once the project is closed — this call was already in flight when it went.
+      // Only emit on an actual change: the watcher fires for plenty of edits that leave the
+      // state identical, and every emit re-renders the views. And not at all once the project
+      // is closed — this call was already in flight when it went.
       if (!this.disposed && JSON.stringify(next) !== JSON.stringify(this.state)) {
         this.state = next;
         this.onState(next);
@@ -201,9 +200,8 @@ export class Repository {
 
   /**
    * Runs one command at a time and refreshes after it. Two of them in one repository race for
-   * the index lock, and which branch you end up on comes down to timing; a fetch on top of a
-   * checkout is no better. The UI does not offer a second one while the first runs; anything
-   * that gets here anyway is refused rather than gambled on.
+   * the index lock, and which branch you end up on comes down to timing. The UI does not offer
+   * a second one while the first runs; anything that gets here anyway is refused.
    */
   private async runAction(action: () => Promise<GitActionResult>): Promise<GitActionResult> {
     if (this.actionRunning) {
@@ -234,9 +232,7 @@ export class Repository {
   }
 
   /**
-   * Pushes the current branch, publishing it when it has no upstream yet. Which remote to
-   * publish to is only a question where there are several; the first one is what GitHub
-   * Desktop uses too, and it is "origin" in all but a handful of repositories.
+   * Pushes the current branch, publishing it when it has no upstream yet — to `remote` below.
    */
   push(): Promise<GitActionResult> {
     return this.runAction(() => {
@@ -291,9 +287,9 @@ export class Repository {
   }
 
   /**
-   * Deletes the branch locally and, when asked, on the remote as well. The local one goes
-   * first: it is the one that cannot fail for reasons outside the machine, and a remote that
-   * refuses the deletion leaves a state the user can still see and act on.
+   * Deletes the branch locally and, when asked, on the remote too. The local one goes first: it
+   * cannot fail for reasons outside the machine, and a remote that refuses the deletion leaves
+   * a state the user can still see and act on.
    */
   deleteBranch(name: string, onRemote: boolean): Promise<GitActionResult> {
     return this.runAction(async () => {
@@ -374,9 +370,8 @@ export class Repository {
    */
   discard(paths: string[]): Promise<GitActionResult> {
     // Through runAction like every other command: `git restore` takes the index lock, so a
-    // discard started from the changes' context menu while a fetch or a checkout is still
-    // running would fail on the lock — and the trash it moves untracked files to has already
-    // happened by then.
+    // discard started from the changes' context menu during a fetch or checkout would fail on
+    // it — with the untracked files already in the trash by then.
     return this.runAction(async () => {
       const targets: DiscardTargets = { restore: [], drop: [] };
       for (const filePath of paths) {
@@ -456,9 +451,9 @@ export class Repository {
   }
 
   /**
-   * Puts a failed watcher back, and refreshes once one is up again: whatever changed while
-   * nothing was watching has to come in from somewhere. Without this a single error left the
-   * repository frozen for the life of the window, with nothing on screen saying so.
+   * Puts a failed watcher back, and refreshes once one is up: whatever changed while nothing
+   * was watching has to come in from somewhere. Without this a single error left the repository
+   * frozen for the life of the window, with nothing on screen saying so.
    */
   private retryWatching(): void {
     clearTimeout(this.watchRetryTimer);

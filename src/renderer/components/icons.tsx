@@ -152,9 +152,9 @@ export function StashIcon(props: IconProps) {
 
 /**
  * Throwing local changes away. A bin rather than VS Code's discard mark, which is the refresh
- * arrow turned the other way and reads as one at a glance. It also says what actually happens:
- * a file git does not track is moved to the system trash, not deleted. Next to the stash box
- * beside it, the pair reads as "put away" and "throw away".
+ * arrow turned the other way and reads as one at a glance. It also says what happens: a file
+ * git does not track goes to the system trash, not away. Next to the stash box, the pair reads
+ * as "put away" and "throw away".
  */
 export function DiscardIcon(props: IconProps) {
   return (
@@ -216,11 +216,39 @@ export function WhitespaceIcon(props: IconProps) {
   );
 }
 
+/**
+ * A session answered and nobody has looked yet — on its tab and on its project's row. Kept
+ * inside 3–12.5, the same square the close icon it sits next to occupies: a bubble drawn to
+ * the full 2–14 box reads as the larger of the two even at the same rendered size, because it
+ * is solid where a cross is only its own diagonals.
+ */
+export function CommentIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 3h9v6.5H7L4.5 12V9.5h-1z" />
+    </Svg>
+  );
+}
+
 export function RemoteIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <circle cx="8" cy="8" r="5" />
       <path d="M3 8h10M8 3c1.5 1.7 1.5 8.3 0 10M8 3c-1.5 1.7-1.5 8.3 0 10" />
+    </Svg>
+  );
+}
+
+/**
+ * The settings, in the title bar. Six teeth rather than the eight a gear usually has: at this
+ * size the flanks of eight sit less than a stroke width apart and fill in, so what is left of
+ * the drawing is a disc with a bumpy edge.
+ */
+export function GearIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.23 4.03 L6.45 2.2 L9.55 2.2 L9.77 4.03 L10.56 4.48 L12.24 3.76 L13.8 6.45 L12.33 7.55 L12.33 8.45 L13.8 9.55 L12.24 12.24 L10.56 11.52 L9.77 11.97 L9.55 13.8 L6.45 13.8 L6.23 11.97 L5.44 11.52 L3.76 12.24 L2.2 9.55 L3.67 8.45 L3.67 7.55 L2.2 6.45 L3.76 3.76 L5.44 4.48Z" />
+      <circle cx="8" cy="8" r="2.2" />
     </Svg>
   );
 }

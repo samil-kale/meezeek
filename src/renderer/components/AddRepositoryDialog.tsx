@@ -15,8 +15,8 @@ import { notify } from "./Notices";
  * added from the filesystem. One dialog with a tab per way, SourceTree's layout in this app's
  * clothes.
  *
- * Not part of Dialog.tsx: that file puts one question with two buttons, and this is a small
- * surface with modes. Like DiffDialog it is its own overlay over the whole window.
+ * Not part of Dialog.tsx: that file puts one question with two buttons, this is a small surface
+ * with modes. Like DiffDialog it is its own overlay over the whole window.
  */
 type Mode = "remote" | "clone" | "add";
 
@@ -83,8 +83,8 @@ interface PathFieldProps {
 /**
  * The folder the picker opens in when the field is still empty. Kept in the renderer's own
  * storage the way a pane size is: it describes how this window is used, not any one project or
- * account. Every one of these fields shares it — a clone and an add both go where the
- * repositories are kept.
+ * account. Every one of these fields shares it — a clone and an add both go where the user
+ * keeps repositories.
  */
 const LAST_DIRECTORY_KEY = "meezeek.dialog.lastDirectory";
 
@@ -192,8 +192,8 @@ interface Namespace {
 
 /**
  * The filter's entries: every level of every namespace, whether or not a repository sits in one
- * directly. A GitLab group nests several deep, and picking the group is what has to cover its
- * subgroups — so the counting goes by prefix too, and a parent's number is the sum below it.
+ * directly. A GitLab group nests several deep and picking it has to cover its subgroups, so the
+ * counting goes by prefix and a parent's number is the sum below it.
  */
 function namespacesOf(repos: RemoteRepository[]): Namespace[] {
   const counts = new Map<string, number>();
@@ -320,9 +320,9 @@ function RemoteTab({ onClone }: RemoteTabProps) {
   const groups = namespacesOf(list ?? []);
   /**
    * What the dropdown stands at: this dialog's pick, else the group the account was left in,
-   * else where the most recent activity was — the list arrives sorted by it, so that is simply
-   * the first row's group. Falling back to all of them only when a stored group is no longer
-   * in the list: it would filter the list down to nothing with nothing saying why.
+   * else where the most recent activity was — the list arrives sorted by it, so that is the
+   * first row's group. Back to all of them only when a stored group is gone from the list,
+   * where it would filter everything away with nothing saying why.
    */
   const stored = (accounts ?? []).find((entry) => entry.id === selectedId)?.namespace;
   const wanted = namespace ?? stored ?? (list?.[0] ? namespaceOf(list[0].fullName) : "");
@@ -446,10 +446,10 @@ interface CloneAuthProps {
 /**
  * How to authenticate the clone that just came back asking for credentials. One or the other,
  * never both: a stored account, or a token typed in now — which is validated and kept as an
- * account on the way through, so the next clone from that host finds it already there.
+ * account on the way through, so the next clone from that host finds it there.
  *
- * The switch is only drawn when there is something to switch to. With no account for this host
- * the token is the only answer there is, and an empty half would be a choice in name only.
+ * The switch is only drawn when there is something to switch to: with no account for this host
+ * the token is the only answer, and an empty half would be a choice in name only.
  */
 function CloneAuth({
   accounts,
@@ -574,8 +574,8 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
 
   /**
    * Puts the credentials block up: the accounts this host has, and a provider guessed from its
-   * name for the token half. Asked for at the moment it is needed rather than kept current —
-   * a clone that goes through never looks at any of it.
+   * name for the token half. Asked for when it is needed rather than kept current — a clone
+   * that goes through never looks at any of it.
    */
   const askForCredentials = async (): Promise<void> => {
     const host = hostOf(url);
@@ -591,9 +591,9 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
   const cloneRepository = async (): Promise<AddRepositoryResult> => {
     let id = accountId ?? undefined;
     if (authAccounts !== null && authWith === "token") {
-      // Validated against the host and stored on the way through: the same call replaces the
-      // token of an account that expired, and the next clone from this host finds it already
-      // there. A token that the host does not accept fails here, before git is run again.
+      // Validated against the host and stored on the way through: the same call replaces an
+      // expired account's token, and the next clone from this host finds it there. One the
+      // host does not accept fails here, before git is run again.
       const added = await window.meezeek.providers.addAccount(tokenProvider, hostOf(url), token.trim());
       if (!added.account) {
         return { error: added.error ?? "The token could not be verified", authRequired: true };

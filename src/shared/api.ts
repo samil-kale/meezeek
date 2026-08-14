@@ -3,6 +3,7 @@ import type {
   AddRepositoryResult,
   AgentId,
   AgentInfo,
+  AppSettings,
   CheckoutTarget,
   DiffOptions,
   FileDiff,
@@ -31,6 +32,12 @@ export interface MeezeekApi {
     check(): Promise<Requirements>;
     /** Leaves, for the user who would rather install first. */
     quit(): void;
+  };
+  /** What the settings dialog reads and writes; there is one set of them for the whole app. */
+  settings: {
+    get(): Promise<AppSettings>;
+    /** Writes all of it. Each switch applies to the agents set up after it — see the dialog. */
+    save(settings: AppSettings): Promise<void>;
   };
   projects: {
     list(): Promise<Project[]>;
@@ -133,6 +140,12 @@ export interface MeezeekApi {
     /** Closes tabs and deletes the sessions behind them. */
     close(projectId: string, tabIds: string[]): Promise<void>;
     rename(projectId: string, tabId: string, title: string): Promise<void>;
+    /**
+     * The tab is on screen, which clears the `finishedAt` a finished turn left on it. Called
+     * for the active tab of the project on screen — the main process cannot tell which that
+     * is, so this is the renderer's half of the mark.
+     */
+    seen(projectId: string, tabId: string): void;
     input(projectId: string, tabId: string, data: string): void;
     /** The first resize of a tab is what starts its process (lazy spawn). */
     resize(projectId: string, tabId: string, cols: number, rows: number): void;

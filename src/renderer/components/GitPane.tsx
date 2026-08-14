@@ -32,8 +32,8 @@ const STATUS_LETTER: Record<ChangeStatus, string> = {
 
 /**
  * The repository, beside the terminals rather than in place of them: branches over the changed
- * files, and nothing else. The diff is not here — a file is opened by double-clicking it and
- * shown over the whole window, so this pane stays narrow enough to leave next to a terminal.
+ * files, and nothing else. The diff is not here — double-clicking a file shows it over the
+ * whole window, so this pane stays narrow enough to leave open next to a terminal.
  */
 export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOpenDiff, onBusy }: GitPaneProps) {
   const [filter, setFilter] = useState("");
@@ -120,7 +120,7 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
   /**
    * GitHub Desktop's changed-file menu, minus the editor entries meezeek has no setting for.
    * It acts on the whole selection where that makes sense, and on the one file where it does
-   * not — a diff and a file manager both show exactly one thing.
+   * not — a diff and a file manager each show exactly one thing.
    */
   const menuEntries = (change: FileChange): ContextMenuEntry[] => {
     // A right-click inside the selection keeps it; one outside has already replaced it.

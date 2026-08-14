@@ -50,9 +50,9 @@ export const claudeSessionProvider: SessionProvider = {
   },
 
   /**
-   * Mirrors Claude Code's own (CLI-flag-less) `/rename` slash command: it persists a
-   * rename as a `custom-title` transcript entry, which — like Claude's own title
-   * resolution — always wins over the derived `ai-title`/`summary`/message fallback.
+   * Mirrors Claude Code's own (CLI-flag-less) `/rename` slash command: a rename is persisted
+   * as a `custom-title` transcript entry, which — like Claude's own title resolution — always
+   * wins over the derived `ai-title`/`summary`/message fallback.
    */
   async rename(_executable: string, cwd: string, sessionId: string, title: string): Promise<void> {
     const trimmed = title.trim();
@@ -68,15 +68,14 @@ export const claudeSessionProvider: SessionProvider = {
   },
 
   /**
-   * Watches the project's transcripts. Non-recursive on purpose: a write inside a
-   * session's own `subagents/` subdirectory then doesn't fire at all, and the directory
-   * entries that do fire are filtered out by extension — only the transcripts we list
-   * are of interest.
+   * Watches the project's transcripts. Non-recursive on purpose: a write inside a session's
+   * own `subagents/` subdirectory then doesn't fire at all, and the directory entries that do
+   * fire are filtered out by extension.
    *
    * Two-stage because the project directory doesn't exist until Claude first writes a
    * transcript there, and fs.watch throws ENOENT on a missing one: until then, watch the
-   * projects root (which does report the new directory appearing) and arm the real
-   * watcher once it shows up.
+   * projects root (which does report the new directory appearing) and arm the real watcher
+   * once it shows up.
    */
   watch(_executable: string, cwd: string, onChange: () => void): () => void {
     let projectWatcher: fs.FSWatcher | undefined;
@@ -211,11 +210,10 @@ async function extractTitle(filePath: string, sessionId: string): Promise<Resolv
 }
 
 /**
- * A transcript's own first timestamped entry is a far more stable "created" signal than
- * the file's mtime, which shifts on every append. Deliberately kept independent of
- * extractTitle above (rather than folded into its scan): that function returns early
- * once it finds a custom-title, skipping its head-scan entirely — reusing it here would
- * silently leave every renamed session without a createdAt.
+ * A transcript's own first timestamped entry is a far more stable "created" signal than the
+ * file's mtime, which shifts on every append. Deliberately independent of extractTitle rather
+ * than folded into its scan: that one returns early once it finds a custom-title, skipping its
+ * head-scan — reusing it here would leave every renamed session without a createdAt.
  */
 async function extractCreatedAt(filePath: string): Promise<number | undefined> {
   const stream = fs.createReadStream(filePath, { encoding: "utf8", end: TITLE_SCAN_BYTE_LIMIT });
@@ -246,8 +244,8 @@ async function extractCreatedAt(filePath: string): Promise<number | undefined> {
 }
 
 /**
- * Most `user` entries are tool results the CLI writes back into the transcript itself;
- * only those tagged `origin.kind === "human"` are prompts the user actually typed.
+ * Most `user` entries are tool results the CLI writes back into the transcript itself; only
+ * those tagged `origin.kind === "human"` are prompts the user typed.
  */
 function typedPromptText(entry: Record<string, unknown>): string | undefined {
   const origin = entry.origin as { kind?: unknown } | undefined;
@@ -264,9 +262,9 @@ function nonEmptyString(value: unknown): string | undefined {
 }
 
 /**
- * Reads just the transcript's tail (custom-title is appended at the end, potentially well
- * past the head window above on a long-running session) and returns the last custom-title
- * entry found there, if any — matching Claude's own "last one wins".
+ * Reads just the transcript's tail (custom-title is appended at the end, potentially well past
+ * the head window above) and returns the last custom-title entry there, if any — matching
+ * Claude's own "last one wins".
  */
 async function findLastCustomTitle(filePath: string, sessionId: string): Promise<string | undefined> {
   let handle: fs.promises.FileHandle | undefined;

@@ -3,9 +3,9 @@ import { utilityProcess, type UtilityProcess } from "electron";
 import type { GitRequest, GitResponse } from "./git-host";
 
 /**
- * `git.ts` as seen from the main process: the same functions, each of them asynchronous now
- * that it answers from another process. Everything git.ts exports is already a function
- * returning a promise, so nothing in the signatures actually changes.
+ * `git.ts` as seen from the main process: the same functions, each asynchronous now that it
+ * answers from another process. Everything it exports already returns a promise, so no
+ * signature actually changes.
  */
 type GitModule = typeof import("./git");
 export type GitApi = {
@@ -77,9 +77,9 @@ function call(method: string, args: unknown[]): Promise<unknown> {
 }
 
 /**
- * Forwards every property as a call to the git process. A proxy rather than fourteen
- * hand-written one-liners: they would all be the same line, and each new function in `git.ts`
- * would need another one before it could be used.
+ * Forwards every property as a call to the git process. A proxy rather than one hand-written
+ * line per function: they would all be the same line, and each new function in `git.ts` would
+ * need another one before it could be used.
  */
 export const git: GitApi = new Proxy({} as GitApi, {
   get:

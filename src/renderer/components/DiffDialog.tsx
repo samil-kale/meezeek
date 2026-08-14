@@ -16,9 +16,9 @@ interface DiffDialogProps {
 }
 
 /**
- * One file's diff, over the whole window. It is a dialog rather than a pane because the git
- * view sits beside the terminals now and has no room for it — and because looking at a diff is
- * something you come out of again, unlike the branch list next to it.
+ * One file's diff, over the whole window. A dialog rather than a pane because the git view sits
+ * beside the terminals and has no room for it, and because looking at a diff is something you
+ * come out of again, unlike the branch list next to it.
  *
  * Not part of Dialog.tsx: that file puts *questions* (confirm, prompt) and is built around a
  * form with two buttons. This asks nothing.

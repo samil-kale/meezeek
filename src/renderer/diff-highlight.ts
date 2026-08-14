@@ -13,13 +13,12 @@ import type { DiffLine, FileDiff } from "../shared/types";
 const THEME = "dark-plus";
 
 /**
- * The grammars meezeek bundles. The renderer is one file with no code splitting, so a
- * language is in the bundle whether it is used or not — hence a list of what an agent's
- * repository plausibly holds rather than all two hundred Shiki ships. Anything missing is
- * shown uncolored, which is what the diff looked like before.
+ * The grammars meezeek bundles. The renderer is one file with no code splitting, so a language
+ * is in the bundle whether it is used or not — hence a list of what an agent's repository
+ * plausibly holds rather than all two hundred Shiki ships. Anything missing shows uncolored.
  *
- * Each is imported lazily: esbuild keeps a dynamic import in its own module and only
- * evaluates it when awaited, so an unopened language costs parse time, not startup.
+ * Each is imported lazily: esbuild keeps a dynamic import in its own module and only evaluates
+ * it when awaited, so an unopened language costs parse time, not startup.
  */
 const GRAMMARS: Record<string, () => Promise<{ default: LanguageRegistration[] }>> = {
   c: () => import("@shikijs/langs/c"),
@@ -122,14 +121,13 @@ interface Block {
 }
 
 /**
- * A diff is not a file: it holds fragments of two versions of one, interleaved. Handing that
- * to a grammar as written would have it read the old and the new half of every changed line
- * as consecutive code, which goes wrong wherever a construct spans lines — a string, a block
- * comment, a template literal.
+ * A diff is not a file: it holds fragments of two versions of one, interleaved. Handed to a
+ * grammar as written, the old and the new half of every changed line would read as consecutive
+ * code, which goes wrong wherever a construct spans lines — a string, a block comment, a
+ * template literal.
  *
  * So each hunk is tokenized twice: once as the file was, once as it is. Context lines are in
- * both passes and end up with the colors of the second, which for unchanged text is the same
- * answer anyway.
+ * both passes and take the colors of the second, the same answer for unchanged text anyway.
  */
 function blocksOf(lines: readonly DiffLine[]): Block[] {
   const blocks: Block[] = [];

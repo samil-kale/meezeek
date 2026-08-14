@@ -37,9 +37,9 @@ interface RequirementsDialogProps {
  * and resolves to an answer, and this is a wall — it stands until the programs it lists are
  * there, there is nothing behind it yet, and no Escape takes it away.
  *
- * It installs nothing itself. There is no command that would work on every platform: a package
- * manager that may not be there, an elevation prompt, a shell to answer in — the user's own
- * machine is what knows, and a button that works on one of the three would be worse than none.
+ * It installs nothing itself. No command would work on every platform: a package manager that
+ * may not be there, an elevation prompt, a shell to answer in — and a button that works on one
+ * of the three would be worse than none.
  */
 export function RequirementsDialog({ requirements, checking, onRecheck }: RequirementsDialogProps) {
   return (

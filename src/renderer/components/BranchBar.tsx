@@ -15,10 +15,10 @@ interface BranchBarProps {
 }
 
 /**
- * The window's bottom strip: the repository's path on the left, and on the right the one sync
- * button with HEAD after it. Its own view rather than part of App for the same reason the
- * branch tree is one — the force-push question lives with the button that asks it, since this
- * is what knows the branch and the upstream it would overwrite.
+ * The window's bottom strip: the repository's path on the left, the one sync button with HEAD
+ * after it on the right. Its own view rather than part of App for the same reason the branch
+ * tree is one — the force-push question belongs with the button that asks it, which is what
+ * knows the branch and the upstream it would overwrite.
  */
 export function BranchBar({ project, state, busyLabel, run }: BranchBarProps) {
   /** The sync button's own menu: the variants of what it does, for when its pick is not the one. */

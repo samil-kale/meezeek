@@ -44,9 +44,9 @@ export class ProjectStore {
   }
 
   /**
-   * Puts the projects in the given order. Ids the store doesn't know are dropped and projects
-   * the caller left out keep their place at the end: the renderer sends the list it had on
-   * screen, which can be a moment behind one added or closed elsewhere.
+   * Puts the projects in the given order. Ids the store does not know are dropped, and ones the
+   * caller left out keep their place at the end: the renderer sends the list it had on screen,
+   * which can be a moment behind one added or closed elsewhere.
    */
   reorder(projectIds: string[]): void {
     const known = new Map(this.projects.map((project) => [project.id, project]));
