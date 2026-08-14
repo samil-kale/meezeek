@@ -5,7 +5,7 @@ import { BranchTree, type BranchActions } from "./BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm } from "./Dialog";
 import { notify } from "./Notices";
-import { Sash } from "./Sash";
+import { MIN_PANE_HEIGHT, Sash } from "./Sash";
 import { DiscardIcon, StashIcon } from "./icons";
 
 interface GitPaneProps {
@@ -177,7 +177,13 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
         </div>
         <BranchTree projectId={project.id} state={state} branch={branch} />
       </div>
-      <Sash orientation="horizontal" size={treeHeight} min={120} minOther={140} onResize={onTreeHeight} />
+      <Sash
+        orientation="horizontal"
+        size={treeHeight}
+        min={MIN_PANE_HEIGHT}
+        minOther={MIN_PANE_HEIGHT}
+        onResize={onTreeHeight}
+      />
       <div className="git-section grows">
         <div className="sidebar-header">
           <span>

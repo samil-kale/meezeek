@@ -10,7 +10,14 @@ import { Dialogs } from "./components/Dialog";
 import { GitPane } from "./components/GitPane";
 import { Notices, notify } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
-import { Sash, usePaneSize, usePaneToggle } from "./components/Sash";
+import {
+  MIN_CONTENT_WIDTH,
+  MIN_PANE_HEIGHT,
+  MIN_PANE_WIDTH,
+  Sash,
+  usePaneSize,
+  usePaneToggle
+} from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
 import { disposeProjectTerminals } from "./terminal-views";
 import { PlusIcon } from "./components/icons";
@@ -28,11 +35,15 @@ export function App() {
   const branchActionRef = useRef<{ projectId: string; label: string } | null>(null);
   // Defaults and limits of the draggable panes. Every project's git tab shares the two below,
   // so they are held here rather than in each of them.
-  const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240);
-  const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300);
-  const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260);
+  const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240, MIN_PANE_WIDTH);
+  const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300, MIN_PANE_WIDTH);
+  const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260, MIN_PANE_HEIGHT);
   // 40% of the window it first opens in.
-  const [commandsHeight, setCommandsHeight] = usePaneSize("commands", Math.round(window.innerHeight * 0.4));
+  const [commandsHeight, setCommandsHeight] = usePaneSize(
+    "commands",
+    Math.round(window.innerHeight * 0.4),
+    MIN_PANE_HEIGHT
+  );
   /**
    * Whether the git pane is out. Closed until it is asked for — the terminals are what the
    * window is for, and the repository is something you look at now and then. Remembered like
@@ -211,14 +222,20 @@ export function App() {
           <Sash
             orientation="horizontal"
             size={commandsHeight}
-            min={60}
-            minOther={100}
+            min={MIN_PANE_HEIGHT}
+            minOther={MIN_PANE_HEIGHT}
             reverse
             onResize={setCommandsHeight}
           />
           <CommandList projectId={activeProjectId} height={commandsHeight} onOpenTab={showTab} />
         </div>
-        <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
+        <Sash
+          orientation="vertical"
+          size={sidebarWidth}
+          min={MIN_PANE_WIDTH}
+          minOther={MIN_CONTENT_WIDTH}
+          onResize={setSidebarWidth}
+        />
 
         {/* The repository of the active project, between the navigation and its terminals.
             One pane for all of them, unlike the terminals: it holds no state a project would
@@ -240,8 +257,8 @@ export function App() {
               <Sash
                 orientation="vertical"
                 size={gitPanelsWidth}
-                min={180}
-                minOther={320}
+                min={MIN_PANE_WIDTH}
+                minOther={MIN_CONTENT_WIDTH}
                 onResize={setGitPanelsWidth}
               />
             )}

@@ -7,6 +7,23 @@ import { useRef, useState, type PointerEvent } from "react";
  */
 const STORAGE_PREFIX = "meezeek.layout.";
 
+/**
+ * The floor every pane shares, per direction. A pane here is either a column beside the
+ * terminals or one of two sections stacked inside such a column, and each kind is dragged the
+ * same way — so this is one number per direction rather than one per view, the way the 35px
+ * bar and the 22px action button are.
+ *
+ * The height is a section header (35px) and three of the 28px rows under it, which is the
+ * least that still reads as a list rather than a strip. The width is what such a header needs
+ * with its actions beside it. `styles.css` states both again as `--pane-min-width` and
+ * `--pane-min-height`, and they have to stay in step: a sash only bounds a *drag*, while a
+ * window being made smaller reaches the same panes without going through one.
+ */
+export const MIN_PANE_WIDTH = 180;
+export const MIN_PANE_HEIGHT = 120;
+/** What is left over for the terminals — the one pane no sash sizes directly. */
+export const MIN_CONTENT_WIDTH = 320;
+
 /** Whether a pane is showing at all — the same storage, since it is the same kind of choice. */
 export function usePaneToggle(key: string, initial: boolean): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(() => {
@@ -22,11 +39,15 @@ export function usePaneToggle(key: string, initial: boolean): [boolean, (open: b
   ];
 }
 
-/** A pane size the user can drag, restored on the next start. */
-export function usePaneSize(key: string, initial: number): [number, (size: number) => void] {
+/**
+ * A pane size the user can drag, restored on the next start. The floor is applied to what
+ * comes back as well, not only to the drag: a size stored before that floor existed would
+ * otherwise disagree with the pane's own `min-*` for as long as nobody grabbed the sash.
+ */
+export function usePaneSize(key: string, initial: number, min: number): [number, (size: number) => void] {
   const [size, setSize] = useState(() => {
     const stored = Number(localStorage.getItem(STORAGE_PREFIX + key));
-    return Number.isFinite(stored) && stored > 0 ? stored : initial;
+    return Math.max(min, Number.isFinite(stored) && stored > 0 ? stored : initial);
   });
   return [
     size,

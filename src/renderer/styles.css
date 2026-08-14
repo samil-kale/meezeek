@@ -76,6 +76,12 @@ input:focus {
   height: 100%;
   /* Shared with the notices, which stack on top of this bar rather than beside it. */
   --branch-bar-height: 28px;
+  /* The floors every pane shares, one per direction — MIN_PANE_* in Sash.tsx, which is where
+     the two numbers are explained. Stated here as well because a sash only bounds a drag,
+     and a window being made smaller reaches the same panes without going through one. */
+  --pane-min-width: 180px;
+  --pane-min-height: 120px;
+  --content-min-width: 320px;
 }
 
 /* Title bar ------------------------------------------------------------------------------ */
@@ -238,7 +244,7 @@ input:focus {
   position: relative;
   display: flex;
   flex: 1;
-  min-width: 0;
+  min-width: var(--content-min-width);
   background: var(--vscode-editor-background);
 }
 
@@ -251,6 +257,7 @@ input:focus {
   display: flex;
   flex-direction: column;
   flex: none;
+  min-width: var(--pane-min-width);
   min-height: 0;
   background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-panel-border);
@@ -260,15 +267,17 @@ input:focus {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 0;
+  min-height: var(--pane-min-height);
 }
 
-/* Its height is dragged and remembered; the projects above take what is left. */
+/* Its height is dragged and remembered; the projects above take what is left. It may still be
+   shrunk to the floor above, so a height dragged in a taller window doesn't push it off the
+   bottom in a shorter one — the same reason the git pane's upper section can. */
 .command-list {
   display: flex;
   flex-direction: column;
-  flex: none;
-  min-height: 0;
+  flex: 0 1 auto;
+  min-height: var(--pane-min-height);
   border-top: 1px solid var(--vscode-panel-border);
 }
 
@@ -818,6 +827,8 @@ input:focus {
 .git-pane-host {
   display: flex;
   flex: none;
+  /* No floor on the host itself: it is the box the slide animates to zero, and the pane's own
+     minimum below is what keeps the content laid out while it is clipped. */
   min-width: 0;
   overflow: hidden;
   background: var(--vscode-sideBar-background);
@@ -830,7 +841,7 @@ input:focus {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-width: 0;
+  min-width: var(--pane-min-width);
   min-height: 0;
 }
 
@@ -839,8 +850,8 @@ input:focus {
 .git-section {
   display: flex;
   flex-direction: column;
-  flex: none;
-  min-height: 0;
+  flex: 0 1 auto;
+  min-height: var(--pane-min-height);
 }
 
 /* The lower half takes what is left and draws the line between the two, the way the sidebar's

@@ -67,6 +67,12 @@ function createWindow(): void {
   window = new BrowserWindow({
     width: 1400,
     height: 900,
+    // Where the panes' own floors add up to: the sidebar, the git pane and the terminals
+    // side by side (--pane-min-width twice and --content-min-width), and two stacked
+    // sections plus the title and branch bars. Below this the renderer would have to start
+    // clipping something, so the window is what refuses instead.
+    minWidth: 700,
+    minHeight: 340,
     backgroundColor: "#1f1f1f",
     show: false,
     // What the taskbar and the window itself show. The same file the title bar draws, so
