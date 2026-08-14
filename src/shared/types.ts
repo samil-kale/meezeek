@@ -20,14 +20,6 @@ export interface Project {
   path: string;
   /** Display name; the directory's base name. */
   name: string;
-  /** Which agent its git console runs; absent until one was picked from the dropdown. */
-  consoleAgent?: AgentId;
-  /**
-   * The agent session the git console was last running, so it goes back into the console on
-   * the next start instead of turning up as a tab of its own. Absent while the console runs a
-   * shell, or before its agent has persisted a session.
-   */
-  consoleSessionId?: string;
 }
 
 /**
@@ -46,7 +38,16 @@ export interface RemoteInfo {
   name: string;
   /** Branch names without the remote prefix, e.g. "development". */
   branches: string[];
+  /**
+   * What it was configured with, e.g. "git@github.com:owner/repo.git". Read when the project
+   * opens rather than on every refresh: a remote's url changes about never, and the refresh
+   * path spends its git processes on what does.
+   */
+  url?: string;
 }
+
+/** What can be done with a stash from its row: put it back, put it back and drop it, or drop it. */
+export type StashCommand = "apply" | "pop" | "drop";
 
 export interface StashEntry {
   /** What the stash commands take, e.g. "stash@{0}". Not stable: dropping one renumbers the rest. */
@@ -54,6 +55,9 @@ export interface StashEntry {
   /** git's own line for it, e.g. "WIP on main: 1a2b3c the last commit's subject". */
   message: string;
 }
+
+/** A merge or a rebase git stopped half-way through, so the UI can offer to abort it. */
+export type GitOperation = "merge" | "rebase";
 
 export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
 
@@ -76,10 +80,17 @@ export interface RepositoryState {
   behind: number;
   localBranches: string[];
   remotes: RemoteInfo[];
-  /** Tag names, as `for-each-ref` orders them. Shown only; creating one is out of scope. */
+  /**
+   * The branch the first remote's HEAD points at, e.g. "main" — what "Update from main"
+   * merges in. Absent where the remote never published one.
+   */
+  defaultBranch?: string;
+  /** Tag names, as `for-each-ref` orders them. */
   tags: string[];
   stashes: StashEntry[];
   changes: FileChange[];
+  /** A merge or rebase git is half-way through; the branch menu offers to abort it. */
+  operation?: GitOperation;
   /** Set when git could not be run or the folder is not a repository; the rest is then empty. */
   error?: string;
 }
@@ -170,12 +181,6 @@ export interface TerminalDescriptor {
   status: TerminalStatus;
   /** Whether the agent has persisted a session for this tab yet — nothing to rename if not. */
   hasSession: boolean;
-  /**
-   * This is the git tab's own console rather than a tab of its own: one per project, shown at
-   * the bottom of the git view and left out of the tab strip. Held in memory only, so after a
-   * restart the project has no console until the git tab opens one again.
-   */
-  console?: boolean;
   /** Last activity, ms since epoch; absent for tabs without a session. */
   updatedAt?: number;
   /** Creation time, ms since epoch; absent for tabs without a session. */

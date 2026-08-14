@@ -1,21 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentId, AgentInfo, Project, RepositoryState, TerminalDescriptor } from "../../shared/types";
+import type { AgentId, AgentInfo, Project, TerminalDescriptor } from "../../shared/types";
 import { disposeTerminal, fitTerminal, focusTerminal, refitTerminal, setRevealHandler } from "../terminal-views";
 import { AgentIcon } from "./agent-icons";
-import type { BranchActions } from "./BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
-import { GitView, type GitPaneSizes } from "./GitView";
 import { TerminalHost } from "./TerminalHost";
 import { BranchIcon, CloseIcon, PlusIcon } from "./icons";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
 const RESIZE_DEBOUNCE_MS = 100;
-/**
- * Selection id of the git tab. It has no pty behind it, so it lives only here and never
- * appears in the tab list the host reports; agent session ids never look like this.
- */
-const GIT_TAB_ID = "git";
 /** What VS Code's own tab rename accepts. */
 const MAX_TITLE_LENGTH = 50;
 
@@ -32,33 +25,40 @@ function formatIso(ms: number): string {
 interface TerminalsPaneProps {
   project: Project;
   visible: boolean;
-  state: RepositoryState;
-  /** Passed straight through to the git tab, which is where the panels they size live. */
-  gitSizes: GitPaneSizes;
-  /** The branch commands the git tab offers; `busy` also drives the tab strip's progress bar. */
-  branch: BranchActions;
+  /** Whether the git pane beside this one is open; the button in the strip shows which. */
+  gitOpen: boolean;
+  onToggleGit: () => void;
+  /** Anything slow outside this pane — a branch command, a diff being read — for the one bar. */
+  externalBusy: boolean;
+  /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
+  onOpenDiff: (path: string) => void;
+  /**
+   * Counts the shell tabs asked for from this project's row in the sidebar. A number rather
+   * than a callback: the request comes from outside, and each new value is one more tab.
+   */
+  newShell: number;
 }
 
-export function TerminalsPane({ project, visible, state, gitSizes, branch }: TerminalsPaneProps) {
+export function TerminalsPane({
+  project,
+  visible,
+  gitOpen,
+  onToggleGit,
+  externalBusy,
+  onOpenDiff,
+  newShell
+}: TerminalsPaneProps) {
   const [tabs, setTabs] = useState<TerminalDescriptor[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [selectedChange, setSelectedChange] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [starting, setStarting] = useState(false);
-  /** The git tab reading or coloring a diff — the same bar as a starting agent. */
-  const [gitBusy, setGitBusy] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const stack = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   const knownTabs = useRef<TerminalDescriptor[]>([]);
   /** Whether onStartupProgress has fired; the initial query must not overwrite a push. */
   const progressPushed = useRef(false);
-
-  // The git tab's console is a session like any other, but it belongs to that tab rather than
-  // to the strip — everything below works off `stripTabs`, and the console is handed on.
-  const consoleTab = tabs.find((tab) => tab.console);
-  const stripTabs = tabs.filter((tab) => !tab.console);
 
   useEffect(() => {
     void (async () => {
@@ -130,18 +130,14 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
         disposeTerminal(project.id, tab.tabId);
       }
     }
-    if (activeId === GIT_TAB_ID) {
-      return;
-    }
-    const strip = tabs.filter((tab) => !tab.console);
     if (activeId && !ids.has(activeId)) {
       // Same rule as VS Code: hand over to the nearest neighbour on the right, or — if the
       // closed tab was the rightmost one — on the left.
-      const index = previous.filter((tab) => !tab.console).findIndex((tab) => tab.tabId === activeId);
-      setActiveId(strip[Math.min(index, strip.length - 1)]?.tabId ?? GIT_TAB_ID);
-    } else if (!activeId && strip.length > 0) {
+      const index = previous.findIndex((tab) => tab.tabId === activeId);
+      setActiveId(tabs[Math.min(index, tabs.length - 1)]?.tabId ?? null);
+    } else if (!activeId && tabs.length > 0) {
       // On first load, open the session the user last worked in.
-      const mostRecent = [...strip].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+      const mostRecent = [...tabs].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
       setActiveId(mostRecent.tabId);
     }
   }, [tabs, activeId, project.id]);
@@ -149,7 +145,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
   // Refit whenever the terminal becomes the visible one: while its pane was hidden it had no
   // layout, so its last measured size is stale. The resize is also what starts its process.
   useEffect(() => {
-    if (visible && activeId && activeId !== GIT_TAB_ID) {
+    if (visible && activeId) {
       fitTerminal(project.id, activeId);
       focusTerminal(project.id, activeId);
     }
@@ -164,7 +160,7 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
     // xterm follows the pane at once — dragging a sash would otherwise leave a strip of empty
     // background until the debounce fires. Only the pty resize waits, since it repaints the CLI.
     const observer = new ResizeObserver(() => {
-      if (!visible || !activeId || activeId === GIT_TAB_ID) {
+      if (!visible || !activeId) {
         return;
       }
       refitTerminal(project.id, activeId);
@@ -195,6 +191,13 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
     [project.id]
   );
 
+  // Zero is "nothing asked for yet"; every later value is one request from the project row.
+  useEffect(() => {
+    if (newShell > 0) {
+      void createTab("shell");
+    }
+  }, [newShell, createTab]);
+
   const closeTabs = useCallback(
     (tabIds: string[]) => void window.meeseek.terminals.close(project.id, tabIds),
     [project.id]
@@ -202,15 +205,8 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
 
   const closeTabMenu = useCallback(() => setTabMenu(null), []);
 
-  // Ctrl+clicking a changed file in a terminal opens the git tab on that file's diff.
-  useEffect(
-    () =>
-      setRevealHandler(project.id, (path) => {
-        setSelectedChange(path);
-        setActiveId(GIT_TAB_ID);
-      }),
-    [project.id]
-  );
+  // Ctrl+clicking a changed file in a terminal opens that file's diff over everything.
+  useEffect(() => setRevealHandler(project.id, onOpenDiff), [project.id, onOpenDiff]);
 
   const askRename = useCallback(
     async (tab: TerminalDescriptor) => {
@@ -261,8 +257,8 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
    * to close" (a right-click on the only tab, or on the last one) renders it disabled.
    */
   const tabMenuEntries = (tabId: string): ContextMenuEntry[] => {
-    const ids = stripTabs.map((tab) => tab.tabId);
-    const renamable = stripTabs.find((tab) => tab.tabId === tabId && tab.hasSession);
+    const ids = tabs.map((tab) => tab.tabId);
+    const renamable = tabs.find((tab) => tab.tabId === tabId && tab.hasSession);
     const closeAction = (label: string, targets: string[]): ContextMenuEntry => ({
       label,
       run: targets.length > 0 ? () => closeTabs(targets) : undefined
@@ -285,23 +281,21 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
     ];
   };
 
-  // The git tab is always there and can't be closed, so it is also what "nothing selected"
-  // falls back to: a project without sessions opens on it, as does closing the last terminal.
-  const gitActive = activeId === null || activeId === GIT_TAB_ID;
-
   return (
     <div className={`terminals-pane${visible ? "" : " pane-hidden"}`}>
       <div className="terminal-tabs">
+        {/* Where the git tab used to be, and no longer a tab: it shows a pane of its own
+            beside this one rather than taking its place. */}
+        <button
+          className={`git-toggle${gitOpen ? " active" : ""}`}
+          onClick={onToggleGit}
+          title={gitOpen ? "Hide the repository" : "Show the repository"}
+        >
+          <BranchIcon className="terminal-tab-icon" />
+          <span>Git</span>
+        </button>
         <div className="terminal-tab-strip" ref={strip}>
-          <div
-            className={`terminal-tab git${gitActive ? " active" : ""}`}
-            onClick={() => setActiveId(GIT_TAB_ID)}
-            title="Git"
-          >
-            <BranchIcon className="terminal-tab-icon" />
-            <span className="terminal-tab-label">Git</span>
-          </div>
-          {stripTabs.map((tab) => (
+          {tabs.map((tab) => (
           <div
             key={tab.tabId}
             className={`terminal-tab${tab.tabId === activeId ? " active" : ""}${tab.status === "stopped" || tab.status === "error" ? " inactive" : ""}${tab.status === "missing" ? " unavailable" : ""}`}
@@ -338,9 +332,8 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
           ))}
         </div>
         {/* The one progress indicator in the window, so everything slow in this project shares
-            it. The diff only while the git tab is the one on screen: one it loaded on the way
-            out is nothing the user is still waiting for. */}
-        {(starting || branch.busy || (gitActive && gitBusy)) && (
+            it — a starting agent here, and whatever the git pane or an open diff reports. */}
+        {(starting || externalBusy) && (
           <div className="tab-progress">
             <div className="tab-progress-bit" />
           </div>
@@ -375,23 +368,12 @@ export function TerminalsPane({ project, visible, state, gitSizes, branch }: Ter
         </div>
       </div>
 
-      <div className={`terminal-stack${gitActive ? " pane-hidden" : ""}`} ref={stack}>
-        {stripTabs.map((tab) => (
+      <div className="terminal-stack" ref={stack}>
+        {tabs.map((tab) => (
           <TerminalHost key={tab.tabId} projectId={project.id} tabId={tab.tabId} active={tab.tabId === activeId} />
         ))}
+        {tabs.length === 0 && <div className="placeholder">No sessions open.</div>}
       </div>
-      <GitView
-        project={project}
-        state={state}
-        sizes={gitSizes}
-        branch={branch}
-        selected={selectedChange}
-        onSelect={setSelectedChange}
-        onBusy={setGitBusy}
-        active={gitActive}
-        agents={agents}
-        console={consoleTab}
-      />
 
       {tabMenu && (
         <ContextMenu x={tabMenu.x} y={tabMenu.y} entries={tabMenuEntries(tabMenu.tabId)} onClose={closeTabMenu} />

@@ -7,6 +7,21 @@ import { useRef, useState, type PointerEvent } from "react";
  */
 const STORAGE_PREFIX = "meeseek.layout.";
 
+/** Whether a pane is showing at all — the same storage, since it is the same kind of choice. */
+export function usePaneToggle(key: string, initial: boolean): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_PREFIX + key);
+    return stored === null ? initial : stored === "true";
+  });
+  return [
+    open,
+    (next: boolean) => {
+      setOpen(next);
+      localStorage.setItem(STORAGE_PREFIX + key, String(next));
+    }
+  ];
+}
+
 /** A pane size the user can drag, restored on the next start. */
 export function usePaneSize(key: string, initial: number): [number, (size: number) => void] {
   const [size, setSize] = useState(() => {

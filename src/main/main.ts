@@ -15,6 +15,7 @@ import type {
   Project,
   ProjectAction,
   RepositoryState,
+  StashCommand,
   TerminalDescriptor,
   TerminalOutput,
   TerminalStatus
@@ -22,7 +23,7 @@ import type {
 import { git, startGitProcess, stopGitProcess } from "./git-client";
 import { ProjectStore } from "./projects";
 import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
-import { RepositoryManager } from "./repository";
+import { RepositoryManager, type Repository } from "./repository";
 import { SessionManagerRegistry } from "./session-manager";
 
 /** Terminal output arrives in many small chunks; one IPC message per chunk is wasteful. */
@@ -70,7 +71,6 @@ const sessions = new SessionManagerRegistry(app.getPath("userData"), {
   onOutput: queueOutput,
   onStatus: (projectId, tabId, status: TerminalStatus) => send("terminal:status", { projectId, tabId, status }),
   onStartupProgress: (projectId, show) => send("terminal:startup-progress", { projectId, show }),
-  onConsoleSession: (projectId, sessionId) => store.setConsoleSession(projectId, sessionId),
   onNotice: (severity, message) => send("app:notice", { severity, message })
 });
 
@@ -137,10 +137,6 @@ function registerIpc(): void {
 
   ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));
 
-  ipcMain.handle("projects:set-console-agent", (_event, projectId: string, agentId: AgentId): void => {
-    store.setConsoleAgent(projectId, agentId);
-  });
-
   ipcMain.handle("projects:remove", (_event, projectId: string): void => {
     sessions.close(projectId);
     repositories.close(projectId);
@@ -155,39 +151,54 @@ function registerIpc(): void {
     return (await repositories.get(projectId)?.refresh()) ?? MISSING_REPOSITORY;
   });
 
-  ipcMain.handle("repo:checkout", async (_event, projectId: string, target: CheckoutTarget): Promise<GitActionResult> => {
-    const repository = repositories.get(projectId);
-    if (!repository) {
-      return { ok: false, error: MISSING_REPOSITORY.error };
-    }
-    return repository.checkout(target);
-  });
-
-  /** The three that reach a remote; each takes nothing but the project. */
-  for (const command of ["fetch", "pull", "push"] as const) {
-    ipcMain.handle(`repo:${command}`, async (_event, projectId: string): Promise<GitActionResult> => {
+  /**
+   * Every command a repository can be asked to run: they all answer a GitActionResult, and
+   * they all have nothing to act on when the project is not open.
+   */
+  const onRepository = <A extends unknown[]>(
+    channel: string,
+    run: (repository: Repository, ...args: A) => Promise<GitActionResult>
+  ): void => {
+    ipcMain.handle(channel, async (_event, projectId: string, ...args: A): Promise<GitActionResult> => {
       const repository = repositories.get(projectId);
-      return repository ? repository[command]() : { ok: false, error: MISSING_REPOSITORY.error };
+      return repository ? run(repository, ...args) : { ok: false, error: MISSING_REPOSITORY.error };
     });
-  }
+  };
 
-  ipcMain.handle("repo:discard", async (_event, projectId: string, paths: string[]): Promise<GitActionResult> => {
-    const repository = repositories.get(projectId);
-    if (!repository) {
-      return { ok: false, error: MISSING_REPOSITORY.error };
-    }
-    return paths.length > 0 ? repository.discard(paths) : { ok: true };
-  });
-
-  ipcMain.handle(
-    "repo:ignore",
-    async (_event, projectId: string, filePath: string, scope: "file" | "extension"): Promise<GitActionResult> => {
-      const repository = repositories.get(projectId);
-      if (!repository) {
-        return { ok: false, error: MISSING_REPOSITORY.error };
-      }
-      return repository.ignore(filePath, scope);
-    }
+  onRepository("repo:checkout", (repository, target: CheckoutTarget) => repository.checkout(target));
+  onRepository("repo:fetch", (repository) => repository.fetch());
+  onRepository("repo:pull", (repository) => repository.pull());
+  onRepository("repo:push", (repository) => repository.push());
+  onRepository("repo:force-push", (repository) => repository.forcePush());
+  onRepository("repo:pull-rebase", (repository) => repository.pullRebase());
+  onRepository("repo:set-remote-url", (repository, remote: string, url: string) =>
+    repository.setRemoteUrl(remote, url)
+  );
+  onRepository("repo:create-branch", (repository, name: string, startPoint: string) =>
+    repository.createBranch(name, startPoint)
+  );
+  onRepository("repo:rename-branch", (repository, from: string, to: string) => repository.renameBranch(from, to));
+  onRepository("repo:delete-branch", (repository, name: string, onRemote: boolean) =>
+    repository.deleteBranch(name, onRemote)
+  );
+  onRepository("repo:merge", (repository, ref: string) => repository.merge(ref));
+  onRepository("repo:rebase", (repository, ref: string) => repository.rebase(ref));
+  onRepository("repo:abort", (repository) => repository.abort());
+  onRepository("repo:create-tag", (repository, name: string, target: string, message: string) =>
+    repository.createTag(name, target, message)
+  );
+  onRepository("repo:push-tag", (repository, name: string) => repository.pushTag(name));
+  onRepository("repo:delete-tag", (repository, name: string, onRemote: boolean) =>
+    repository.deleteTag(name, onRemote)
+  );
+  onRepository("repo:checkout-tag", (repository, name: string) => repository.checkoutTag(name));
+  onRepository("repo:stash-push", (repository, message: string) => repository.stashPush(message));
+  onRepository("repo:stash", (repository, command: StashCommand, ref: string) => repository.stash(command, ref));
+  onRepository("repo:discard", async (repository, paths: string[]) =>
+    paths.length > 0 ? repository.discard(paths) : { ok: true }
+  );
+  onRepository("repo:ignore", (repository, filePath: string, scope: "file" | "extension") =>
+    repository.ignore(filePath, scope)
   );
 
   ipcMain.handle(
@@ -295,16 +306,13 @@ function registerIpc(): void {
     return sessions.get(projectId)?.snapshot() ?? [];
   });
 
-  ipcMain.handle(
-    "terminal:create",
-    (_event, projectId: string, agentId: AgentId, asConsole?: boolean): TerminalDescriptor => {
-      const manager = sessions.get(projectId);
-      if (!manager) {
-        throw new Error(`Unknown project: ${projectId}`);
-      }
-      return manager.createTab(agentId, asConsole);
+  ipcMain.handle("terminal:create", (_event, projectId: string, agentId: AgentId): TerminalDescriptor => {
+    const manager = sessions.get(projectId);
+    if (!manager) {
+      throw new Error(`Unknown project: ${projectId}`);
     }
-  );
+    return manager.createTab(agentId);
+  });
 
   ipcMain.handle("terminal:close", async (_event, projectId: string, tabIds: string[]): Promise<void> => {
     await sessions.get(projectId)?.closeTabs(tabIds);
@@ -378,6 +386,33 @@ function registerIpc(): void {
     const repository = repositories.get(projectId);
     if (repository) {
       shell.showItemInFolder(path.join(repository.project.path, filePath));
+    }
+  });
+
+  /**
+   * The changed-file menu's "Open in external editor". meeseek has no editor setting, so the
+   * file goes to whatever the OS opens its type with — which on a developer's machine is the
+   * editor GitHub Desktop would have asked about.
+   */
+  ipcMain.handle("shell:open-file-externally", async (_event, projectId: string, filePath: string): Promise<void> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return;
+    }
+    const error = await shell.openPath(path.join(repository.project.path, filePath));
+    if (error) {
+      send("app:notice", { severity: "error", message: `Could not open file: ${filePath} (${error})` });
+    }
+  });
+
+  ipcMain.handle("shell:open-project", async (_event, projectId: string): Promise<void> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return;
+    }
+    const error = await shell.openPath(repository.project.path);
+    if (error) {
+      send("app:notice", { severity: "error", message: `Could not open folder: ${repository.project.path} (${error})` });
     }
   });
 

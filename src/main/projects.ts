@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isAgentId, type AgentId, type Project } from "../shared/types";
+import type { Project } from "../shared/types";
 
 /** The open repositories, persisted so the window comes back with the same project tabs. */
 export class ProjectStore {
@@ -44,33 +44,6 @@ export class ProjectStore {
   }
 
   /**
-   * Which agent this project's git console runs. Kept here rather than in the project's own
-   * meeseek.json: it is how one person likes to work in one checkout, not something the
-   * repository has to carry around — and a file that changes on every dropdown would show up
-   * as a local change every time.
-   */
-  setConsoleAgent(projectId: string, agentId: AgentId): void {
-    const project = this.get(projectId);
-    if (project) {
-      project.consoleAgent = agentId;
-      this.save();
-    }
-  }
-
-  /**
-   * Which session the console is running, so the next start can put it back there rather than
-   * showing it as a tab. `undefined` clears it — a console that was just opened has no session
-   * yet, and the one it replaced is no longer the console.
-   */
-  setConsoleSession(projectId: string, sessionId: string | undefined): void {
-    const project = this.get(projectId);
-    if (project && project.consoleSessionId !== sessionId) {
-      project.consoleSessionId = sessionId;
-      this.save();
-    }
-  }
-
-  /**
    * Puts the projects in the given order. Ids the store doesn't know are dropped and projects
    * the caller left out keep their place at the end: the renderer sends the list it had on
    * screen, which can be a moment behind one added or closed elsewhere.
@@ -90,23 +63,14 @@ export class ProjectStore {
       const raw = fs.readFileSync(this.file, "utf8");
       const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        this.projects = parsed
-          .filter(
-            (entry): entry is Project =>
-              typeof entry === "object" &&
-              entry !== null &&
-              typeof (entry as Project).id === "string" &&
-              typeof (entry as Project).path === "string" &&
-              typeof (entry as Project).name === "string"
-          )
-          // The two optional fields are checked rather than trusted: an agent id this build
-          // does not know would throw the moment the git tab tried to open its console, and a
-          // file written by another version is exactly where such a value comes from.
-          .map((project) => ({
-            ...project,
-            consoleAgent: isAgentId(project.consoleAgent) ? project.consoleAgent : undefined,
-            consoleSessionId: typeof project.consoleSessionId === "string" ? project.consoleSessionId : undefined
-          }));
+        this.projects = parsed.filter(
+          (entry): entry is Project =>
+            typeof entry === "object" &&
+            entry !== null &&
+            typeof (entry as Project).id === "string" &&
+            typeof (entry as Project).path === "string" &&
+            typeof (entry as Project).name === "string"
+        );
       }
     } catch {
       // No file yet (first start) or unreadable — start with an empty workspace.

@@ -1,29 +1,35 @@
 import { useMemo, useState } from "react";
-import type { CheckoutTarget, RepositoryState } from "../../shared/types";
-import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
+import type { CheckoutTarget, GitActionResult, RepositoryState, StashEntry } from "../../shared/types";
+import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
+import { confirm, prompt } from "./Dialog";
 import { BranchIcon, ChevronIcon, RemoteIcon, SearchIcon, StashIcon, TagIcon } from "./icons";
 
 /**
- * What the tree can do, which is check a branch out and nothing else. Everything that would
- * *change* a branch — creating, renaming, deleting, merging, rebasing — is deliberately not
- * here: it belongs in an agent or a shell, and this view is for finding your way around.
+ * How the tree starts a git command: one at a time per project, named while it runs. The
+ * questions a command needs answering first are put here rather than by the caller — this is
+ * what knows which remote holds a branch and whether it is the one HEAD is on.
  */
 export interface BranchActions {
   /** A git command is running in this project; the tree offers no second one meanwhile. */
   busy: boolean;
-  checkout: (target: CheckoutTarget) => void;
+  run: (label: string, action: () => Promise<GitActionResult>) => void;
 }
 
 interface BranchTreeProps {
+  projectId: string;
   state: RepositoryState;
-  /** Dragged on the sash below the tree, which is why it isn't a style of its own. */
-  height: number;
   branch: BranchActions;
 }
 
-type BranchMenu = { x: number; y: number; name: string; remote?: string };
+/** Which row the menu was opened on; the pointer's position is added when it opens. */
+type MenuTarget =
+  | { kind: "branch"; name: string; remote?: string }
+  | { kind: "tag"; name: string }
+  | { kind: "stash"; stash: StashEntry };
 
-export function BranchTree({ state, height, branch }: BranchTreeProps) {
+type BranchMenu = MenuTarget & { x: number; y: number };
+
+export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
   const [filter, setFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<BranchMenu | null>(null);
@@ -44,18 +50,208 @@ export function BranchTree({ state, height, branch }: BranchTreeProps) {
 
   const isCurrent = (name: string): boolean => !state.detached && name === state.head;
 
-  /** One entry, because checking out is the one thing this tree does. */
-  const menuEntries = ({ name, remote }: BranchMenu): ContextMenuEntry[] => [
-    {
-      label: "Check out",
-      // Checking out the branch you are already on does nothing, and a command already
-      // running would race this one.
-      run: branch.busy || (!remote && isCurrent(name)) ? undefined : () => branch.checkout({ name, remote })
+  const repository = window.meeseek.repository;
+  /** The remote every command that names one uses, the way the main process picks it. */
+  const remote = state.remotes[0]?.name;
+
+  const checkout = (target: CheckoutTarget): void =>
+    branch.run(`Switching to ${target.name}...`, () => repository.checkout(projectId, target));
+
+  const askCreateBranch = async (startPoint: string): Promise<void> => {
+    const answer = await prompt({
+      title: "Create branch",
+      label: "Name",
+      detail: `The new branch starts at ${startPoint} and is checked out.`,
+      value: "",
+      confirmLabel: "Create branch"
+    });
+    if (answer) {
+      branch.run(`Creating ${answer.value}...`, () => repository.createBranch(projectId, answer.value, startPoint));
     }
+  };
+
+  const askRenameBranch = async (name: string): Promise<void> => {
+    const answer = await prompt({ title: "Rename branch", label: "Name", value: name, confirmLabel: "Rename" });
+    if (answer && answer.value !== name) {
+      branch.run(`Renaming ${name}...`, () => repository.renameBranch(projectId, name, answer.value));
+    }
+  };
+
+  /**
+   * Deleting is `git branch -D`, like GitHub Desktop's, so a branch whose work is not merged
+   * anywhere goes too — which is what the question has to say. The remote copy is the same
+   * question's checkbox, and only where there is one to delete.
+   */
+  const askDeleteBranch = async (name: string): Promise<void> => {
+    const onRemote = remote !== undefined && state.remotes[0].branches.includes(name);
+    const answer = await confirm({
+      title: "Delete branch",
+      message: `Are you sure you want to delete ${name}?`,
+      detail: "Commits that exist only on this branch are lost.",
+      confirmLabel: "Delete branch",
+      checkboxLabel: onRemote ? `Also delete ${remote}/${name} on the remote` : undefined
+    });
+    if (answer.confirmed) {
+      branch.run(`Deleting ${name}...`, () => repository.deleteBranch(projectId, name, answer.checked));
+    }
+  };
+
+  const askCreateTag = async (target: string): Promise<void> => {
+    const answer = await prompt({
+      title: "Create tag",
+      label: "Name",
+      detail: `The tag points at ${target}. A message makes it an annotated tag.`,
+      value: "",
+      confirmLabel: "Create tag",
+      extra: { label: "Message", placeholder: "Optional" }
+    });
+    if (answer) {
+      branch.run(`Creating tag ${answer.value}...`, () =>
+        repository.createTag(projectId, answer.value, target, answer.extra)
+      );
+    }
+  };
+
+  const askDeleteTag = async (name: string): Promise<void> => {
+    const answer = await confirm({
+      title: "Delete tag",
+      message: `Are you sure you want to delete the tag ${name}?`,
+      confirmLabel: "Delete tag",
+      checkboxLabel: remote ? `Also delete it on ${remote}` : undefined
+    });
+    if (answer.confirmed) {
+      branch.run(`Deleting tag ${name}...`, () => repository.deleteTag(projectId, name, answer.checked));
+    }
+  };
+
+  const askDropStash = async (stash: StashEntry): Promise<void> => {
+    const answer = await confirm({
+      title: "Drop stash",
+      message: `Are you sure you want to drop ${stash.ref}?`,
+      detail: stash.message,
+      confirmLabel: "Drop stash"
+    });
+    if (answer.confirmed) {
+      branch.run(`Dropping ${stash.ref}...`, () => repository.stash(projectId, "drop", stash.ref));
+    }
+  };
+
+  /**
+   * The half-finished merge or rebase, offered from every row because it belongs to the
+   * repository rather than to any one branch. Nothing else in the tree is worth doing while
+   * one is open, so it goes first.
+   */
+  const abortEntries = (): ContextMenuEntry[] => {
+    if (!state.operation) {
+      return [];
+    }
+    const label = state.operation === "merge" ? "Abort merge" : "Abort rebase";
+    return [{ label, run: () => branch.run(`${label}...`, () => repository.abort(projectId)) }, SEPARATOR];
+  };
+
+  /**
+   * What can be done with a branch, following GitHub Desktop: check it out, base something new
+   * on it, and bring it into the branch you are on. Rewriting history in more than these two
+   * ways stays a job for a terminal.
+   */
+  const branchEntries = (menu: Extract<BranchMenu, { kind: "branch" }>): ContextMenuEntry[] => {
+    const { name, remote: from } = menu;
+    // A remote branch is named by its remote everywhere but in the checkout, which creates the
+    // local branch that tracks it.
+    const ref = from ? `${from}/${name}` : name;
+    const current = from === undefined && isCurrent(name);
+    const onHead = current || state.detached;
+    // The default branch as the remote has it: an auto-fetch keeps that one current, while a
+    // local copy of it may be many commits behind without anything saying so.
+    const updateRef = state.defaultBranch
+      ? `${remote ? `${remote}/` : ""}${state.defaultBranch}`
+      : undefined;
+
+    return [
+      ...abortEntries(),
+      { label: "Check out", run: current ? undefined : () => checkout({ name, remote: from }) },
+      { label: `Create branch from ${ref}...`, run: () => void askCreateBranch(ref) },
+      ...(from
+        ? []
+        : [
+            { label: "Rename...", run: () => void askRenameBranch(name) },
+            { label: "Delete...", run: current ? undefined : () => void askDeleteBranch(name) }
+          ]),
+      SEPARATOR,
+      // On the branch you are on, merging it into itself is meaningless — what that row
+      // offers instead is bringing the default branch in, GitHub Desktop's "Update from main".
+      ...(onHead
+        ? [
+            {
+              label: `Update from ${updateRef ?? "the default branch"}`,
+              // Nothing to bring in when the default branch is the one you are standing on.
+              run:
+                updateRef && !state.detached && state.head !== state.defaultBranch
+                  ? () => branch.run(`Merging ${updateRef}...`, () => repository.merge(projectId, updateRef))
+                  : undefined
+            }
+          ]
+        : [
+            {
+              label: `Merge ${ref} into ${state.head}`,
+              run: () => branch.run(`Merging ${ref}...`, () => repository.merge(projectId, ref))
+            },
+            {
+              label: `Rebase ${state.head} onto ${ref}`,
+              run: () => branch.run(`Rebasing onto ${ref}...`, () => repository.rebase(projectId, ref))
+            }
+          ]),
+      SEPARATOR,
+      { label: "Create tag...", run: () => void askCreateTag(ref) },
+      { label: "Copy branch name", run: () => void navigator.clipboard.writeText(ref) }
+    ];
+  };
+
+  /** A tag names a commit, so checking one out leaves HEAD detached — as it does in git. */
+  const tagEntries = (name: string): ContextMenuEntry[] => [
+    ...abortEntries(),
+    { label: "Check out", run: () => branch.run(`Switching to ${name}...`, () => repository.checkoutTag(projectId, name)) },
+    {
+      label: remote ? `Push to ${remote}` : "Push",
+      run: remote ? () => branch.run(`Pushing ${name}...`, () => repository.pushTag(projectId, name)) : undefined
+    },
+    { label: "Delete...", run: () => void askDeleteTag(name) },
+    SEPARATOR,
+    { label: "Copy tag name", run: () => void navigator.clipboard.writeText(name) }
   ];
 
+  /**
+   * A stash's ref is its position in the list, and dropping one renumbers the rest — so these
+   * only ever act on what the last refresh reported, and every one of them refreshes after.
+   */
+  const stashEntries = (stash: StashEntry): ContextMenuEntry[] => [
+    ...abortEntries(),
+    {
+      label: "Apply",
+      run: () => branch.run(`Applying ${stash.ref}...`, () => repository.stash(projectId, "apply", stash.ref))
+    },
+    {
+      label: "Pop",
+      run: () => branch.run(`Popping ${stash.ref}...`, () => repository.stash(projectId, "pop", stash.ref))
+    },
+    { label: "Drop...", run: () => void askDropStash(stash) }
+  ];
+
+  const menuEntries = (open: BranchMenu): ContextMenuEntry[] => {
+    if (open.kind === "branch") {
+      return branchEntries(open);
+    }
+    return open.kind === "tag" ? tagEntries(open.name) : stashEntries(open.stash);
+  };
+
+  /** Every row opens its menu the same way; what differs is which one it describes. */
+  const openMenu = (event: React.MouseEvent, target: MenuTarget): void => {
+    event.preventDefault();
+    setMenu({ ...target, x: event.clientX, y: event.clientY });
+  };
+
   return (
-    <div className={`branch-tree${branch.busy ? " busy" : ""}`} style={{ height }}>
+    <div className={`branch-tree${branch.busy ? " busy" : ""}`}>
       <div className="branch-filter">
         <SearchIcon className="branch-filter-icon" />
         <input
@@ -79,11 +275,8 @@ export function BranchTree({ state, height, branch }: BranchTreeProps) {
                 key={localBranch}
                 className={`tree-item${isCurrent(localBranch) ? " current" : ""}`}
                 title="Double-click to check out"
-                onDoubleClick={() => branch.checkout({ name: localBranch })}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setMenu({ x: event.clientX, y: event.clientY, name: localBranch });
-                }}
+                onDoubleClick={() => checkout({ name: localBranch })}
+                onContextMenu={(event) => openMenu(event, { kind: "branch", name: localBranch })}
               >
                 <BranchIcon className="tree-icon" />
                 <span className="tree-label">{localBranch}</span>
@@ -98,25 +291,24 @@ export function BranchTree({ state, height, branch }: BranchTreeProps) {
             <span className="count">({state.remotes.length})</span>
           </button>
           {!isCollapsed("remotes") &&
-            remotes.map((remote) => (
-              <div key={remote.name}>
-                <button className="tree-item remote" onClick={() => toggle(`remote:${remote.name}`)}>
-                  <ChevronIcon expanded={!isCollapsed(`remote:${remote.name}`)} />
+            remotes.map((entry) => (
+              <div key={entry.name}>
+                <button className="tree-item remote" onClick={() => toggle(`remote:${entry.name}`)}>
+                  <ChevronIcon expanded={!isCollapsed(`remote:${entry.name}`)} />
                   <RemoteIcon className="tree-icon" />
-                  <span className="tree-label">{remote.name}</span>
-                  <span className="count">({remote.branches.length})</span>
+                  <span className="tree-label">{entry.name}</span>
+                  <span className="count">({entry.branches.length})</span>
                 </button>
-                {!isCollapsed(`remote:${remote.name}`) &&
-                  remote.branches.map((remoteBranch) => (
+                {!isCollapsed(`remote:${entry.name}`) &&
+                  entry.branches.map((remoteBranch) => (
                     <button
                       key={remoteBranch}
                       className="tree-item nested"
                       title="Double-click to check out"
-                      onDoubleClick={() => branch.checkout({ name: remoteBranch, remote: remote.name })}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        setMenu({ x: event.clientX, y: event.clientY, name: remoteBranch, remote: remote.name });
-                      }}
+                      onDoubleClick={() => checkout({ name: remoteBranch, remote: entry.name })}
+                      onContextMenu={(event) =>
+                        openMenu(event, { kind: "branch", name: remoteBranch, remote: entry.name })
+                      }
                     >
                       <BranchIcon className="tree-icon" />
                       <span className="tree-label">{remoteBranch}</span>
@@ -126,8 +318,6 @@ export function BranchTree({ state, height, branch }: BranchTreeProps) {
             ))}
         </div>
 
-        {/* Tags and stashes are shown, never acted on: creating a tag or popping a stash is
-            a job for a terminal, and a row that reacts without doing anything would lie. */}
         <div className="tree-section">
           <button className="tree-header" onClick={() => toggle("tags")}>
             <ChevronIcon expanded={!isCollapsed("tags")} />
@@ -136,10 +326,16 @@ export function BranchTree({ state, height, branch }: BranchTreeProps) {
           </button>
           {!isCollapsed("tags") &&
             tags.map((tag) => (
-              <div key={tag} className="tree-item static" title={tag}>
+              <button
+                key={tag}
+                className="tree-item"
+                title="Double-click to check out"
+                onDoubleClick={() => branch.run(`Switching to ${tag}...`, () => repository.checkoutTag(projectId, tag))}
+                onContextMenu={(event) => openMenu(event, { kind: "tag", name: tag })}
+              >
                 <TagIcon className="tree-icon" />
                 <span className="tree-label">{tag}</span>
-              </div>
+              </button>
             ))}
         </div>
 
@@ -151,10 +347,17 @@ export function BranchTree({ state, height, branch }: BranchTreeProps) {
           </button>
           {!isCollapsed("stashes") &&
             state.stashes.map((stash) => (
-              <div key={stash.ref} className="tree-item static" title={`${stash.ref}: ${stash.message}`}>
+              <button
+                key={stash.ref}
+                className="tree-item"
+                // Nothing a stash does is worth a click of its own: applying it and dropping
+                // it are one right-click apart and one of them cannot be taken back.
+                title={`${stash.ref}: ${stash.message}\nRight-click to apply, pop or drop it`}
+                onContextMenu={(event) => openMenu(event, { kind: "stash", stash })}
+              >
                 <StashIcon className="tree-icon" />
                 <span className="tree-label">{stash.message}</span>
-              </div>
+              </button>
             ))}
         </div>
       </div>

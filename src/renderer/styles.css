@@ -40,24 +40,6 @@ input::placeholder {
   color: var(--vscode-input-placeholderForeground);
 }
 
-/* Styled like an input rather than like the platform's own dropdown, for the same reason the
-   dialogs are drawn here: the OS widget looks out of place in a window that copies VS Code. */
-select {
-  font: inherit;
-  font-size: 11px;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 2px;
-  outline: none;
-  padding: 2px 4px;
-  cursor: pointer;
-}
-
-select:focus {
-  border-color: var(--vscode-focusBorder);
-}
-
 input:focus {
   border-color: var(--vscode-focusBorder);
 }
@@ -420,7 +402,7 @@ input:focus {
 .branch-tree {
   display: flex;
   flex-direction: column;
-  flex: none;
+  flex: 1;
   min-height: 0;
 }
 
@@ -512,14 +494,6 @@ input:focus {
 
 .tree-item:hover {
   background: var(--vscode-list-hoverBackground);
-}
-
-/* A row that is only there to be read — nothing to click, so nothing lights up under the
-   pointer either. */
-.tree-item.static,
-.tree-item.static:hover {
-  background: none;
-  cursor: default;
 }
 
 .tree-item.current {
@@ -634,9 +608,31 @@ input:focus {
   box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
 }
 
-/* No close button to fill it out, so the space one would take is padding instead. */
-.terminal-tab.git {
-  padding-right: 16px;
+/* Where the git tab used to sit, and shaped like one so the strip still reads as a row — but
+   it toggles a pane beside this one rather than selecting anything here. Its own separator on
+   the right keeps it apart from the tabs it is not one of. */
+.git-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--vscode-tab-inactiveForeground);
+  border-right: 1px solid var(--vscode-tab-border);
+}
+
+.git-toggle:hover {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* On: the pane is out. Marked the way a checked toolbar action is, not like a selected tab —
+   nothing in the strip is selected by it. */
+.git-toggle.active {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-tab-activeBackground);
+  box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
 }
 
 .terminal-tab-label {
@@ -785,69 +781,41 @@ input:focus {
   display: none;
 }
 
-/* Git tab contents ----------------------------------------------------------------------- */
+/* Git pane -------------------------------------------------------------------------------- */
 
-/* A tab of the terminals pane, so it grows down the pane's column and must be allowed to
-   shrink below its content for its panels to scroll. */
-/* Four panes: branches over changed files on the left, the diff over the console on the
-   right. Both columns run the full height of the tab. */
-.git-view {
+/* Its own column between the navigation and the terminals, shown while the git button in the
+   tab strip is on. Width is dragged and remembered like the sidebar's. */
+.git-pane-host {
   display: flex;
-  flex: 1;
+  flex: none;
   min-width: 0;
-  min-height: 0;
-}
-
-/* The diff on top, the console below it. */
-.git-right {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
-/* One console for the whole tab, full width. */
-/* Its height is dragged and remembered; the floor is a share of the view, so it means the same
-   thing in every window size — the sash enforces the same 20% while dragging. */
-.git-console {
-  display: flex;
-  flex-direction: column;
-  flex: none;
-  min-height: 20%;
-  background: var(--vscode-terminal-background);
-  /* The lower pane carries the line to the one above it, the way .changes-list does. */
-  border-top: 1px solid var(--vscode-panel-border);
-}
-
-/* What the absolutely placed .terminal fills — same background, so the 4px inset around it
-   is not a seam of another color. */
-.git-console-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  background: var(--vscode-terminal-background);
-}
-
-/* The tab strip's height, which is what every bar along an edge of this window uses. */
-.git-console-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  height: 35px;
-  padding: 0 8px;
-  font-size: 11px;
-  background: var(--vscode-panel-background);
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-
-/* Branches on top, changed files below; the diff gets the rest of the width. */
-.git-panels {
-  display: flex;
-  flex-direction: column;
-  flex: none;
+  background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-panel-border);
+}
+
+/* Branches on top, changed files below. No diff: that opens over the whole window. */
+.git-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* One titled half of the pane: the upper one is sized by the sash, the lower one takes what
+   is left. Its header is the navigation's, so both columns line up. */
+.git-section {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+}
+
+/* The lower half takes what is left and draws the line between the two, the way the sidebar's
+   action list does — the sash over it is transparent until it is grabbed. */
+.git-section.grows {
+  flex: 1;
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .changes-list {
@@ -855,7 +823,6 @@ input:focus {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .changes-filter {
@@ -920,16 +887,57 @@ input:focus {
   color: var(--vscode-gitDecoration-conflictingResourceForeground);
 }
 
-/* Both floors matter, and for different neighbours: `min-width: 0` keeps a long line from
-   pushing the panels on the left, `min-height: 0` keeps a long diff from pushing the console
-   below out of the column. A flex item defaults to min-height: auto, which is its content. */
-.changes-diff {
+/* The diff, over the whole window. Modal like the question dialogs, and dimmed the same way,
+   but its own component: this asks nothing, it shows a file. */
+.diff-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
   display: flex;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 40%);
 }
 
+.diff-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-width: 1400px;
+  min-width: 0;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow);
+  overflow: hidden;
+}
+
+/* The tab strip's height again, with the file it is showing and the way out. */
+.diff-dialog-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 35px;
+  padding: 0 6px 0 12px;
+  background: var(--vscode-panel-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.diff-dialog-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* `min-height: 0` matters here: a flex item defaults to the height of its content, and a long
+   diff would push its own scroll container past the bottom of the dialog. */
 .diff {
   display: flex;
   flex-direction: column;

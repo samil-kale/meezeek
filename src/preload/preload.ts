@@ -12,8 +12,7 @@ const api: MeeseekApi = {
     list: () => ipcRenderer.invoke("projects:list"),
     add: () => ipcRenderer.invoke("projects:add"),
     remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId),
-    reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds),
-    setConsoleAgent: (projectId, agentId) => ipcRenderer.invoke("projects:set-console-agent", projectId, agentId)
+    reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds)
   },
   repository: {
     state: (projectId) => ipcRenderer.invoke("repo:state", projectId),
@@ -22,6 +21,24 @@ const api: MeeseekApi = {
     fetch: (projectId) => ipcRenderer.invoke("repo:fetch", projectId),
     pull: (projectId) => ipcRenderer.invoke("repo:pull", projectId),
     push: (projectId) => ipcRenderer.invoke("repo:push", projectId),
+    forcePush: (projectId) => ipcRenderer.invoke("repo:force-push", projectId),
+    pullRebase: (projectId) => ipcRenderer.invoke("repo:pull-rebase", projectId),
+    setRemoteUrl: (projectId, remote, url) => ipcRenderer.invoke("repo:set-remote-url", projectId, remote, url),
+    createBranch: (projectId, name, startPoint) =>
+      ipcRenderer.invoke("repo:create-branch", projectId, name, startPoint),
+    renameBranch: (projectId, from, to) => ipcRenderer.invoke("repo:rename-branch", projectId, from, to),
+    deleteBranch: (projectId, name, onRemote) =>
+      ipcRenderer.invoke("repo:delete-branch", projectId, name, onRemote),
+    merge: (projectId, ref) => ipcRenderer.invoke("repo:merge", projectId, ref),
+    rebase: (projectId, ref) => ipcRenderer.invoke("repo:rebase", projectId, ref),
+    abort: (projectId) => ipcRenderer.invoke("repo:abort", projectId),
+    createTag: (projectId, name, target, message) =>
+      ipcRenderer.invoke("repo:create-tag", projectId, name, target, message),
+    pushTag: (projectId, name) => ipcRenderer.invoke("repo:push-tag", projectId, name),
+    deleteTag: (projectId, name, onRemote) => ipcRenderer.invoke("repo:delete-tag", projectId, name, onRemote),
+    checkoutTag: (projectId, name) => ipcRenderer.invoke("repo:checkout-tag", projectId, name),
+    stashPush: (projectId, message) => ipcRenderer.invoke("repo:stash-push", projectId, message),
+    stash: (projectId, command, ref) => ipcRenderer.invoke("repo:stash", projectId, command, ref),
     discard: (projectId, paths) => ipcRenderer.invoke("repo:discard", projectId, paths),
     ignore: (projectId, filePath, scope) => ipcRenderer.invoke("repo:ignore", projectId, filePath, scope),
     diff: (projectId, filePath, options) => ipcRenderer.invoke("repo:diff", projectId, filePath, options),
@@ -37,7 +54,7 @@ const api: MeeseekApi = {
   },
   terminals: {
     list: (projectId) => ipcRenderer.invoke("terminal:list", projectId),
-    create: (projectId, agentId, asConsole) => ipcRenderer.invoke("terminal:create", projectId, agentId, asConsole),
+    create: (projectId, agentId) => ipcRenderer.invoke("terminal:create", projectId, agentId),
     close: (projectId, tabIds) => ipcRenderer.invoke("terminal:close", projectId, tabIds),
     rename: (projectId, tabId, title) => ipcRenderer.invoke("terminal:rename", projectId, tabId, title),
     input: (projectId, tabId, data) => ipcRenderer.send("terminal:input", projectId, tabId, data),
@@ -63,7 +80,10 @@ const api: MeeseekApi = {
   shell: {
     openUrl: (url) => ipcRenderer.invoke("shell:open-url", url),
     openFile: (projectId, filePath) => ipcRenderer.invoke("shell:open-file", projectId, filePath),
-    revealFile: (projectId, filePath) => ipcRenderer.invoke("shell:reveal-file", projectId, filePath)
+    revealFile: (projectId, filePath) => ipcRenderer.invoke("shell:reveal-file", projectId, filePath),
+    openFileExternally: (projectId, filePath) =>
+      ipcRenderer.invoke("shell:open-file-externally", projectId, filePath),
+    openProject: (projectId) => ipcRenderer.invoke("shell:open-project", projectId)
   },
   onNotice: (listener) => subscribe("app:notice", listener)
 };

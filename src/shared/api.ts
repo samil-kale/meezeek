@@ -9,6 +9,7 @@ import type {
   Project,
   ProjectAction,
   RepositoryState,
+  StashCommand,
   TerminalDescriptor,
   TerminalOutput,
   TerminalStatus
@@ -25,8 +26,6 @@ export interface MeeseekApi {
     remove(projectId: string): Promise<void>;
     /** Persists the order the user dragged them into, as the full list of ids. */
     reorder(projectIds: string[]): Promise<void>;
-    /** Remembers which agent this project's git console runs; read back off `Project`. */
-    setConsoleAgent(projectId: string, agentId: AgentId): Promise<void>;
   };
   repository: {
     state(projectId: string): Promise<RepositoryState>;
@@ -37,6 +36,31 @@ export interface MeeseekApi {
     pull(projectId: string): Promise<GitActionResult>;
     /** Pushes the current branch, setting its upstream when it has none ("publish"). */
     push(projectId: string): Promise<GitActionResult>;
+    /** `git push --force-with-lease`, for a branch a rebase left diverged from its upstream. */
+    forcePush(projectId: string): Promise<GitActionResult>;
+    pullRebase(projectId: string): Promise<GitActionResult>;
+    /** Points a remote somewhere else; the new url is in the next state. */
+    setRemoteUrl(projectId: string, remote: string, url: string): Promise<GitActionResult>;
+    /** Creates the branch off `startPoint` and switches to it. */
+    createBranch(projectId: string, name: string, startPoint: string): Promise<GitActionResult>;
+    renameBranch(projectId: string, from: string, to: string): Promise<GitActionResult>;
+    /** Deletes it locally and, when asked, on the remote too; the caller confirms first. */
+    deleteBranch(projectId: string, name: string, onRemote: boolean): Promise<GitActionResult>;
+    /** Merges the ref into the current branch. A conflict is reported and left in the tree. */
+    merge(projectId: string, ref: string): Promise<GitActionResult>;
+    rebase(projectId: string, ref: string): Promise<GitActionResult>;
+    /** Takes back the merge or rebase in `RepositoryState.operation`. */
+    abort(projectId: string): Promise<GitActionResult>;
+    /** Annotated when there is a message, lightweight when there is not. */
+    createTag(projectId: string, name: string, target: string, message: string): Promise<GitActionResult>;
+    pushTag(projectId: string, name: string): Promise<GitActionResult>;
+    deleteTag(projectId: string, name: string, onRemote: boolean): Promise<GitActionResult>;
+    /** A tag names a commit, so this leaves HEAD detached. */
+    checkoutTag(projectId: string, name: string): Promise<GitActionResult>;
+    /** Stashes everything the changes list shows, untracked files included. */
+    stashPush(projectId: string, message: string): Promise<GitActionResult>;
+    /** Applies, pops or drops one. The ref is a position — only ever a freshly read one. */
+    stash(projectId: string, command: StashCommand, ref: string): Promise<GitActionResult>;
     /** Throws the local changes to these files away; the caller confirms first. */
     discard(projectId: string, paths: string[]): Promise<GitActionResult>;
     /** Appends the file, or its whole extension, to the repository's .gitignore. */
@@ -66,11 +90,8 @@ export interface MeeseekApi {
   };
   terminals: {
     list(projectId: string): Promise<TerminalDescriptor[]>;
-    /**
-     * Opens a tab for a new session of that agent; the session itself starts on first resize.
-     * `asConsole` makes it the git tab's console instead of a tab in the strip.
-     */
-    create(projectId: string, agentId: AgentId, asConsole?: boolean): Promise<TerminalDescriptor>;
+    /** Opens a tab for a new session of that agent; the session itself starts on first resize. */
+    create(projectId: string, agentId: AgentId): Promise<TerminalDescriptor>;
     /** Closes tabs and deletes the sessions behind them. */
     close(projectId: string, tabIds: string[]): Promise<void>;
     rename(projectId: string, tabId: string, title: string): Promise<void>;
@@ -121,6 +142,13 @@ export interface MeeseekApi {
     openFile(projectId: string, path: string): Promise<string | null>;
     /** Shows a repository-relative path in the OS file manager, selected. */
     revealFile(projectId: string, path: string): Promise<void>;
+    /**
+     * Hands a repository-relative path to whatever the OS opens that type with — the nearest
+     * thing meeseek has to GitHub Desktop's external editor, which it has no setting for.
+     */
+    openFileExternally(projectId: string, path: string): Promise<void>;
+    /** Opens the project's own folder in the OS file manager. */
+    openProject(projectId: string): Promise<void>;
   };
   /** Failures the user should see (a session that could not be renamed or deleted). */
   /** Anything transient the main process wants said — see Notice. */

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CheckoutTarget, GitActionResult, Project, RepositoryState } from "../shared/types";
+import type { GitActionResult, Project, RepositoryState } from "../shared/types";
 import { ActionList } from "./components/ActionList";
-import { Dialogs } from "./components/Dialog";
+import type { BranchActions } from "./components/BranchTree";
+import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./components/ContextMenu";
+import { DiffDialog } from "./components/DiffDialog";
+import { Dialogs, confirm } from "./components/Dialog";
+import { GitPane } from "./components/GitPane";
 import { Notices, notify } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
-import { Sash, usePaneSize } from "./components/Sash";
+import { Sash, usePaneSize, usePaneToggle } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
 import { ArrowDownIcon, ArrowUpIcon, BranchIcon, PlusIcon, RefreshIcon, SyncIcon } from "./components/icons";
 
@@ -36,11 +40,25 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240);
   const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300);
   const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260);
-  // 40% of the window it first opens in, like the console below the diff.
+  // 40% of the window it first opens in.
   const [actionsHeight, setActionsHeight] = usePaneSize("actions", Math.round(window.innerHeight * 0.4));
-  // A third of the window it first opens in, and whatever it is dragged to after that. Its
-  // floor is a share rather than a pixel count, and lives in the sash and in the stylesheet.
-  const [consoleHeight, setConsoleHeight] = usePaneSize("git-console", Math.round(window.innerHeight * 0.33));
+  /**
+   * Whether the git pane is out. Closed until it is asked for — the terminals are what the
+   * window is for, and the repository is something you look at now and then. Remembered like
+   * a pane size, since it is one.
+   */
+  const [gitOpen, setGitOpen] = usePaneToggle("git-pane", false);
+  /** The git pane or an open diff is working; the active project's bar reports it. */
+  const [gitBusy, setGitBusy] = useState(false);
+  /** The file whose diff is open over everything, if any. */
+  const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
+  /** The sync button's own menu: the variants of what it does, for when its pick is not the one. */
+  const [syncMenu, setSyncMenu] = useState<{ x: number; y: number } | null>(null);
+  /**
+   * A shell tab asked for from a project's row. The counter is what makes a second request
+   * for the same project a new one; the pane it belongs to opens the tab.
+   */
+  const [shellRequest, setShellRequest] = useState<{ projectId: string; nonce: number } | null>(null);
 
   useEffect(() => {
     const unsubscribe = window.meeseek.repository.onState(({ projectId, state }) =>
@@ -116,17 +134,20 @@ export function App() {
     []
   );
 
-  /** What the git tab may start, in the shape the tree takes it. */
+  /** What the git pane may start, in the shape its views take it. */
   const branchActions = useCallback(
-    (projectId: string) => ({
+    (projectId: string): BranchActions => ({
       busy: branchAction?.projectId === projectId,
-      checkout: (target: CheckoutTarget) =>
-        void runBranchAction(projectId, `Switching to ${target.name}...`, () =>
-          window.meeseek.repository.checkout(projectId, target)
-        )
+      run: (label, action) => void runBranchAction(projectId, label, action)
     }),
     [branchAction, runBranchAction]
   );
+
+  /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
+  const openTerminal = useCallback((projectId: string) => {
+    setActiveProjectId(projectId);
+    setShellRequest((current) => ({ projectId, nonce: (current?.nonce ?? 0) + 1 }));
+  }, []);
 
   const refresh = useCallback(() => {
     if (activeProjectId) {
@@ -182,6 +203,44 @@ export function App() {
     };
   })();
 
+  /** Rewrites what the remote holds, which is why it is the one entry that asks first. */
+  const askForcePush = async (projectId: string): Promise<void> => {
+    const answer = await confirm({
+      title: "Force push",
+      message: `Are you sure you want to force push ${activeState.head} to ${activeState.upstream}?`,
+      detail:
+        "Commits the remote has and this branch does not are overwritten. The push is refused if the remote moved since the last fetch.",
+      confirmLabel: "Force push"
+    });
+    if (answer.confirmed) {
+      void runBranchAction(projectId, "Force pushing...", () => window.meeseek.repository.forcePush(projectId));
+    }
+  };
+
+  /**
+   * The other things that one button could have done. GitHub Desktop keeps them in its
+   * Repository menu; meeseek has no menu bar, so they sit on the button itself.
+   */
+  const syncEntries = (projectId: string): ContextMenuEntry[] => {
+    const start = (label: string, call: (projectId: string) => Promise<GitActionResult>) => () =>
+      void runBranchAction(projectId, `${label}...`, () => call(projectId));
+    // Without an upstream there is nothing to pull from and nothing to rewrite; publishing it
+    // is what the button itself offers then.
+    const tracked = activeState.upstream !== undefined;
+    return [
+      { label: "Fetch", run: start("Fetching", window.meeseek.repository.fetch) },
+      SEPARATOR,
+      { label: "Pull", run: tracked ? start("Pulling", window.meeseek.repository.pull) : undefined },
+      {
+        label: "Pull with rebase",
+        run: tracked ? start("Pulling", window.meeseek.repository.pullRebase) : undefined
+      },
+      SEPARATOR,
+      { label: "Push", run: start("Pushing", window.meeseek.repository.push) },
+      { label: "Force push...", run: tracked ? () => void askForcePush(projectId) : undefined }
+    ];
+  };
+
   return (
     <div className="app">
       {/* Just the app name; the bar itself is the drag region and the space the window
@@ -201,6 +260,8 @@ export function App() {
             onClose={(projectId) => void closeProject(projectId)}
             onReorder={reorderProjects}
             onAdd={() => void addProject()}
+            remoteOf={(projectId) => states[projectId]?.remotes[0]}
+            onOpenTerminal={openTerminal}
           />
           <Sash
             orientation="horizontal"
@@ -214,6 +275,32 @@ export function App() {
         </div>
         <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
 
+        {/* The repository of the active project, between the navigation and its terminals.
+            One pane for all of them, unlike the terminals: it holds no state a project would
+            lose by being switched away from. */}
+        {gitOpen && activeProject && (
+          <>
+            <div className="git-pane-host" style={{ width: gitPanelsWidth }}>
+              <GitPane
+                project={activeProject}
+                state={activeState}
+                branch={branchActions(activeProject.id)}
+                treeHeight={branchTreeHeight}
+                onTreeHeight={setBranchTreeHeight}
+                onOpenDiff={(path) => setDiffFile({ projectId: activeProject.id, path })}
+                onBusy={setGitBusy}
+              />
+            </div>
+            <Sash
+              orientation="vertical"
+              size={gitPanelsWidth}
+              min={180}
+              minOther={320}
+              onResize={setGitPanelsWidth}
+            />
+          </>
+        )}
+
         <main className="content">
           {/* Every project's terminals stay mounted so switching project keeps their buffers
               and running processes untouched. */}
@@ -222,16 +309,11 @@ export function App() {
               key={project.id}
               project={project}
               visible={project.id === activeProjectId}
-              state={states[project.id] ?? EMPTY_STATE}
-              gitSizes={{
-                panelsWidth: gitPanelsWidth,
-                onPanelsWidth: setGitPanelsWidth,
-                treeHeight: branchTreeHeight,
-                onTreeHeight: setBranchTreeHeight,
-                consoleHeight,
-                onConsoleHeight: setConsoleHeight
-              }}
-              branch={branchActions(project.id)}
+              gitOpen={gitOpen}
+              onToggleGit={() => setGitOpen(!gitOpen)}
+              externalBusy={branchAction?.projectId === project.id || (project.id === activeProjectId && gitBusy)}
+              onOpenDiff={(path) => setDiffFile({ projectId: project.id, path })}
+              newShell={shellRequest?.projectId === project.id ? shellRequest.nonce : 0}
             />
           ))}
           {!activeProject && (
@@ -245,6 +327,18 @@ export function App() {
           )}
         </main>
       </div>
+
+      {/* Over everything, and only ever one: a diff is looked at and then left again. It
+          reloads with the repository state, so an agent editing the file updates it. */}
+      {diffFile && (
+        <DiffDialog
+          projectId={diffFile.projectId}
+          path={diffFile.path}
+          version={states[diffFile.projectId]?.changes}
+          onClose={() => setDiffFile(null)}
+          onBusy={setGitBusy}
+        />
+      )}
 
       <Notices />
       <Dialogs />
@@ -279,7 +373,16 @@ export function App() {
               </span>
             )}
             {sync && (
-              <button className="branch-sync" title={sync.title} disabled={busyLabel !== null} onClick={sync.run}>
+              <button
+                className="branch-sync"
+                title={`${sync.title}\nRight-click for the other network commands`}
+                disabled={busyLabel !== null}
+                onClick={sync.run}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setSyncMenu({ x: event.clientX, y: event.clientY });
+                }}
+              >
                 {sync.icon}
                 <span>{sync.label}</span>
               </button>
@@ -290,6 +393,15 @@ export function App() {
           </>
         )}
       </div>
+
+      {syncMenu && activeProjectId && (
+        <ContextMenu
+          x={syncMenu.x}
+          y={syncMenu.y}
+          entries={syncEntries(activeProjectId)}
+          onClose={() => setSyncMenu(null)}
+        />
+      )}
     </div>
   );
 }

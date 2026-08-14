@@ -9,6 +9,7 @@ import type {
   FileChange,
   FileDiff,
   GitActionResult,
+  GitOperation,
   ImageDiff,
   RemoteInfo,
   RepositoryState,
@@ -117,12 +118,16 @@ async function readHead(cwd: string, header: string): Promise<HeadState> {
  * than costing a `git tag` of their own: it is the same process either way, and the rule in
  * CLAUDE.md is to count invocations.
  */
-async function readRefs(cwd: string): Promise<{ localBranches: string[]; remotes: RemoteInfo[]; tags: string[] }> {
+async function readRefs(
+  cwd: string
+): Promise<{ localBranches: string[]; remotes: RemoteInfo[]; tags: string[]; defaultBranch?: string }> {
   // Full ref names, not %(refname:short): git shortens "refs/remotes/origin/HEAD" to plain
-  // "origin", which cannot be told apart from a branch named after its remote.
+  // "origin", which cannot be told apart from a branch named after its remote. %(symref) is
+  // empty for everything but "<remote>/HEAD", where it names the remote's default branch —
+  // one more field on a process that was going to run anyway.
   const result = await git(cwd, [
     "for-each-ref",
-    "--format=%(refname)",
+    "--format=%(refname)%00%(symref)",
     "refs/heads",
     "refs/remotes",
     "refs/tags"
@@ -131,9 +136,10 @@ async function readRefs(cwd: string): Promise<{ localBranches: string[]; remotes
   const localBranches: string[] = [];
   const tags: string[] = [];
   const remotes = new Map<string, string[]>();
+  let defaultBranch: string | undefined;
 
   for (const line of result.stdout.split("\n")) {
-    const refname = line.trim();
+    const [refname, symref = ""] = line.trim().split("\0");
     if (!refname) {
       continue;
     }
@@ -147,9 +153,14 @@ async function readRefs(cwd: string): Promise<{ localBranches: string[]; remotes
     }
     const remoteRef = refname.slice("refs/remotes/".length);
     // "origin/HEAD" is a symbolic pointer at the remote's default branch, not a branch
-    // of its own — listing it would duplicate an entry that is already there.
+    // of its own — listing it would duplicate an entry that is already there. What it points
+    // at is worth keeping: it is the branch "Update from ..." merges in.
     const separator = remoteRef.indexOf("/");
     if (separator < 0 || remoteRef.endsWith("/HEAD")) {
+      const prefix = `refs/remotes/${remoteRef.slice(0, separator)}/`;
+      if (!defaultBranch && separator > 0 && symref.startsWith(prefix)) {
+        defaultBranch = symref.slice(prefix.length);
+      }
       continue;
     }
     const remote = remoteRef.slice(0, separator);
@@ -165,6 +176,7 @@ async function readRefs(cwd: string): Promise<{ localBranches: string[]; remotes
   return {
     localBranches,
     tags,
+    defaultBranch,
     remotes: [...remotes].map(([name, branches]) => ({ name, branches }))
   };
 }
@@ -243,6 +255,42 @@ function readChanges(entries: string[]): FileChange[] {
   return changes;
 }
 
+/**
+ * Where this working tree's git data lives. Usually `.git`, but a linked worktree has a *file*
+ * there pointing at the directory that holds its own HEAD and its own half-finished merges.
+ */
+async function resolveGitDir(cwd: string): Promise<string> {
+  const dotGit = path.join(cwd, ".git");
+  const stat = await fs.stat(dotGit).catch(() => undefined);
+  if (stat?.isFile()) {
+    const pointer = /^gitdir:\s*(.+)$/m.exec(await fs.readFile(dotGit, "utf8").catch(() => ""));
+    if (pointer) {
+      return path.resolve(cwd, pointer[1].trim());
+    }
+  }
+  return dotGit;
+}
+
+/**
+ * A merge or rebase git stopped in the middle of, which is what the "Abort" entry needs to
+ * know about. Read off the filesystem the way GitHub Desktop reads it, rather than from a
+ * command of its own: a refresh's cost is the git processes it starts, and this is three
+ * stats of a directory that is in the page cache anyway.
+ */
+async function readOperation(cwd: string): Promise<GitOperation | undefined> {
+  const gitDir = await resolveGitDir(cwd);
+  const exists = (name: string): Promise<boolean> =>
+    fs.stat(path.join(gitDir, name)).then(
+      () => true,
+      () => false
+    );
+  // A rebase that stopped at a conflict has both, and it is the rebase that has to be aborted.
+  if ((await exists("rebase-merge")) || (await exists("rebase-apply"))) {
+    return "rebase";
+  }
+  return (await exists("MERGE_HEAD")) ? "merge" : undefined;
+}
+
 export async function readState(cwd: string): Promise<RepositoryState> {
   const empty: RepositoryState = {
     head: "",
@@ -264,8 +312,13 @@ export async function readState(cwd: string): Promise<RepositoryState> {
     // The stash list is the third process a refresh spends. It earns it by being a list the
     // user acts on: one that only updated when something else happened would offer to pop a
     // stash that is no longer there. All three run at once, so it costs no extra wall time.
-    const [status, refs, stashes] = await Promise.all([readStatus(cwd), readRefs(cwd), readStashes(cwd)]);
-    return { ...status, ...refs, stashes };
+    const [status, refs, stashes, operation] = await Promise.all([
+      readStatus(cwd),
+      readRefs(cwd),
+      readStashes(cwd),
+      readOperation(cwd)
+    ]);
+    return { ...status, ...refs, stashes, operation };
   } catch (error) {
     return { ...empty, error: error instanceof Error ? error.message : String(error) };
   }
@@ -331,6 +384,115 @@ export function pull(cwd: string): Promise<GitActionResult> {
  */
 export function push(cwd: string, remote: string, branch: string, setUpstream: boolean): Promise<GitActionResult> {
   return runNetwork(cwd, setUpstream ? ["push", "--set-upstream", remote, branch] : ["push"]);
+}
+
+/**
+ * `--force-with-lease` rather than `--force`, like GitHub Desktop: a push that would overwrite
+ * commits the remote picked up since the last fetch is refused instead of dropping them.
+ */
+export function forcePush(cwd: string, remote: string, branch: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["push", "--force-with-lease", remote, branch]);
+}
+
+/** `git pull --rebase`, whatever the repository's own pull.rebase says. */
+export function pullRebase(cwd: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["pull", "--rebase"]);
+}
+
+/** Each remote's fetch url, keyed by remote name. */
+export async function readRemoteUrls(cwd: string): Promise<Record<string, string>> {
+  const urls: Record<string, string> = {};
+  const result = await git(cwd, ["remote", "--verbose"]);
+  if (result.code !== 0) {
+    return urls;
+  }
+  for (const line of result.stdout.split("\n")) {
+    // "origin\tgit@github.com:owner/repo.git (fetch)", and the same again for (push).
+    const match = /^(\S+)\t(.+) \(fetch\)$/.exec(line.trim());
+    if (match) {
+      urls[match[1]] = match[2];
+    }
+  }
+  return urls;
+}
+
+export function setRemoteUrl(cwd: string, remote: string, url: string): Promise<GitActionResult> {
+  return run(cwd, ["remote", "set-url", remote, url]);
+}
+
+/** Creates the branch and switches to it, which is what GitHub Desktop's dialog does too. */
+export function createBranch(cwd: string, name: string, startPoint?: string): Promise<GitActionResult> {
+  return run(cwd, ["switch", "--create", name, ...(startPoint ? [startPoint] : [])]);
+}
+
+export function renameBranch(cwd: string, from: string, to: string): Promise<GitActionResult> {
+  return run(cwd, ["branch", "--move", from, to]);
+}
+
+/**
+ * `--force`, like GitHub Desktop: a branch whose commits are not merged anywhere would
+ * otherwise be refused with a message about a state the user cannot see here. What that risks
+ * is what the confirmation says out loud.
+ */
+export function deleteBranch(cwd: string, name: string): Promise<GitActionResult> {
+  return run(cwd, ["branch", "--delete", "--force", name]);
+}
+
+export function deleteRemoteBranch(cwd: string, remote: string, name: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["push", remote, "--delete", name]);
+}
+
+export function merge(cwd: string, ref: string): Promise<GitActionResult> {
+  return run(cwd, ["merge", ref]);
+}
+
+export function rebase(cwd: string, ref: string): Promise<GitActionResult> {
+  return run(cwd, ["rebase", ref]);
+}
+
+/** Puts the working tree back the way it was before the merge or rebase started. */
+export function abortOperation(cwd: string, operation: GitOperation): Promise<GitActionResult> {
+  return run(cwd, [operation, "--abort"]);
+}
+
+/** An annotated tag when there is a message for it, a lightweight one when there is not. */
+export function createTag(cwd: string, name: string, target: string, message: string): Promise<GitActionResult> {
+  const args = message ? ["tag", "--annotate", "--message", message] : ["tag"];
+  return run(cwd, [...args, name, target]);
+}
+
+export function pushTag(cwd: string, remote: string, name: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["push", remote, `refs/tags/${name}`]);
+}
+
+export function deleteTag(cwd: string, name: string): Promise<GitActionResult> {
+  return run(cwd, ["tag", "--delete", name]);
+}
+
+export function deleteRemoteTag(cwd: string, remote: string, name: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["push", remote, "--delete", `refs/tags/${name}`]);
+}
+
+/** A tag names a commit, not a branch, so checking one out is a detached HEAD by definition. */
+export function checkoutTag(cwd: string, name: string): Promise<GitActionResult> {
+  return run(cwd, ["switch", "--detach", `refs/tags/${name}`]);
+}
+
+/** `--include-untracked`, so "stash all changes" covers the same files the list shows. */
+export function stashPush(cwd: string, message: string): Promise<GitActionResult> {
+  return run(cwd, ["stash", "push", "--include-untracked", ...(message ? ["--message", message] : [])]);
+}
+
+export function stashApply(cwd: string, ref: string): Promise<GitActionResult> {
+  return run(cwd, ["stash", "apply", ref]);
+}
+
+export function stashPop(cwd: string, ref: string): Promise<GitActionResult> {
+  return run(cwd, ["stash", "pop", ref]);
+}
+
+export function stashDrop(cwd: string, ref: string): Promise<GitActionResult> {
+  return run(cwd, ["stash", "drop", ref]);
 }
 
 export async function checkout(cwd: string, target: CheckoutTarget, localBranches: string[]): Promise<GitActionResult> {

@@ -14,3 +14,11 @@ export function isModifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): b
 export function isModifierKey(event: KeyboardEvent): boolean {
   return isMac() ? event.key === "Meta" : event.key === "Control";
 }
+
+/** What each platform calls its own file manager, the way GitHub Desktop names them. */
+export function revealLabel(): string {
+  if (isMac()) {
+    return "Reveal in Finder";
+  }
+  return isWindows() ? "Show in Explorer" : "Show in your file manager";
+}

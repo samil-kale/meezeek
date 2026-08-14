@@ -3,7 +3,7 @@
 ## What this is
 
 Meeseek is a git workspace for coding agents: Electron + React + xterm.js, several
-repositories open at once, each with its own git tab and its own set of agent and shell
+repositories open at once, each with its own git pane and its own set of agent and shell
 terminals. `meeseek.md` holds the product idea and the deliberate scope limits — read it
 before adding anything to the git side, but read its UI sections as history (see "Where it
 came from").
@@ -59,20 +59,19 @@ by agreement:
 
 - projects live in the left sidebar, not as tabs along the top; the tab strip is one project's
   terminals only
-- the git tab is four panes: branches over changed files on the left, the diff over a console
-  on the right, with a sash between each pair
-- that console is one of its own, and *not* in that strip:
-  one per project, a dropdown picks whether claude, opencode or a shell runs in it, and
-  switching closes the running one rather than keeping a second. `TerminalDescriptor.console`
-  marks it, `TerminalsPane` filters it out of the strip, and `GitView` mounts it. Which agent
-  was picked is remembered on the `Project` in meeseek's own store, not in the repository's
-  `meeseek.json`: it is how one person likes to work in one checkout, and a file rewritten on
-  every dropdown would show up as a local change each time. So is the session it is running
-  (`consoleSessionId`, reported by the session manager once its CLI has persisted one), and
-  that is what puts it back into the console on the next start instead of into the strip — the
-  console is a place, not a session. Deleting the session on the way out was the first answer
-  to that and is wrong: the work in it is the user's, and a display problem is no reason to
-  throw it away
+- git is **not** a tab. Where its tab used to sit, the strip carries a button (`.git-toggle`)
+  that slides a pane of its own out between the navigation and the terminals: branches over
+  changed files, and nothing else. It stays out until it is pressed again (`usePaneToggle`,
+  remembered like a pane size), so a terminal and the repository are on screen together
+- there is one git pane for all projects, not one per project — it holds nothing a project
+  would lose by being switched away from, unlike the terminals, which stay mounted
+- the diff is a **dialog** over the whole window, opened by double-clicking a changed file (or
+  by ctrl-clicking a path in a terminal). `DiffDialog` is deliberately not part of
+  `Dialog.tsx`: that file puts questions and is built around a form with two buttons
+- the git tab used to carry a console of its own, with a dropdown for which agent ran in it.
+  It is gone: git commands go in an ordinary terminal tab, and with it went the `console` flag
+  on a tab, the console's session bookkeeping on the project, and the layer that kept the two
+  in step across restarts
 - git is a permanent, unclosable, leftmost tab of that strip, not a sidebar view — branches,
   changed files and the diff are all inside it
 - the branch bar is the window's bottom strip
@@ -104,41 +103,66 @@ catches that at each of its own entry points and turns it into the same shape th
 already handles — an error in the state, `ok: false`, an empty list of lines. The client
 restarts the process on the next call; nothing in there is worth preserving across one.
 
-`Repository` (`src/main/repository.ts`) is the single source of truth both the git tab and the
+`Repository` (`src/main/repository.ts`) is the single source of truth both the git pane and the
 terminals observe, so a branch an agent switches in a terminal shows up in the UI on its own.
 It watches the working directory, debounces and throttles the burst (see below), and only emits
 when the state actually changed — the watcher fires for plenty of edits that leave it
 identical, and every emit re-renders. Diffs are loaded when a file is selected, never up front.
 
-**The git tab shows the repository and moves between its branches. It does not rewrite it.**
-That line is where the scope runs: branches, remotes, tags and stashes are listed, a branch can
-be checked out, the working tree can be brought in line with a remote — and everything that
-would produce or rearrange commits happens in an agent or a shell.
+**Everything the git pane can do fits in a context menu, an icon button or a question.** That
+line is where the scope runs, and it is a limit on the *views*, not on git: a command that
+needs a list with checkboxes, a message field or a place to resolve a conflict is one the pane
+does not offer, because the work happens in the terminals and that is where such a thing
+belongs. What fits, GitHub Desktop's set of it is what we take.
 
 Working today: the branch tree (local branches, remotes, tags, stashes), checkout, status,
 per-file diff (including a synthesised one for untracked files, images side by side, `-w` and
 opening the gaps between hunks), discarding changes, adding a file to `.gitignore`, and fetch,
-pull and push. Still missing, roughly in order: clone, then GitHub and GitLab behind one
-`GitProvider` interface (authenticate, list repositories, resolve a clone URL) under
-`src/providers/`. Providers stay separate from the local git layer — once a repository is
-cloned, everything goes back through the CLI.
+pull and push. From the branch tree's own menus: creating a branch off any ref, renaming and
+deleting one (the remote copy is that question's checkbox), merging a branch into HEAD,
+rebasing HEAD onto one, "Update from <default>", aborting the merge or rebase git is
+half-way through, creating and pushing tags, checking one out, deleting it, and applying,
+popping or dropping a stash. The changes list takes a ctrl- and shift-click selection, discards
+it in one go and opens a file in whatever the OS opens its type with. Still missing, roughly in
+order: clone, then GitHub and GitLab behind one `GitProvider` interface (authenticate, list
+repositories, resolve a clone URL) under `src/providers/`. Providers stay separate from the
+local git layer — once a repository is cloned, everything goes back through the CLI.
 
-Tags and stashes are read and listed, nothing more. Their rows carry no context menu and do
-not react to a click: creating a tag or popping a stash is a terminal's job, and a row that
-lights up without doing anything would lie about that. Tags cost no git process of their own —
-`readRefs` runs one `for-each-ref`, and `refs/tags` is one more argument to it.
+Every one of those commands goes through `Repository.runAction`, which runs one at a time per
+repository and refreshes after it: two of them race for the same index lock, and a fetch on top
+of a checkout is no better than two checkouts. The renderer holds the matching half in `App`'s
+`branchAction` — one project's tree stops offering them while one runs, and the branch bar says
+what is happening instead of naming HEAD. `BranchActions.run` is the one way into it: a view
+puts its own question first (it is what knows the remote, the current branch, the file count),
+then hands over a label and the call.
 
-The four commands that change anything — checkout, fetch, pull, push — go through
-`Repository.runAction`, which runs one at a time per repository and refreshes after it: two of
-them race for the same index lock, and a fetch on top of a checkout is no better than two
-checkouts. The renderer holds the matching half in `App`'s `branchAction` — one project's tree
-stops offering them while one runs, and the branch bar says what is happening instead of
-naming HEAD.
+Two things the tree needs are read without a git process of their own. `readRefs` asks
+`for-each-ref` for `%(symref)` alongside the name, which is empty for everything but
+`<remote>/HEAD` — that is `defaultBranch`, and "Update from ..." merges the *remote-tracking*
+copy of it, since an auto-fetch keeps that one current while a local `main` may be far behind
+without anything saying so. And `state.operation` — the merge or rebase git stopped in the
+middle of, which is what the "Abort" entry needs — is three `stat` calls in the git directory,
+the way GitHub Desktop reads it. Tags cost nothing extra either: `refs/tags` is one more
+argument to the same `for-each-ref`.
+
+A remote's url is read once, when the project opens, and again after this app changes one
+(`Repository.loadRemoteUrls`), then merged into every state it emits. It is what the project
+row's "View on GitHub" and "Change remote URL..." need, and a url changes about never — the
+refresh path spends its processes on what does.
+
+The project row in the sidebar carries the repository-wide entries: open it in a terminal, show
+it in the file manager, copy its path, view it on whatever host its remote names, change that
+url, and close it. Nothing there touches the working tree — those actions live in the git pane,
+where what they act on is on screen. "Open in terminal" is a *shell tab in this window*, not the
+OS terminal GitHub Desktop opens: the terminals are what meeseek is for. It travels as a counter
+(`TerminalsPane`'s `newShell`) rather than a callback, because the request comes from outside
+the pane that has to answer it and each new value is one more tab.
 
 ### Talking to a remote
 
-Fetch, pull and push run with `NETWORK_ENV`, and every part of it is there to stop git asking a
-question: `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (unset, git falls back to the very
+Every command that reaches a remote — fetch, pull, push, the force push, deleting a branch or
+a tag on the remote, pushing a tag — runs with `NETWORK_ENV`, and every part of it is there to
+stop git asking a question: `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (unset, git falls back to the very
 terminal the first variable is trying to avoid), and `ssh -oBatchMode=yes`. There is no console
 to answer in, and a command waiting for an answer that cannot come would hold the repository's
 one action slot open indefinitely. Credentials come from the user's own credential helper or
@@ -157,7 +181,10 @@ fetch the user pressed the button for reports like anything else.
 
 The branch bar carries one button for all of this, and which one it is follows GitHub Desktop:
 publish a branch the remote has never seen, then pull what came in, then push what went out,
-and fetch when the two agree.
+and fetch when the two agree. Right-clicking it opens the ones it did not pick — fetch, pull,
+pull with rebase, push, and the force push. That last one is `--force-with-lease`, so a push
+that would drop commits the remote picked up since the last fetch is refused rather than
+carried out, and it is the one entry there that asks before it runs.
 
 The diff view reads its own file for the lines it shows on demand. A hunk header whose gap to
 the hunk above is not empty carries an unfold button, and opening it asks `repo:file-lines`
@@ -180,21 +207,28 @@ worktree in one command; a rename is two paths and only the old one is in HEAD.
 The stash list costs the third git process a refresh spends (`readStashes`). It earns it by
 being read next to the branches it belongs with — but note that a `stash@{n}` is a position,
 not an identity: dropping one in a terminal renumbers the rest, so nothing may hold on to a
-ref across a refresh.
+ref across a refresh. What the stash rows do act on is what the last refresh reported, and
+every one of the three commands refreshes after itself, which is as close as this gets.
 
-### What the git tab deliberately does not do
+Deleting a branch is `git branch -D`, GitHub Desktop's choice too: `-d` would refuse a feature
+branch whose work is not merged into HEAD, with a message about a state this pane does not
+show. What that risks is what the question says out loud instead.
 
-All of this was built at some point and taken back out again, so do not put it back without
-being asked: creating, renaming, deleting, merging and rebasing branches; applying, popping
-and dropping stashes; creating and pushing tags; a commit UI with staging per file or per
-line; history, graph, cherry-pick, bisect, submodules; and any kind of conflict resolution.
+### What the git view deliberately does not do
 
-The reason is the one at the top of this section rather than any single feature being hard:
-the work happens in the terminals, and a git command that rewrites the repository is exactly
-the kind of thing an agent should be asked to do — in a place where the answer, the conflict
-and the fix are all visible. A second, half-complete way to do it in a side panel makes the
-tool bigger without making it better.
+The rule is the one at the top of this section — it has to fit in a menu, a button or a
+question. These do not, and were all built at some point and taken back out again, so do not
+put them back without being asked: a commit UI with staging per file or per line; history,
+graph, cherry-pick, revert, squash and reorder; bisect and submodules; conflict resolution
+beyond aborting; a side-by-side diff; discarding single lines.
 
+The reason is not that any one of them is hard: the work happens in the terminals, and a git
+command that needs a list, a message or a decision per line is exactly the kind of thing an
+agent should be asked to do — in a place where the answer, the conflict and the fix are all
+visible. A second, half-complete way to do it in a side panel makes the tool bigger without
+making it better.
+
+Nor does the pane offer a login of its own, PRs or CI status; those wait on the providers.
 What *is* still open: clone, and the provider work above.
 
 ### git used to share a process with everyone's keystrokes
@@ -270,7 +304,7 @@ The sidebar's lower half is a project's saved shell commands — a build, a depl
 whatever is typed often enough to be worth a button. They live in a `meeseek.json` in the
 repository's own root (`src/main/actions.ts`), not in meeseek's `userData`: they describe the
 project, so they travel with it and can be committed like anything else. That also means the
-file shows up as an untracked change in the git tab until someone commits or ignores it.
+file shows up as an untracked change in the git pane until someone commits or ignores it.
 
 An action is a command and, where it does not belong in the repository root, the folder it
 runs in. In the file it is a plain string while the root is enough and an object once it is
@@ -375,13 +409,12 @@ every time is one not worth putting.
 
 There is exactly one, the indeterminate bar under the tab strip (`.tab-progress` in
 `TerminalsPane`), and everything slow in a project shares it: an agent still starting, a branch
-being checked out, the git tab reading or coloring a diff. Never add a second one anywhere —
+being checked out, an open diff being read or coloured. Never add a second one anywhere —
 the branch bar carried its own copy for checkouts and it is gone. A new slow operation is a new
 condition in that one render, not a bar of its own.
 
-Only the diff is gated on the git tab being on screen; one it loaded on the way out is nothing
-the user is still waiting for. Everything else shows regardless of which tab is active, because
-it keeps running either way.
+The git pane and the diff dialog report through `App`, which hands the active project's bar
+what they say — they sit outside the pane that draws it.
 
 A button that turns while its *own* action runs is not a second one of these — it is a state of
 that button, in the place the user pressed, the way VS Code spins its own refresh actions. The
@@ -482,7 +515,7 @@ for the others.
 - `provideLinks` runs on **every render** while the pointer is over the terminal, and an agent
   TUI repaints constantly. Nothing expensive, and no logging, in that path.
 - Measurements are shared, not invented per view. A bar along an edge is 35px, the tab strip's
-  height — the title bar, both sidebar headers (`.sidebar-header`) and the git console's bar
+  height — the title bar, both sidebar headers (`.sidebar-header`) and the diff dialog's bar
   all use it, and the next one uses it too. Same for the 22px action button, the 1px `--vscode-panel-border`
   between panes, and a pane sized in percent stating its floor in percent as well. When
   something looks like it needs a size of its own, check what the neighbouring view uses first.

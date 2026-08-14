@@ -1,5 +1,9 @@
 import { useState, type DragEvent } from "react";
-import type { Project } from "../../shared/types";
+import type { Project, RemoteInfo } from "../../shared/types";
+import { revealLabel } from "../platform";
+import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
+import { prompt } from "./Dialog";
+import { notify } from "./Notices";
 import { CloseIcon, PlusIcon } from "./icons";
 
 /**
@@ -16,12 +20,56 @@ interface ProjectListProps {
   /** The full list in the order the user dropped it into. */
   onReorder: (projects: Project[]) => void;
   onAdd: () => void;
+  /** The project's first remote, for the entries that open or change its url. */
+  remoteOf: (projectId: string) => RemoteInfo | undefined;
+  /** Opens a shell tab in that project, which is what "open in terminal" means here. */
+  onOpenTerminal: (projectId: string) => void;
 }
 
-export function ProjectList({ projects, activeProjectId, onSelect, onClose, onReorder, onAdd }: ProjectListProps) {
+/**
+ * The page a remote's git url points at, or null when it is not one a browser can open.
+ * Both spellings git uses: "git@host:owner/repo.git" and a real url with a scheme.
+ */
+function webUrl(remoteUrl: string): string | null {
+  const scp = /^(?:[\w.-]+@)?([\w.-]+):(?!\/)(.+?)(?:\.git)?\/?$/.exec(remoteUrl);
+  if (scp) {
+    return `https://${scp[1]}/${scp[2]}`;
+  }
+  try {
+    const url = new URL(remoteUrl);
+    if (url.protocol === "ssh:") {
+      return `https://${url.hostname}${url.pathname.replace(/\.git\/?$/, "")}`;
+    }
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      return `https://${url.host}${url.pathname.replace(/\.git\/?$/, "")}`;
+    }
+  } catch {
+    // Not a url at all — a local path, say. There is nothing to open.
+  }
+  return null;
+}
+
+/** "View on GitHub" where that is where it is, and the host's own name everywhere else. */
+function hostName(url: string): string {
+  const { hostname } = new URL(url);
+  const known = ["GitHub", "GitLab", "Bitbucket"].find((name) => hostname.includes(name.toLowerCase()));
+  return known ?? hostname;
+}
+
+export function ProjectList({
+  projects,
+  activeProjectId,
+  onSelect,
+  onClose,
+  onReorder,
+  onAdd,
+  remoteOf,
+  onOpenTerminal
+}: ProjectListProps) {
   const [dragged, setDragged] = useState<string | null>(null);
   /** Where the dragged project would land: the index it would take among the others. */
   const [dropAt, setDropAt] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; project: Project } | null>(null);
 
   /**
    * The index the dragged project would take, from the pointer's position over one row: past
@@ -121,6 +169,47 @@ export function ProjectList({ projects, activeProjectId, onSelect, onClose, onRe
     return classes.join(" ");
   };
 
+  const askRemoteUrl = async (project: Project, remote: RemoteInfo): Promise<void> => {
+    const answer = await prompt({
+      title: "Change remote URL",
+      label: `URL of ${remote.name}`,
+      value: remote.url ?? "",
+      confirmLabel: "Change URL"
+    });
+    if (!answer || answer.value === remote.url) {
+      return;
+    }
+    const result = await window.meeseek.repository.setRemoteUrl(project.id, remote.name, answer.value);
+    if (!result.ok) {
+      notify("error", result.error ?? "Could not change the remote URL");
+    }
+  };
+
+  /**
+   * What a repository can be asked for from its own row. Nothing here touches the working
+   * tree — those actions live in the git pane, where what they act on is on screen.
+   */
+  const menuEntries = (project: Project): ContextMenuEntry[] => {
+    const remote = remoteOf(project.id);
+    const web = remote?.url ? webUrl(remote.url) : null;
+    return [
+      { label: "Open in terminal", run: () => onOpenTerminal(project.id) },
+      { label: revealLabel(), run: () => void window.meeseek.shell.openProject(project.id) },
+      { label: "Copy repository path", run: () => void navigator.clipboard.writeText(project.path) },
+      SEPARATOR,
+      {
+        label: web ? `View on ${hostName(web)}` : "View in browser",
+        run: web ? () => void window.meeseek.shell.openUrl(web) : undefined
+      },
+      {
+        label: "Change remote URL...",
+        run: remote ? () => void askRemoteUrl(project, remote) : undefined
+      },
+      SEPARATOR,
+      { label: "Close repository", run: () => onClose(project.id) }
+    ];
+  };
+
   return (
     <div className="project-list">
       <div className="sidebar-header">
@@ -141,6 +230,11 @@ export function ProjectList({ projects, activeProjectId, onSelect, onClose, onRe
             onDragOver={(event) => over(event, index)}
             onDrop={(event) => drop(event, index)}
             onDragEnd={end}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onSelect(project.id);
+              setMenu({ x: event.clientX, y: event.clientY, project });
+            }}
           >
             <span className="project-item-label">{project.name}</span>
             <button
@@ -156,6 +250,10 @@ export function ProjectList({ projects, activeProjectId, onSelect, onClose, onRe
           </div>
         ))}
       </div>
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} entries={menuEntries(menu.project)} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 }

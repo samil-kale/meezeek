@@ -67,8 +67,6 @@ export interface SessionManagerCallbacks {
   onStatus: (projectId: string, tabId: string, status: TerminalStatus) => void;
   /** Whether anything in this project is still starting up — drives the tab strip's bar. */
   onStartupProgress: (projectId: string, show: boolean) => void;
-  /** The session the git console is running, or undefined once it is running none. */
-  onConsoleSession: (projectId: string, sessionId: string | undefined) => void;
   /** Surfaces a failure the user should see (a session that could not be renamed or deleted). */
   onNotice: (severity: NoticeSeverity, message: string) => void;
 }
@@ -80,7 +78,7 @@ function titleUnsettled(tab: TabState): boolean {
 }
 
 function toDescriptor(tab: TabState): TerminalDescriptor {
-  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, console: isConsole } = tab;
+  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId } = tab;
   return {
     tabId,
     projectId,
@@ -89,8 +87,7 @@ function toDescriptor(tab: TabState): TerminalDescriptor {
     updatedAt,
     createdAt,
     status,
-    hasSession: sessionId !== undefined,
-    console: isConsole
+    hasSession: sessionId !== undefined
   };
 }
 
@@ -237,10 +234,7 @@ export class ProjectSessionManager {
         updatedAt: info.updatedAt,
         createdAt: info.createdAt,
         provisionalTitle: info.provisionalTitle,
-        status: "ready",
-        // The session the git console was running last time goes back into it rather than
-        // appearing in the strip — the console is a place, not a session of its own.
-        console: info.id === this.project.consoleSessionId || undefined
+        status: "ready"
       });
     }
     if (infos.length > 0) {
@@ -331,13 +325,7 @@ export class ProjectSessionManager {
     }
   }
 
-  /** `asConsole` marks it as the git tab's one console — see TerminalDescriptor.console. */
-  createTab(agentId: AgentId, asConsole = false): TerminalDescriptor {
-    if (asConsole) {
-      // Whatever the console was running before is not the console any more; the new one has
-      // no session yet, and reconcile reports it once its CLI writes one.
-      this.callbacks.onConsoleSession(this.project.id, undefined);
-    }
+  createTab(agentId: AgentId): TerminalDescriptor {
     const runtime = this.runtimeFor(agentId);
     this.newTabCounter += 1;
     const tab: TabState = {
@@ -345,8 +333,7 @@ export class ProjectSessionManager {
       projectId: this.project.id,
       agentId,
       title: "",
-      status: this.canStart(runtime) ? "ready" : "missing",
-      console: asConsole || undefined
+      status: this.canStart(runtime) ? "ready" : "missing"
     };
     this.tabs.push(tab);
     this.postTabs();
@@ -537,11 +524,8 @@ export class ProjectSessionManager {
       await agent.sessions.remove(executable, this.project.path, sessionId);
     } catch (error) {
       this.callbacks.onNotice("error", `Could not delete ${agent.displayName} session: ${String(error)}`);
-      // The persisted session still exists — put its tab back, but as an ordinary one. Its
-      // place in the git console has been taken by whatever replaced it, and a second tab
-      // marked as the console would be one nothing shows and nothing can close.
+      // The persisted session still exists — put its tab back.
       tab.status = "ready";
-      tab.console = undefined;
       this.tabs.splice(Math.min(index, this.tabs.length), 0, tab);
       this.postTabs();
     } finally {
@@ -653,11 +637,6 @@ export class ProjectSessionManager {
       }
       unclaimed.splice(unclaimed.indexOf(match), 1);
       tab.sessionId = match.id;
-      // The console's session is only knowable once its CLI has persisted one; this is that
-      // moment, and the project remembers it from here on.
-      if (tab.console) {
-        this.callbacks.onConsoleSession(this.project.id, match.id);
-      }
       tab.title = match.title;
       tab.updatedAt = match.updatedAt;
       tab.createdAt = match.createdAt;

@@ -8,7 +8,8 @@ import type {
   GitActionResult,
   NoticeSeverity,
   Project,
-  RepositoryState
+  RepositoryState,
+  StashCommand
 } from "../shared/types";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
@@ -73,6 +74,12 @@ export class Repository {
   private lastRefreshAt = 0;
   private actionRunning = false;
   private autoFetchTimer: ReturnType<typeof setInterval> | undefined;
+  /**
+   * Each remote's url, read when the project opens and again after it is changed here. Not
+   * part of a refresh: a url changes about never, and a refresh's cost is the git processes
+   * it starts.
+   */
+  private remoteUrls: Record<string, string> = {};
   /** Checked once when the project opens; without it there is nothing to read or watch. */
   private isGit = false;
   /** The project was closed; anything still in flight stops short of reporting. */
@@ -108,9 +115,14 @@ export class Repository {
       this.onState(next);
       return;
     }
+    await this.loadRemoteUrls();
     await this.refresh();
     this.startWatching();
     this.autoFetchTimer = setInterval(() => void this.autoFetch(), AUTO_FETCH_INTERVAL_MS);
+  }
+
+  private async loadRemoteUrls(): Promise<void> {
+    this.remoteUrls = await git.readRemoteUrls(this.project.path).catch(() => ({}));
   }
 
   /**
@@ -145,10 +157,15 @@ export class Repository {
     try {
       // readState answers with an error rather than throwing; what can still reject is the
       // git process having gone away underneath it, and that is worth saying out loud.
-      const next = await git.readState(this.project.path).catch((error: Error) => ({
+      const read = await git.readState(this.project.path).catch((error: Error) => ({
         ...LOADING_STATE,
         error: error.message
       }));
+      // The urls are this side's; the refresh does not spend a process on them.
+      const next: RepositoryState = {
+        ...read,
+        remotes: read.remotes.map((remote) => ({ ...remote, url: this.remoteUrls[remote.name] }))
+      };
       this.reportError(next);
       // Only emit on an actual change: the watcher fires for plenty of edits that leave
       // the repository state identical, and every emit re-renders the views. And not at all
@@ -231,6 +248,123 @@ export class Repository {
       }
       return git.push(this.project.path, remote, this.state.head, this.state.upstream === undefined);
     });
+  }
+
+  /**
+   * The remote every command that names one uses: the first, which is "origin" in all but a
+   * handful of repositories and is what GitHub Desktop picks too.
+   */
+  private get remote(): string | undefined {
+    return this.state.remotes[0]?.name;
+  }
+
+  /** Rewrites what the remote has. Only offered after a rebase left the branch diverged. */
+  forcePush(): Promise<GitActionResult> {
+    return this.runAction(() => {
+      if (!this.remote || this.state.detached) {
+        return Promise.resolve({ ok: false, error: "There is no branch to push here" });
+      }
+      return git.forcePush(this.project.path, this.remote, this.state.head);
+    });
+  }
+
+  pullRebase(): Promise<GitActionResult> {
+    return this.runAction(() => git.pullRebase(this.project.path));
+  }
+
+  /** Points the remote somewhere else and re-reads the urls, since only this changes them. */
+  setRemoteUrl(remote: string, url: string): Promise<GitActionResult> {
+    return this.runAction(async () => {
+      const result = await git.setRemoteUrl(this.project.path, remote, url);
+      await this.loadRemoteUrls();
+      return result;
+    });
+  }
+
+  createBranch(name: string, startPoint: string): Promise<GitActionResult> {
+    return this.runAction(() => git.createBranch(this.project.path, name, startPoint));
+  }
+
+  renameBranch(from: string, to: string): Promise<GitActionResult> {
+    return this.runAction(() => git.renameBranch(this.project.path, from, to));
+  }
+
+  /**
+   * Deletes the branch locally and, when asked, on the remote as well. The local one goes
+   * first: it is the one that cannot fail for reasons outside the machine, and a remote that
+   * refuses the deletion leaves a state the user can still see and act on.
+   */
+  deleteBranch(name: string, onRemote: boolean): Promise<GitActionResult> {
+    return this.runAction(async () => {
+      const local = await git.deleteBranch(this.project.path, name);
+      if (!local.ok || !onRemote) {
+        return local;
+      }
+      return this.remote
+        ? git.deleteRemoteBranch(this.project.path, this.remote, name)
+        : { ok: false, error: "This repository has no remote to delete the branch from" };
+    });
+  }
+
+  merge(ref: string): Promise<GitActionResult> {
+    return this.runAction(() => git.merge(this.project.path, ref));
+  }
+
+  rebase(ref: string): Promise<GitActionResult> {
+    return this.runAction(() => git.rebase(this.project.path, ref));
+  }
+
+  /** Takes back the merge or rebase git is half-way through, whichever one that is. */
+  abort(): Promise<GitActionResult> {
+    return this.runAction(() => {
+      const operation = this.state.operation;
+      return operation
+        ? git.abortOperation(this.project.path, operation)
+        : Promise.resolve({ ok: false, error: "Nothing is in progress here" });
+    });
+  }
+
+  createTag(name: string, target: string, message: string): Promise<GitActionResult> {
+    return this.runAction(() => git.createTag(this.project.path, name, target, message));
+  }
+
+  pushTag(name: string): Promise<GitActionResult> {
+    return this.runAction(() =>
+      this.remote
+        ? git.pushTag(this.project.path, this.remote, name)
+        : Promise.resolve({ ok: false, error: "This repository has no remote to push the tag to" })
+    );
+  }
+
+  deleteTag(name: string, onRemote: boolean): Promise<GitActionResult> {
+    return this.runAction(async () => {
+      const local = await git.deleteTag(this.project.path, name);
+      if (!local.ok || !onRemote) {
+        return local;
+      }
+      return this.remote
+        ? git.deleteRemoteTag(this.project.path, this.remote, name)
+        : { ok: false, error: "This repository has no remote to delete the tag from" };
+    });
+  }
+
+  checkoutTag(name: string): Promise<GitActionResult> {
+    return this.runAction(() => git.checkoutTag(this.project.path, name));
+  }
+
+  /** Puts the working tree away, untracked files and all, and leaves it clean. */
+  stashPush(message: string): Promise<GitActionResult> {
+    return this.runAction(() => git.stashPush(this.project.path, message));
+  }
+
+  /**
+   * One of the three commands that take a stash. The ref is a *position* — dropping one
+   * renumbers the rest — so it is only ever the one the last refresh reported, and the
+   * refresh this runs afterwards is what the next click reads from.
+   */
+  stash(command: StashCommand, ref: string): Promise<GitActionResult> {
+    const commands = { apply: git.stashApply, pop: git.stashPop, drop: git.stashDrop };
+    return this.runAction(() => commands[command](this.project.path, ref));
   }
 
   /**
