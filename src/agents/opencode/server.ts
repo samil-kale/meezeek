@@ -240,13 +240,23 @@ function eventType(payload: string): string | undefined {
   }
 }
 
-/** Resolves once `opencode serve`'s stdout reports the URL it's listening on. */
+/** The tail of what the server said, for a failure that otherwise names no cause at all. */
+function said(output: string): string {
+  const text = output.trim().split("\n").slice(-3).join(" / ").slice(0, 300);
+  return text ? ` — it said: ${text}` : " and said nothing";
+}
+
+/**
+ * Resolves once `opencode serve` reports the URL it's listening on. **Both** streams are read:
+ * the url only ever comes on stdout, but a server that dies instead says why on stderr, and
+ * without that the failure reaches the user as "it did not start" and nothing else.
+ */
 function waitForServerUrl(server: ChildProcess): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = "";
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error("opencode serve timed out waiting for its listening URL"));
+      reject(new Error(`opencode serve timed out waiting for its listening URL${said(buffer)}`));
     }, SERVER_START_TIMEOUT_MS);
     const onData = (data: Buffer) => {
       buffer += data.toString();
@@ -260,17 +270,20 @@ function waitForServerUrl(server: ChildProcess): Promise<string> {
       cleanup();
       reject(error);
     };
-    const onExit = () => {
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       cleanup();
-      reject(new Error("opencode serve exited before reporting a listening URL"));
+      const how = code === null ? `on ${signal}` : `with code ${code}`;
+      reject(new Error(`opencode serve exited ${how} before reporting a listening URL${said(buffer)}`));
     };
     const cleanup = () => {
       clearTimeout(timer);
       server.stdout?.off("data", onData);
+      server.stderr?.off("data", onData);
       server.off("error", onError);
       server.off("exit", onExit);
     };
     server.stdout?.on("data", onData);
+    server.stderr?.on("data", onData);
     server.on("error", onError);
     server.on("exit", onExit);
   });
