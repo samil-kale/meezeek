@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
@@ -392,6 +393,20 @@ export function forcePush(cwd: string, remote: string, branch: string): Promise<
 /** `git pull --rebase`, whatever the repository's own pull.rebase says. */
 export function pullRebase(cwd: string): Promise<GitActionResult> {
   return runNetwork(cwd, ["pull", "--rebase"]);
+}
+
+/**
+ * Clones into `directory`, which git creates itself — leading folders included — and refuses
+ * when it exists and is not empty, with a message that says so. The cwd only anchors a
+ * relative path; the home directory is one that always exists.
+ */
+export function clone(url: string, directory: string): Promise<GitActionResult> {
+  return runNetwork(os.homedir(), ["clone", "--", url, directory]);
+}
+
+/** `git init`, which creates the folder — leading folders included — like clone does. */
+export function init(directory: string): Promise<GitActionResult> {
+  return run(os.homedir(), ["init", "--", directory]);
 }
 
 /** Each remote's fetch url, keyed by remote name. */

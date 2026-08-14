@@ -1,4 +1,5 @@
 import type {
+  AddRepositoryResult,
   AgentId,
   AgentInfo,
   CheckoutTarget,
@@ -21,8 +22,14 @@ export type Unsubscribe = () => void;
 export interface MeeseekApi {
   projects: {
     list(): Promise<Project[]>;
-    /** Opens a folder picker; resolves null when the dialog was cancelled. */
-    add(): Promise<Project | null>;
+    /** Opens a native folder picker; resolves null when it was cancelled. */
+    pickDirectory(title: string): Promise<string | null>;
+    /** Opens the folder — or the repository it is a subdirectory of — as a project. */
+    open(directory: string): Promise<Project>;
+    /** `git clone` into a new folder `name` inside `directory`, which becomes a project. */
+    clone(url: string, directory: string, name: string): Promise<AddRepositoryResult>;
+    /** `git init` of a new folder `name` inside `directory`, which becomes a project. */
+    create(directory: string, name: string): Promise<AddRepositoryResult>;
     remove(projectId: string): Promise<void>;
     /** Persists the order the user dragged them into, as the full list of ids. */
     reorder(projectIds: string[]): Promise<void>;

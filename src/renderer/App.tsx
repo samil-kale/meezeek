@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type { GitActionResult, Project, RepositoryState } from "../shared/types";
+import { AddRepositoryDialog } from "./components/AddRepositoryDialog";
 import { BranchBar } from "./components/BranchBar";
 import { CommandList } from "./components/CommandList";
 import type { BranchActions } from "./components/BranchTree";
@@ -42,6 +43,8 @@ export function App() {
   const [gitBusy, setGitBusy] = useState(false);
   /** The file whose diff is open over everything, if any. */
   const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
+  /** Whether the add-repository dialog (clone, add, create) is up. */
+  const [addOpen, setAddOpen] = useState(false);
   /**
    * A tab that was just opened from outside its own pane — a shell asked for from a project's
    * row, or the terminal a saved command runs in. The pane brings it to the front once it
@@ -70,11 +73,8 @@ export function App() {
 
   useEffect(() => window.meeseek.onNotice(({ severity, message }) => notify(severity, message)), []);
 
-  const addProject = useCallback(async () => {
-    const project = await window.meeseek.projects.add();
-    if (!project) {
-      return;
-    }
+  /** What the add-repository dialog ends in, whichever of its tabs produced the project. */
+  const projectAdded = useCallback((project: Project) => {
     setProjects((current) => (current.some((entry) => entry.id === project.id) ? current : [...current, project]));
     setActiveProjectId(project.id);
   }, []);
@@ -177,7 +177,7 @@ export function App() {
             onSelect={setActiveProjectId}
             onClose={(projectId) => void closeProject(projectId)}
             onReorder={reorderProjects}
-            onAdd={() => void addProject()}
+            onAdd={() => setAddOpen(true)}
             remoteOf={(projectId) => states[projectId]?.remotes[0]}
             onOpenTerminal={openTerminal}
           />
@@ -237,7 +237,7 @@ export function App() {
           {!activeProject && (
             <div className="empty-workspace">
               <p>No repository open.</p>
-              <button className="button" onClick={() => void addProject()}>
+              <button className="button" onClick={() => setAddOpen(true)}>
                 <PlusIcon />
                 <span>Add repository</span>
               </button>
@@ -257,6 +257,8 @@ export function App() {
           onBusy={setGitBusy}
         />
       )}
+
+      {addOpen && <AddRepositoryDialog onAdded={projectAdded} onClose={() => setAddOpen(false)} />}
 
       <Notices />
       <Dialogs />

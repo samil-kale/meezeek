@@ -22,6 +22,12 @@ export interface Project {
   name: string;
 }
 
+/** How clone and create answer: the project once its folder is open, or git's own message. */
+export interface AddRepositoryResult {
+  project?: Project;
+  error?: string;
+}
+
 /**
  * One saved shell command of a project. `cwd` is where it runs, relative to the project root —
  * a monorepo's frontend scripts belong to the folder that declares them, and writing

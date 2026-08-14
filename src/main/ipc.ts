@@ -5,6 +5,7 @@ import { clipboard, dialog, ipcMain, shell } from "electron";
 import { AGENTS, findAskableAgent, listAgents } from "../agents";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
+  AddRepositoryResult,
   AgentId,
   CheckoutTarget,
   DiffOptions,
@@ -51,20 +52,47 @@ function writeTempFile(name: string, data: Buffer): string {
 export function registerIpc({ store, repositories, sessions, send, openProject }: IpcDeps): void {
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
-  ipcMain.handle("projects:add", async (): Promise<Project | null> => {
-    const result = await dialog.showOpenDialog({
-      title: "Add repository",
-      properties: ["openDirectory"]
-    });
-    const directory = result.filePaths[0];
-    if (result.canceled || !directory) {
-      return null;
-    }
+  ipcMain.handle("projects:pick-directory", async (_event, title: string): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({ title, properties: ["openDirectory"] });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle("projects:open-path", async (_event, directory: string): Promise<Project> => {
     // Picking a subdirectory of a repository opens the repository itself: git reports every
     // path relative to the root, and the root is what branches and status describe.
     const project = store.add((await git.resolveRoot(directory).catch(() => undefined)) ?? directory);
     openProject(project);
     return project;
+  });
+
+  /** Clone and create both end the same way: the new folder becomes a project like any picked one. */
+  const addRepository = async (
+    action: Promise<GitActionResult>,
+    directory: string,
+    label: string
+  ): Promise<AddRepositoryResult> => {
+    try {
+      const result = await action;
+      if (!result.ok) {
+        return { error: result.error || `${label} failed` };
+      }
+    } catch (error) {
+      // The git process died mid-command; its message is all that is left to report.
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+    const project = store.add(directory);
+    openProject(project);
+    return { project };
+  };
+
+  ipcMain.handle("projects:clone", (_event, url: string, directory: string, name: string) => {
+    const target = path.join(directory, name);
+    return addRepository(git.clone(url, target), target, "Clone");
+  });
+
+  ipcMain.handle("projects:create", (_event, directory: string, name: string) => {
+    const target = path.join(directory, name);
+    return addRepository(git.init(target), target, "Create");
   });
 
   ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));

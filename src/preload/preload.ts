@@ -10,7 +10,10 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscr
 const api: MeeseekApi = {
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
-    add: () => ipcRenderer.invoke("projects:add"),
+    pickDirectory: (title) => ipcRenderer.invoke("projects:pick-directory", title),
+    open: (directory) => ipcRenderer.invoke("projects:open-path", directory),
+    clone: (url, directory, name) => ipcRenderer.invoke("projects:clone", url, directory, name),
+    create: (directory, name) => ipcRenderer.invoke("projects:create", directory, name),
     remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId),
     reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds)
   },

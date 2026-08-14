@@ -1287,6 +1287,65 @@ input:focus {
   gap: 8px;
 }
 
+/* Submit labels vary ("Clone", "Add", "Create Branch") and one may gain a spinner while it
+   runs; a shared floor keeps a pair of buttons from shifting between dialogs and states. */
+.dialog-buttons .button {
+  min-width: 76px;
+  justify-content: center;
+}
+
+/* Add repository ------------------------------------------------------------------------- */
+
+.add-repository {
+  width: 480px;
+  /* Sized to the clone tab, the fullest one, and fixed: switching tabs must not resize the
+     dialog under the pointer. The body stretches, so the buttons stay pinned to the bottom. */
+  height: 300px;
+}
+
+.add-repository .dialog-body {
+  flex: 1;
+}
+
+/* The three ways in, shaped like the terminal tabs so choosing one reads like choosing a tab
+   anywhere else. Pulled to the dialog's edges: a tab strip runs the full width of what it
+   heads, and the dialog's own padding stays for the fields below. */
+.add-repository-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 35px;
+  margin: -16px -16px 0;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+  background: var(--vscode-tab-inactiveBackground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.add-repository-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 12px;
+  color: var(--vscode-tab-inactiveForeground);
+}
+
+.add-repository-tab.active {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-tab-activeBackground);
+  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
+}
+
+/* A path field's input with its Browse button beside it. */
+.dialog-field-row {
+  display: flex;
+  gap: 6px;
+}
+
+.dialog-field-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Notices -------------------------------------------------------------------------------- */
 
 /* Stacked above the branch bar. Sized to its content rather than the window: a one-line
