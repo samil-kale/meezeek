@@ -167,7 +167,9 @@ function createView(projectId: string, tabId: string): TerminalView {
     scrollback: 4000,
     // The scrollbar is hidden in CSS, but FitAddon's column math still reserves pixel width
     // for it through `options.overviewRuler?.width || 14` — leaving a dead gap on the right.
-    // `0` won't work (`0 || 14` is 14), so 1px is the smallest reservation possible.
+    // `0` won't work (`0 || 14` is 14), so 1px is the smallest reservation possible. Asking
+    // for a ruler also makes xterm *draw* one, and it outlines it in `overviewRulerBorder`
+    // whether or not anything is marked in it — which `theme.ts` therefore makes invisible.
     overviewRuler: { width: 1 },
     // Governs OSC 8 hyperlinks the CLI itself may emit (as opposed to plain URL text, which
     // the url link provider below matches by regex). Without this, xterm's built-in OSC 8

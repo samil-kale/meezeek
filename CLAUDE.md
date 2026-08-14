@@ -569,19 +569,34 @@ for the others.
   gutter on three sides and none on the fourth. Anything new in that subtree gets a name of its
   own for the same reason; xterm's own classes are `xterm`, `xterm-viewport`, `xterm-screen`
   and `terminal`.
-- A file dragged over a terminal frames the **pane** (`.terminal.drag-over`), so it is clear
+- A file dragged over a terminal frames the **pane** (`.terminal-host.drag-over`), so it is clear
   which of the mounted terminals would take the drop. sbc-vsc-agents had the same thing, dashed
   and around the whole webview, because VS Code only let a drag through while Shift was held;
-  here it is per pane and solid. It is a `::after` overlay whose inset negates `.terminal`'s,
+  here it is per pane and solid. It is a `::after` overlay whose inset negates `.terminal-host`'s,
   not a border: a border would shrink the box xterm measures, so every drag across a terminal
   would refit it and resize the pty. Only a drag carrying files raises it, which is also the
   only kind the drop handler acts on. A file dropped anywhere *else* is swallowed in
   `main.tsx`: unhandled, Electron navigates the window to it and the app is gone. Files only —
   text dragged into a field is a drop that field still has to receive.
-- The terminal's background lives on `.terminal`, and `.xterm-viewport` is forced transparent
-  over it: xterm.css hardcodes that viewport to black, which showed through as a black gutter
-  and as a black strip under the last row while a pane was dragged taller. Ported from
-  sbc-vsc-agents, which carries the same override for the same reason.
+- The terminal's background lives on `.terminal-host`, and `.xterm-viewport` is forced
+  transparent over it: xterm.css hardcodes that viewport to black, which showed through as a
+  black gutter and as a black strip under the last row while a pane was dragged taller. Ported
+  from sbc-vsc-agents, which carries the same override for the same reason.
+- **The terminal has no scrollbar** — a TUI repaints its whole viewport, so one beside it would
+  only twitch, and the wheel is what scrolls. Since xterm 6 that takes two rules, not one: the
+  rows sit in a copy of VS Code's scrollable element whose bar is a plain `<div class="slider">`
+  in a 14px lane, and the older rules (`scrollbar-width`, `::-webkit-scrollbar`) only ever hid a
+  *native* one. It came back as a light strip beside every terminal with scrollback. Hiding
+  `.xterm-scrollable-element > .scrollbar` does not settle it — the element is xterm's own and
+  gets rebuilt — so what holds is the **transparent slider colors in `theme.ts`**: that is the
+  value xterm paints with wherever it puts the slider. The lane itself stays either way — xterm
+  reserves it whatever CSS says — and shows the theme background, which is this pane's own.
+- **Nothing may be left to an xterm default in that lane.** The terminal asks for an overview
+  ruler it has no use for (`overviewRuler: { width: 1 }`, the only way to stop FitAddon
+  reserving 14px), and xterm then paints the ruler's outline down its left edge on every frame,
+  in `overviewRulerBorder`, whether or not a single mark is in it. Unset, that default is light,
+  and it is a white line beside every terminal. `theme.ts` sets it — and the slider colors —
+  to `#00000000`, spelled as hex because they pass through xterm's own color parser.
 - Resizing is two steps, and they are debounced differently. `refitTerminal` follows the
   container immediately: it is local to xterm and only does anything on a whole row or column,
   so a dragged sash never leaves a strip of empty pane behind. `fitTerminal` also tells the
