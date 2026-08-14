@@ -5,18 +5,24 @@ import { clipboard, dialog, ipcMain, shell } from "electron";
 import { AGENTS, findAskableAgent, listAgents } from "../agents";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
+  AddAccountResult,
   AddRepositoryResult,
   AgentId,
   CheckoutTarget,
   DiffOptions,
   FileDiff,
   GitActionResult,
+  ListRepositoriesResult,
   Project,
+  ProviderAccount,
+  ProviderId,
   ProjectCommand,
   RepositoryState,
   StashCommand,
   TerminalDescriptor
 } from "../shared/types";
+import { PROVIDERS } from "../providers";
+import type { AccountStore } from "../providers/accounts";
 import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
@@ -32,6 +38,7 @@ import type { SessionManagerRegistry } from "./session-manager";
  */
 export interface IpcDeps {
   store: ProjectStore;
+  accounts: AccountStore;
   repositories: RepositoryManager;
   sessions: SessionManagerRegistry;
   /** Posts to the window, or nowhere while none is open. */
@@ -44,12 +51,12 @@ const MISSING_REPOSITORY: RepositoryState = { ...EMPTY_REPOSITORY_STATE, error: 
 
 /** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
 function writeTempFile(name: string, data: Buffer): string {
-  const file = path.join(os.tmpdir(), `meeseek-${Date.now()}-${path.basename(name)}`);
+  const file = path.join(os.tmpdir(), `meezeek-${Date.now()}-${path.basename(name)}`);
   fs.writeFileSync(file, data);
   return file;
 }
 
-export function registerIpc({ store, repositories, sessions, send, openProject }: IpcDeps): void {
+export function registerIpc({ store, accounts, repositories, sessions, send, openProject }: IpcDeps): void {
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
   ipcMain.handle("projects:pick-directory", async (_event, title: string): Promise<string | null> => {
@@ -85,14 +92,54 @@ export function registerIpc({ store, repositories, sessions, send, openProject }
     return { project };
   };
 
-  ipcMain.handle("projects:clone", (_event, url: string, directory: string, name: string) => {
+  ipcMain.handle("projects:clone", (_event, url: string, directory: string, name: string, accountId?: string) => {
     const target = path.join(directory, name);
-    return addRepository(git.clone(url, target), target, "Clone");
+    // From the remote tab the account's token authenticates the clone itself — the repository
+    // was just listed with it, so the clone must not hinge on a credential helper too.
+    const account = accountId !== undefined ? accounts.get(accountId) : undefined;
+    const token = accountId !== undefined ? accounts.token(accountId) : undefined;
+    const action =
+      account && token !== undefined ? git.cloneWithToken(url, target, account.user, token) : git.clone(url, target);
+    return addRepository(action, target, "Clone");
   });
 
   ipcMain.handle("projects:create", (_event, directory: string, name: string) => {
     const target = path.join(directory, name);
     return addRepository(git.init(target), target, "Create");
+  });
+
+  ipcMain.handle("providers:accounts", (): ProviderAccount[] => accounts.list());
+
+  ipcMain.handle(
+    "providers:add-account",
+    async (_event, provider: ProviderId, host: string, token: string): Promise<AddAccountResult> => {
+      // "https://gitlab.company.com/" pasted as the host means the host inside it.
+      const bare = host
+        .trim()
+        .replace(/^[a-z]+:\/\//i, "")
+        .replace(/\/.*$/, "");
+      try {
+        const user = await PROVIDERS[provider].validate(bare, token);
+        return { account: accounts.add(provider, bare, user, token) };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle("providers:remove-account", (_event, accountId: string): void => accounts.remove(accountId));
+
+  ipcMain.handle("providers:repos", async (_event, accountId: string): Promise<ListRepositoriesResult> => {
+    const account = accounts.get(accountId);
+    const token = accounts.token(accountId);
+    if (!account || token === undefined) {
+      return { error: "The account's token could not be read — add the account again" };
+    }
+    try {
+      return { repos: await PROVIDERS[account.provider].listRepositories(account.host, token) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
   });
 
   ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));
@@ -342,7 +389,7 @@ export function registerIpc({ store, repositories, sessions, send, openProject }
   });
 
   /**
-   * The changed-file menu's "Open in external editor". meeseek has no editor setting, so the
+   * The changed-file menu's "Open in external editor". meezeek has no editor setting, so the
    * file goes to whatever the OS opens its type with — which on a developer's machine is the
    * editor GitHub Desktop would have asked about.
    */

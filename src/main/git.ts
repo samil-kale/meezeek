@@ -409,6 +409,56 @@ export function init(directory: string): Promise<GitActionResult> {
   return run(os.homedir(), ["init", "--", directory]);
 }
 
+/**
+ * A GIT_ASKPASS script answering with what two environment variables hold — VS Code's
+ * askpass.sh pattern, and like there the same sh script on every platform: Git for Windows
+ * runs a non-exe askpass through its own sh. The script itself holds no secret, only the
+ * environment of the one command using it does; LF and a temp+rename write, since another
+ * process reads it.
+ */
+const ASKPASS_SCRIPT = [
+  "#!/bin/sh",
+  'case "$1" in',
+  '*sername*) printf \'%s\\n\' "$MEEZEEK_ASKPASS_USER" ;;',
+  '*) printf \'%s\\n\' "$MEEZEEK_ASKPASS_TOKEN" ;;',
+  "esac",
+  ""
+].join("\n");
+
+let askpassPath: Promise<string> | undefined;
+
+function ensureAskpass(): Promise<string> {
+  askpassPath ??= (async () => {
+    const file = path.join(os.tmpdir(), "meezeek-askpass.sh");
+    const temp = `${file}.${process.pid}`;
+    await fs.writeFile(temp, ASKPASS_SCRIPT, { encoding: "utf8", mode: 0o755 });
+    await fs.rename(temp, file);
+    return file;
+  })();
+  return askpassPath;
+}
+
+/**
+ * A clone authenticated by a provider account's token, for the remote tab — where the user
+ * just browsed the repository with that token, so the clone must not depend on a credential
+ * helper knowing the host too. `credential.helper=` empties the helper list for this one
+ * command: a stale login stored on the machine would otherwise answer first and 403.
+ */
+export async function cloneWithToken(
+  url: string,
+  directory: string,
+  user: string,
+  token: string
+): Promise<GitActionResult> {
+  const askpass = await ensureAskpass();
+  return run(os.homedir(), ["-c", "credential.helper=", "clone", "--", url, directory], {
+    ...NETWORK_ENV,
+    GIT_ASKPASS: askpass,
+    MEEZEEK_ASKPASS_USER: user,
+    MEEZEEK_ASKPASS_TOKEN: token
+  });
+}
+
 /** Each remote's fetch url, keyed by remote name. */
 export async function readRemoteUrls(cwd: string): Promise<Record<string, string>> {
   const urls: Record<string, string> = {};

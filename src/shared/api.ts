@@ -1,4 +1,5 @@
 import type {
+  AddAccountResult,
   AddRepositoryResult,
   AgentId,
   AgentInfo,
@@ -6,9 +7,12 @@ import type {
   DiffOptions,
   FileDiff,
   GitActionResult,
+  ListRepositoriesResult,
   Notice,
   Project,
   ProjectCommand,
+  ProviderAccount,
+  ProviderId,
   RepositoryState,
   StashCommand,
   TerminalDescriptor,
@@ -19,20 +23,32 @@ import type {
 /** Removes a listener registered through one of the `on*` methods. */
 export type Unsubscribe = () => void;
 
-export interface MeeseekApi {
+export interface MeezeekApi {
   projects: {
     list(): Promise<Project[]>;
     /** Opens a native folder picker; resolves null when it was cancelled. */
     pickDirectory(title: string): Promise<string | null>;
     /** Opens the folder — or the repository it is a subdirectory of — as a project. */
     open(directory: string): Promise<Project>;
-    /** `git clone` into a new folder `name` inside `directory`, which becomes a project. */
-    clone(url: string, directory: string, name: string): Promise<AddRepositoryResult>;
+    /**
+     * `git clone` into a new folder `name` inside `directory`, which becomes a project. With
+     * an account, its token authenticates the clone — the remote tab's rows pass one.
+     */
+    clone(url: string, directory: string, name: string, accountId?: string): Promise<AddRepositoryResult>;
     /** `git init` of a new folder `name` inside `directory`, which becomes a project. */
     create(directory: string, name: string): Promise<AddRepositoryResult>;
     remove(projectId: string): Promise<void>;
     /** Persists the order the user dragged them into, as the full list of ids. */
     reorder(projectIds: string[]): Promise<void>;
+  };
+  /** The configured repository-host accounts and what the remote tab asks them. */
+  providers: {
+    accounts(): Promise<ProviderAccount[]>;
+    /** Validates the token against the host and stores the account; the token stays main-side. */
+    addAccount(provider: ProviderId, host: string, token: string): Promise<AddAccountResult>;
+    removeAccount(accountId: string): Promise<void>;
+    /** Every repository the account can reach, most recently active first. */
+    repos(accountId: string): Promise<ListRepositoriesResult>;
   };
   repository: {
     state(projectId: string): Promise<RepositoryState>;
@@ -79,11 +95,11 @@ export interface MeeseekApi {
     onState(listener: (payload: { projectId: string; state: RepositoryState }) => void): Unsubscribe;
   };
   /**
-   * A project's saved shell commands, kept in a meeseek.json in its own root. They belong to
-   * the repository, not to meeseek's storage, so they follow it around.
+   * A project's saved shell commands, kept in a meezeek.json in its own root. They belong to
+   * the repository, not to meezeek's storage, so they follow it around.
    */
   commands: {
-    /** Null when the project has no meeseek.json yet — as opposed to one with an empty list. */
+    /** Null when the project has no meezeek.json yet — as opposed to one with an empty list. */
     list(projectId: string): Promise<ProjectCommand[] | null>;
     /** Writes the whole list; adding, removing and reordering all go through here. */
     save(projectId: string, commands: ProjectCommand[]): Promise<void>;
@@ -155,7 +171,7 @@ export interface MeeseekApi {
     revealFile(projectId: string, path: string): Promise<void>;
     /**
      * Hands a repository-relative path to whatever the OS opens that type with — the nearest
-     * thing meeseek has to GitHub Desktop's external editor, which it has no setting for.
+     * thing meezeek has to GitHub Desktop's external editor, which it has no setting for.
      */
     openFileExternally(projectId: string, path: string): Promise<void>;
     /** Opens the project's own folder in the OS file manager. */

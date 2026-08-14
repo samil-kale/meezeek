@@ -32,7 +32,7 @@ export function DiffDialog({ projectId, path, version, onClose, onBusy }: DiffDi
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void window.meeseek.repository.diff(projectId, path, { ignoreWhitespace }).then((result) => {
+    void window.meezeek.repository.diff(projectId, path, { ignoreWhitespace }).then((result) => {
       if (cancelled) {
         return;
       }

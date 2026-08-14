@@ -148,7 +148,7 @@ export function DiffView({
     }
     const header = diff.lines[index];
     const offset = (header.oldLine ?? 1) - (header.newLine ?? 1);
-    const texts = await window.meeseek.repository.fileLines(projectId, diff.path, from, to);
+    const texts = await window.meezeek.repository.fileLines(projectId, diff.path, from, to);
     // Reading them took a moment, and in it the file on screen may have become another one —
     // or the same one reloaded. `index` then points into a diff these lines are not from.
     if (texts.length === 0 || current.current !== diff) {

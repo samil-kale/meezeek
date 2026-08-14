@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { MeeseekApi, Unsubscribe } from "../shared/api";
+import type { MeezeekApi, Unsubscribe } from "../shared/api";
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscribe {
   const handler = (_event: Electron.IpcRendererEvent, payload: T): void => listener(payload);
@@ -7,15 +7,21 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscr
   return () => ipcRenderer.off(channel, handler);
 }
 
-const api: MeeseekApi = {
+const api: MeezeekApi = {
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     pickDirectory: (title) => ipcRenderer.invoke("projects:pick-directory", title),
     open: (directory) => ipcRenderer.invoke("projects:open-path", directory),
-    clone: (url, directory, name) => ipcRenderer.invoke("projects:clone", url, directory, name),
+    clone: (url, directory, name, accountId) => ipcRenderer.invoke("projects:clone", url, directory, name, accountId),
     create: (directory, name) => ipcRenderer.invoke("projects:create", directory, name),
     remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId),
     reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds)
+  },
+  providers: {
+    accounts: () => ipcRenderer.invoke("providers:accounts"),
+    addAccount: (provider, host, token) => ipcRenderer.invoke("providers:add-account", provider, host, token),
+    removeAccount: (accountId) => ipcRenderer.invoke("providers:remove-account", accountId),
+    repos: (accountId) => ipcRenderer.invoke("providers:repos", accountId)
   },
   repository: {
     state: (projectId) => ipcRenderer.invoke("repo:state", projectId),
@@ -91,4 +97,4 @@ const api: MeeseekApi = {
   onNotice: (listener) => subscribe("app:notice", listener)
 };
 
-contextBridge.exposeInMainWorld("meeseek", api);
+contextBridge.exposeInMainWorld("meezeek", api);

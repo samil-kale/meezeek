@@ -5,7 +5,7 @@ import { useRef, useState, type PointerEvent } from "react";
  * repository, so it lives in the renderer's own storage instead of the project store, and
  * every project sees the same one.
  */
-const STORAGE_PREFIX = "meeseek.layout.";
+const STORAGE_PREFIX = "meezeek.layout.";
 
 /** Whether a pane is showing at all — the same storage, since it is the same kind of choice. */
 export function usePaneToggle(key: string, initial: boolean): [boolean, (open: boolean) => void] {

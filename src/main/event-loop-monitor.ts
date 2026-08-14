@@ -2,11 +2,11 @@ import * as fs from "node:fs";
 import * as util from "node:util";
 
 /**
- * What switches this on: `NODE_DEBUG=meeseek-perf npm start`. Node's own mechanism for a
+ * What switches this on: `NODE_DEBUG=meezeek-perf npm start`. Node's own mechanism for a
  * diagnostic that is off in normal runs — `util.debuglog` hands back a no-op until its section
  * is named, and `enabled` says so before anything has been set up.
  */
-const DEBUG_SECTION = "meeseek-perf";
+const DEBUG_SECTION = "meezeek-perf";
 /**
  * How often the loop is sampled. A keystroke on its way to a pty waits in the same queue as
  * this timer, so how late the timer runs is how late the keystroke would be.
@@ -58,13 +58,13 @@ export function startEventLoopMonitor(logFile: string): void {
     return;
   }
   try {
-    fs.writeFileSync(logFile, `# meeseek event loop, from ${new Date().toISOString()}\n`);
+    fs.writeFileSync(logFile, `# meezeek event loop, from ${new Date().toISOString()}\n`);
   } catch (error) {
-    console.error("[meeseek] could not open the event loop log:", error);
+    console.error("[meezeek] could not open the event loop log:", error);
     return;
   }
   const append = (line: string): void => {
-    console.log(`[meeseek] ${line}`);
+    console.log(`[meezeek] ${line}`);
     fs.appendFile(logFile, `${new Date().toISOString().slice(11, 23)} ${line}\n`, () => undefined);
   };
 

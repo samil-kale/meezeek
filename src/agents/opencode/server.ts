@@ -12,7 +12,7 @@ const EVENT_RETRY_MS = 2000;
 
 /**
  * opencode is a client/server program: `opencode serve` is the instance that owns the
- * SQLite database, and the TUI is one of its clients (`opencode attach <url>`). Meeseek
+ * SQLite database, and the TUI is one of its clients (`opencode attach <url>`). Meezeek
  * runs that server itself and points everything at it — the session listing, renames, the
  * event stream, and the terminal's own TUI.
  *
@@ -147,7 +147,7 @@ interface ServerEntry {
   server: Promise<OpencodeServer>;
 }
 
-/** One server per repository — meeseek can have several projects open at once. */
+/** One server per repository — meezeek can have several projects open at once. */
 const servers = new Map<string, ServerEntry>();
 
 /** A start that never succeeded has nothing to dispose, hence the swallowed rejection. */
@@ -197,7 +197,7 @@ export async function runningServer(executable: string, cwd: string): Promise<Op
 
 /**
  * Brings the server up before any terminal is spawned and hands the TUI the arguments to
- * attach to it, so the terminal's session and everything else meeseek does run in the same
+ * attach to it, so the terminal's session and everything else meezeek does run in the same
  * opencode instance rather than two that only share a database.
  */
 export async function prepareOpencodeSpawn(

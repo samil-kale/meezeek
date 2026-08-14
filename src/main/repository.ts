@@ -428,13 +428,13 @@ export class Repository {
         this.scheduleRefresh();
       });
       this.watcher.on("error", (error) => {
-        console.error(`[meeseek] watcher failed for ${this.project.path}:`, error);
+        console.error(`[meezeek] watcher failed for ${this.project.path}:`, error);
         this.watcher?.close();
         this.watcher = undefined;
       });
     } catch (error) {
       // Without a watcher the repository still works, it just only updates on refresh.
-      console.error(`[meeseek] could not watch ${this.project.path}:`, error);
+      console.error(`[meezeek] could not watch ${this.project.path}:`, error);
     }
   }
 

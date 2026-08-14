@@ -37,7 +37,7 @@ export function BranchBar({ project, state, busyLabel, run, onRefresh }: BranchB
     if (!project || !remote || state.detached) {
       return null;
     }
-    const repository = window.meeseek.repository;
+    const repository = window.meezeek.repository;
     if (state.upstream === undefined) {
       return {
         label: "Publish branch",
@@ -80,16 +80,16 @@ export function BranchBar({ project, state, busyLabel, run, onRefresh }: BranchB
       confirmLabel: "Force push"
     });
     if (answer.confirmed) {
-      run("Force pushing...", () => window.meeseek.repository.forcePush(projectId));
+      run("Force pushing...", () => window.meezeek.repository.forcePush(projectId));
     }
   };
 
   /**
    * The other things that one button could have done. GitHub Desktop keeps them in its
-   * Repository menu; meeseek has no menu bar, so they sit on the button itself.
+   * Repository menu; meezeek has no menu bar, so they sit on the button itself.
    */
   const menuEntries = (projectId: string): ContextMenuEntry[] => {
-    const repository = window.meeseek.repository;
+    const repository = window.meezeek.repository;
     // Without an upstream there is nothing to pull from and nothing to rewrite; publishing it
     // is what the button itself offers then.
     const tracked = state.upstream !== undefined;

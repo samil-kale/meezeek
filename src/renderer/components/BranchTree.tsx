@@ -50,7 +50,7 @@ export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
 
   const isCurrent = (name: string): boolean => !state.detached && name === state.head;
 
-  const repository = window.meeseek.repository;
+  const repository = window.meezeek.repository;
   /** The remote every command that names one uses, the way the main process picks it. */
   const remote = state.remotes[0]?.name;
 

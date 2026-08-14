@@ -32,7 +32,7 @@ export const claudeSessionProvider: SessionProvider = {
       entries.sort((a, b) => a.createdAt - b.createdAt);
       return entries;
     } catch (error) {
-      console.error("[meeseek] claude session listing failed:", error);
+      console.error("[meezeek] claude session listing failed:", error);
       return [];
     }
   },
@@ -200,7 +200,7 @@ async function extractTitle(filePath: string, sessionId: string): Promise<Resolv
       }
     }
   } catch (error) {
-    console.error("[meeseek] claude title extraction failed:", error);
+    console.error("[meezeek] claude title extraction failed:", error);
   } finally {
     lines.close();
     stream.destroy();
@@ -237,7 +237,7 @@ async function extractCreatedAt(filePath: string): Promise<number | undefined> {
       }
     }
   } catch (error) {
-    console.error("[meeseek] claude createdAt extraction failed:", error);
+    console.error("[meezeek] claude createdAt extraction failed:", error);
   } finally {
     lines.close();
     stream.destroy();
@@ -292,7 +292,7 @@ async function findLastCustomTitle(filePath: string, sessionId: string): Promise
       }
     }
   } catch (error) {
-    console.error("[meeseek] claude custom-title scan failed:", error);
+    console.error("[meezeek] claude custom-title scan failed:", error);
   } finally {
     await handle?.close();
   }

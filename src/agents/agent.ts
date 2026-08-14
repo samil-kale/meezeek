@@ -45,12 +45,12 @@ export interface SessionProvider {
 export interface AgentPaths {
   /**
    * This agent's own scratch directory for this repository, already created. Per repository
-   * because meeseek has several open at once and what is generated in there (notification
+   * because meezeek has several open at once and what is generated in there (notification
    * texts, hook settings) names the repository it belongs to.
    */
   agentDir: string;
   /**
-   * The repository's context file, kept current by meeseek — the agent's job is only to
+   * The repository's context file, kept current by meezeek — the agent's job is only to
    * arrange for it to reach the model. Blank whenever there is nothing to say.
    */
   contextFile: string;
@@ -59,7 +59,7 @@ export interface AgentPaths {
    * repository, so an agent that gates reads by path has to grant these explicitly.
    */
   contextReadPaths: string[];
-  /** Meeseek's user-data root, for anything an agent has to install machine-wide. */
+  /** Meezeek's user-data root, for anything an agent has to install machine-wide. */
   storageRoot: string;
 }
 

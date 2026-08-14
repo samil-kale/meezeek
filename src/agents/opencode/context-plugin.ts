@@ -7,7 +7,7 @@ import * as path from "node:path";
  * file — the only way into a message being composed is a plugin (a .ts file under a
  * `plugins/` directory) hooking `chat.message`, and the HTTP API has no equivalent.
  *
- * `OPENCODE_CONFIG_DIR` points opencode at meeseek's own install dir additively: it does not
+ * `OPENCODE_CONFIG_DIR` points opencode at meezeek's own install dir additively: it does not
  * replace the user's `.opencode/plugins/` or `~/.config/opencode/plugins/`. It is set on the
  * server process rather than on the terminal, since under `attach` the TUI is only a client
  * and the server is what loads plugins. Nothing here touches the repository or the user's
@@ -24,7 +24,7 @@ export function opencodePluginsDir(storageRoot: string): string {
 }
 
 /** Set on the server so the generated plugin can tell whose repository it is serving. */
-export const PROJECT_ROOT_ENV = "MEESEEK_PROJECT_ROOT";
+export const PROJECT_ROOT_ENV = "MEEZEEK_PROJECT_ROOT";
 
 /**
  * Writes this repository's context plugin into the shared plugins directory and returns the
@@ -47,7 +47,7 @@ export function installContextPlugin(storageRoot: string, cwd: string, contextFi
 // repository's context appended too.
 const PROJECT_ROOT = ${JSON.stringify(cwd)};
 
-export const MeeseekContextPlugin = async () => {
+export const MeezeekContextPlugin = async () => {
   return {
     "chat.message": async (input, output) => {
       if (process.env.${PROJECT_ROOT_ENV} !== PROJECT_ROOT) return;
@@ -76,7 +76,7 @@ export const MeeseekContextPlugin = async () => {
 
   // opencode pays a large one-time cost (minutes, per sbc's measurements) to recompile a
   // plugin whenever its file changes — skip the write when the content already matches, so
-  // restarting meeseek doesn't retrigger that every time.
+  // restarting meezeek doesn't retrigger that every time.
   let existing: string | undefined;
   try {
     existing = fs.readFileSync(pluginFile, "utf8");

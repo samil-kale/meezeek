@@ -5,7 +5,7 @@ import { resolveOpencodeUrlPrefix } from "./session-urls";
 import { opencodeSessionProvider } from "./sessions";
 
 /** What a background question's session is called, so it can be found and removed again. */
-const ASK_TITLE = "meeseek: project commands";
+const ASK_TITLE = "meezeek: project commands";
 
 export const opencodeAgent: AgentDefinition = {
   id: "opencode",

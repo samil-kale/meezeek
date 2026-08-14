@@ -39,6 +39,33 @@ export function App() {
    * a pane size, since it is one.
    */
   const [gitOpen, setGitOpen] = usePaneToggle("git-pane", false);
+  /**
+   * Drives the slide: `gitMounted` keeps the pane in the DOM through the closing transition,
+   * `gitExpanded` is what the width transition actually animates. Opening flips `gitExpanded`
+   * only once the browser has painted the freshly mounted, still-0-width frame — a single
+   * `requestAnimationFrame` fires before that paint as often as after it, which is what made
+   * opening jump straight to full width instead of animating; two nested ones wait out the
+   * paint reliably. Closing reverses that and only unmounts once the transition has had time
+   * to finish.
+   */
+  const [gitMounted, setGitMounted] = useState(gitOpen);
+  const [gitExpanded, setGitExpanded] = useState(gitOpen);
+  useEffect(() => {
+    if (gitOpen) {
+      setGitMounted(true);
+      let inner = 0;
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(() => setGitExpanded(true));
+      });
+      return () => {
+        cancelAnimationFrame(outer);
+        cancelAnimationFrame(inner);
+      };
+    }
+    setGitExpanded(false);
+    const timer = setTimeout(() => setGitMounted(false), 180);
+    return () => clearTimeout(timer);
+  }, [gitOpen]);
   /** The git pane or an open diff is working; the active project's bar reports it. */
   const [gitBusy, setGitBusy] = useState(false);
   /** The file whose diff is open over everything, if any. */
@@ -53,16 +80,16 @@ export function App() {
   const [openedTab, setOpenedTab] = useState<{ projectId: string; tabId: string } | null>(null);
 
   useEffect(() => {
-    const unsubscribe = window.meeseek.repository.onState(({ projectId, state }) =>
+    const unsubscribe = window.meezeek.repository.onState(({ projectId, state }) =>
       setStates((current) => ({ ...current, [projectId]: state }))
     );
 
     void (async () => {
-      const stored = await window.meeseek.projects.list();
+      const stored = await window.meezeek.projects.list();
       setProjects(stored);
       setActiveProjectId((current) => current ?? stored[0]?.id ?? null);
       const loaded = await Promise.all(
-        stored.map(async (project) => [project.id, await window.meeseek.repository.state(project.id)] as const)
+        stored.map(async (project) => [project.id, await window.meezeek.repository.state(project.id)] as const)
       );
       // States pushed while this was in flight are newer than what was just fetched.
       setStates((current) => ({ ...Object.fromEntries(loaded), ...current }));
@@ -71,7 +98,7 @@ export function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => window.meeseek.onNotice(({ severity, message }) => notify(severity, message)), []);
+  useEffect(() => window.meezeek.onNotice(({ severity, message }) => notify(severity, message)), []);
 
   /** What the add-repository dialog ends in, whichever of its tabs produced the project. */
   const projectAdded = useCallback((project: Project) => {
@@ -81,7 +108,7 @@ export function App() {
 
   const closeProject = useCallback(
     async (projectId: string) => {
-      await window.meeseek.projects.remove(projectId);
+      await window.meezeek.projects.remove(projectId);
       const remaining = projects.filter((project) => project.id !== projectId);
       setProjects(remaining);
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
@@ -94,7 +121,7 @@ export function App() {
 
   const reorderProjects = useCallback((ordered: Project[]) => {
     setProjects(ordered);
-    void window.meeseek.projects.reorder(ordered.map((project) => project.id));
+    void window.meezeek.projects.reorder(ordered.map((project) => project.id));
   }, []);
 
   /**
@@ -144,14 +171,14 @@ export function App() {
   /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
   const openTerminal = useCallback(
     (projectId: string) => {
-      void window.meeseek.terminals.create(projectId, "shell").then((tab) => showTab(projectId, tab.tabId));
+      void window.meezeek.terminals.create(projectId, "shell").then((tab) => showTab(projectId, tab.tabId));
     },
     [showTab]
   );
 
   const refresh = useCallback(() => {
     if (activeProjectId) {
-      void window.meeseek.repository.refresh(activeProjectId);
+      void window.meezeek.repository.refresh(activeProjectId);
     }
   }, [activeProjectId]);
 
@@ -165,7 +192,7 @@ export function App() {
           controls overlay needs. */}
       <div className="titlebar">
         <img className="titlebar-icon" src="icon.png" alt="" />
-        <span className="titlebar-name">MEESEEK</span>
+        <span className="titlebar-name">MEEZEEK</span>
       </div>
 
       <div className="body">
@@ -196,9 +223,9 @@ export function App() {
         {/* The repository of the active project, between the navigation and its terminals.
             One pane for all of them, unlike the terminals: it holds no state a project would
             lose by being switched away from. */}
-        {gitOpen && activeProject && (
+        {gitMounted && activeProject && (
           <>
-            <div className="git-pane-host" style={{ width: gitPanelsWidth }}>
+            <div className="git-pane-host" style={{ width: gitExpanded ? gitPanelsWidth : 0 }}>
               <GitPane
                 project={activeProject}
                 state={activeState}
@@ -209,13 +236,15 @@ export function App() {
                 onBusy={setGitBusy}
               />
             </div>
-            <Sash
-              orientation="vertical"
-              size={gitPanelsWidth}
-              min={180}
-              minOther={320}
-              onResize={setGitPanelsWidth}
-            />
+            {gitOpen && (
+              <Sash
+                orientation="vertical"
+                size={gitPanelsWidth}
+                min={180}
+                minOther={320}
+                onResize={setGitPanelsWidth}
+              />
+            )}
           </>
         )}
 

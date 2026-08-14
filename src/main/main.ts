@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { app, BrowserWindow, Menu } from "electron";
+import { AccountStore } from "../providers/accounts";
 import type { Project, TerminalOutput, TerminalStatus } from "../shared/types";
 import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
 import { startGitProcess, stopGitProcess } from "./git-client";
@@ -44,6 +45,7 @@ function queueOutput(projectId: string, tabId: string, data: string): void {
 }
 
 const store = new ProjectStore(app.getPath("userData"));
+const accounts = new AccountStore(app.getPath("userData"));
 const repositories = new RepositoryManager(
   (projectId, state) => send("repo:state-changed", { projectId, state }),
   (severity, message) => send("app:notice", { severity, message })
@@ -109,7 +111,7 @@ app.whenReady().then(() => {
   // Up front rather than on the first repository: forking it costs a moment, and every
   // project that opens below is about to ask it something.
   startGitProcess();
-  registerIpc({ store, repositories, sessions, send, openProject });
+  registerIpc({ store, accounts, repositories, sessions, send, openProject });
   for (const project of store.list()) {
     openProject(project);
   }

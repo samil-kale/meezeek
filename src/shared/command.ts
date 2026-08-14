@@ -3,7 +3,7 @@ import type { ProjectCommand } from "./types";
 /**
  * A saved command as the program and the arguments it is started with. Deliberately not a
  * shell: quotes group a word and are dropped, and everything else is literal — a backslash
- * included, because a Windows path is full of them and `meeseek.json` is read on every
+ * included, because a Windows path is full of them and `meezeek.json` is read on every
  * platform. So the way to put a space in an argument is to quote it, and there is no way to
  * smuggle a pipe, a redirection or a variable in. A command that really needs one says
  * `"shell": true`.

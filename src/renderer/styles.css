@@ -819,8 +819,10 @@ input:focus {
   display: flex;
   flex: none;
   min-width: 0;
+  overflow: hidden;
   background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-panel-border);
+  transition: width 0.15s ease;
 }
 
 /* Branches on top, changed files below. No diff: that opens over the whole window. */
@@ -1297,14 +1299,152 @@ input:focus {
 /* Add repository ------------------------------------------------------------------------- */
 
 .add-repository {
-  width: 480px;
-  /* Sized to the clone tab, the fullest one, and fixed: switching tabs must not resize the
+  width: 560px;
+  /* Sized to the remote tab, the fullest one, and fixed: switching tabs must not resize the
      dialog under the pointer. The body stretches, so the buttons stay pinned to the bottom. */
-  height: 300px;
+  height: 440px;
 }
 
 .add-repository .dialog-body {
   flex: 1;
+  min-height: 0;
+}
+
+/* Remote tab: the accounts on the left, the selected account's repositories on the right. */
+.remote-tab {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.remote-accounts {
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  flex: none;
+  overflow-y: auto;
+  border-right: 1px solid var(--vscode-panel-border);
+}
+
+.remote-account {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  cursor: pointer;
+}
+
+.remote-account:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.remote-account.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.remote-account-label {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.remote-account-user,
+.remote-account-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-account-host {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Keeps the description readable on the selection blue, where its usual grey is not. */
+.remote-account.active .remote-account-host {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* Shaped like a row of the list above it, not like a dialog button: it belongs to the list. */
+.remote-add-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.remote-add-account:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.remote-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.remote-repos {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.remote-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.remote-repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 8px;
+  font-size: 12px;
+}
+
+.remote-repo:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.remote-repo-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-repo-private {
+  flex: none;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The row's action, VS Code's way: there on hover, not once per row all the time. */
+.remote-repo-clone {
+  visibility: hidden;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+.remote-repo:hover .remote-repo-clone {
+  visibility: visible;
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* The three ways in, shaped like the terminal tabs so choosing one reads like choosing a tab

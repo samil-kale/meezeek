@@ -2,9 +2,9 @@
 
 ## What this is
 
-Meeseek is a git workspace for coding agents: Electron + React + xterm.js, several
+Meezeek is a git workspace for coding agents: Electron + React + xterm.js, several
 repositories open at once, each with its own git pane and its own set of agent and shell
-terminals. `meeseek.md` holds the product idea and the deliberate scope limits — read it
+terminals. `meezeek.md` holds the product idea and the deliberate scope limits — read it
 before adding anything to the git side, but read its UI sections as history (see "Where it
 came from").
 
@@ -14,7 +14,7 @@ a new dialog.
 
 ## Do not restart the app yourself
 
-Agents run *inside* meeseek, as terminal tabs. Killing the Electron process kills the session
+Agents run *inside* meezeek, as terminal tabs. Killing the Electron process kills the session
 you are running in, mid-turn. Build and typecheck freely, but ask the user to restart and
 report back. The same goes for anything that tears down a project's terminals.
 
@@ -22,13 +22,13 @@ report back. The same goes for anything that tears down a project's terminals.
 
 **`sbc-vsc-agents`** (sibling directory, private) is the direct ancestor: a pair of VS Code
 extensions that dock `claude` and `opencode` into the sidebar as real terminals. Most of the
-terminal half of meeseek is a port of its `shared/`. Its own `CLAUDE.md` records *why* several
+terminal half of meezeek is a port of its `shared/`. Its own `CLAUDE.md` records *why* several
 things that look arbitrary are the way they are — read it before changing any of them:
 
 - session listing, resume, rename and delete, and the reconcile loop that adopts a session id
   a CLI has only just persisted (`src/agents/*/sessions.ts`, `src/main/session-manager.ts`)
 - how each agent is driven: Claude Code is a plain CLI reading `<uuid>.jsonl` transcripts off
-  disk; opencode is client/server and **everything** goes through the one server meeseek runs
+  disk; opencode is client/server and **everything** goes through the one server meezeek runs
   (`src/agents/opencode/server.ts`) — never reach for its CLI or its SQLite file instead
 - `extractTitle`'s precedence rules for Claude Code session titles — a regression there
   silently shows the wrong tab title with nothing to catch it
@@ -38,20 +38,20 @@ things that look arbitrary are the way they are — read it before changing any 
 - the `--vscode-*` theming layer
 
 Deliberately not ported: the VS Code editor context (active file, cursor, diagnostics,
-breakpoints — meeseek has no editor) and the diagnostic quick fix. What survives of that
+breakpoints — meezeek has no editor) and the diagnostic quick fix. What survives of that
 feature is the shell transcript in `src/main/shell-context.ts`, modelled on how sbc passed a
 debug session's console output: a capped file the agent is pointed at, not an excerpt inlined
 into every prompt.
 
 **GitHub Desktop** is the reference for the git half, and that is the half that still needs
 the most work. It is also Electron + TypeScript, so its repository models, its git process
-invocation and its clone/status/branch/checkout/diff paths translate almost directly. Meeseek
+invocation and its clone/status/branch/checkout/diff paths translate almost directly. Meezeek
 needs a small fraction of it — crib the shapes, not the scope.
 
 **VS Code** is the UI reference: tab semantics, the context menu's close actions, the theme
 variable names, the sash between two panes.
 
-`meeseek.md` still calls `terminals.view.png` and `local-changes-view.png` a binding visual
+`meezeek.md` still calls `terminals.view.png` and `local-changes-view.png` a binding visual
 reference ("Verbindliche UI-Referenz", and again under "Zielbild"). Both files are gone — the
 user deleted them because the tool no longer looks like them. Read those sections as history:
 where they and the running app disagree, the app is right. What changed, and stayed changed
@@ -77,7 +77,7 @@ by agreement:
 - the branch bar is the window's bottom strip
 - the panes between all of that are draggable (`src/renderer/components/Sash.tsx`)
 
-Do not restore the screenshots, and do not rebuild the layout from `meeseek.md`'s ASCII
+Do not restore the screenshots, and do not rebuild the layout from `meezeek.md`'s ASCII
 diagrams. Its scope limits, on the other hand, still hold.
 
 Further references, none of them adopted yet: **Monaco** for a richer diff view, **Octokit**
@@ -158,7 +158,7 @@ The project row in the sidebar carries the repository-wide entries: open it in a
 it in the file manager, copy its path, view it on whatever host its remote names, change that
 url, and close it. Nothing there touches the working tree — those actions live in the git pane,
 where what they act on is on screen. "Open in terminal" is a *shell tab in this window*, not the
-OS terminal GitHub Desktop opens: the terminals are what meeseek is for. It is created like any
+OS terminal GitHub Desktop opens: the terminals are what meezeek is for. It is created like any
 other tab and then brought to the front the way a saved command's is (see Commands).
 
 ### Talking to a remote
@@ -169,7 +169,7 @@ stop git asking a question: `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (uns
 terminal the first variable is trying to avoid), and `ssh -oBatchMode=yes`. There is no console
 to answer in, and a command waiting for an answer that cannot come would hold the repository's
 one action slot open indefinitely. Credentials come from the user's own credential helper or
-they do not come at all — meeseek has no login of its own and is not getting one before the
+they do not come at all — meezeek has no login of its own and is not getting one before the
 providers land.
 
 Ahead and behind are read from the `git status --branch` header that a refresh already asks
@@ -267,7 +267,7 @@ back one command at a time.
 
 `src/main/event-loop-monitor.ts` is what measured all of this and is still wired up: it samples
 the loop and writes stalls to `event-loop.log` in the app's `userData`, with a tally of what
-ran. It is off unless `NODE_DEBUG` names it — `NODE_DEBUG=meeseek-perf npm start` — since a
+ran. It is off unless `NODE_DEBUG` names it — `NODE_DEBUG=meezeek-perf npm start` — since a
 sample every 20ms for the lifetime of the window is not worth paying while nothing is being
 investigated. `countActivity` stays at its call sites either way, so the tally is right again
 the moment it is switched back on.
@@ -280,9 +280,9 @@ steady 100+ per minute with three projects open, in runs where the user was doin
 all.
 
 Where the events come from was measured with a standalone watcher on the same paths, running
-the same `isIgnoredEvent`, for 60s: two repositories meeseek had open reported ~107 events
+the same `isIgnoredEvent`, for 60s: two repositories meezeek had open reported ~107 events
 past the filter each, and one it did *not* have open reported zero. Nothing external touches
-these repositories — meeseek is the only thing changing them.
+these repositories — meezeek is the only thing changing them.
 
 They arrive in pairs, `.git\index.lock` and a bare `.git`. `git status` takes the index lock to
 write the refreshed stat cache back, and Windows reports both the file and the *directory* it
@@ -296,7 +296,7 @@ only the three git processes per refresh, per repository, forever.
 The fix was not another entry in the filter. `readStatus` now runs
 `git --no-optional-locks status`, which skips the lock — what the flag exists for, and what VS
 Code and GitHub Desktop both poll status with.
-Measured over 5 runs in a repository meeseek did not have open: 50 filesystem events without
+Measured over 5 runs in a repository meezeek did not have open: 50 filesystem events without
 it, **0** with it, at 75ms and 77ms per run. Only `readStatus` takes a lock; `for-each-ref` and
 `stash list` never did, and the commands that write (checkout, fetch, pull, push) need theirs.
 What it costs is that git stops writing the refreshed index back, so a stale index in a large
@@ -309,8 +309,8 @@ on a platform that reports *only* the directory it would swallow a real branch s
 ## Commands
 
 The sidebar's lower half is a project's saved shell commands — a build, a deploy script,
-whatever is typed often enough to be worth a button. They live in a `meeseek.json` in the
-repository's own root (`src/main/commands.ts`), under a `commands` key, not in meeseek's
+whatever is typed often enough to be worth a button. They live in a `meezeek.json` in the
+repository's own root (`src/main/commands.ts`), under a `commands` key, not in meezeek's
 `userData`: they describe the project, so they travel with it and can be committed like
 anything else. That also means the file shows up as an untracked change in the git pane until
 someone commits or ignores it.
@@ -319,7 +319,7 @@ A saved command is a command line and, where they are not the obvious ones, the 
 in and the environment variables it runs with. In the file it is a plain string while neither
 is needed and an object once one of them is (`{"command": "npm run build", "cwd": "web"}`), so
 the common case stays one readable line. The key was `actions` until the whole feature was
-renamed, and nothing reads that spelling any more: a `meeseek.json` written before the rename
+renamed, and nothing reads that spelling any more: a `meezeek.json` written before the rename
 looks like a project nobody has set up here, and the wand fills it again. The command
 is then the one you would type standing in that folder — `npm run build`, not
 `npm run build --prefix web`, which is a flag only some tools have and which reads like part of
@@ -329,7 +329,7 @@ the command when it is not.
 the wand once produced `PROFILE=DEVELOPMENT java -jar target/app.jar`, which is POSIX syntax
 PowerShell reads as a command name, and for `java -jar` there is no flag to express it with
 either. So it is a field, set on the process instead (`SpawnOptions.envOverride`). Those
-variables outrank the ones inherited from the machine — every other environment meeseek passes
+variables outrank the ones inherited from the machine — every other environment meezeek passes
 a terminal is a *default* that the user's own wins over, and this is the one case where the
 opposite is right: the user wrote it next to the command.
 
@@ -347,7 +347,7 @@ summarised — the output arrives while it works and is still there afterwards, 
 build actually needs.
 
 This replaced running them in the background with a notice at the end, and that is not a
-variant worth keeping alongside: the terminals are what meeseek is for, and a truncated
+variant worth keeping alongside: the terminals are what meezeek is for, and a truncated
 600-character summary of a failed build was the worst of both. The tab takes the command as
 its label — a shell tab has no session to take a title from, so nothing overwrites it — and
 closing it kills the process like any other terminal.
@@ -379,7 +379,7 @@ Either way `createCommandTab` is `createTab` with a program, arguments, a direct
 environment attached to the tab, so a saved command's terminal goes through the same lazy spawn,
 the same output batching and the same close path as every other one.
 
-Reading a `meeseek.json` that is missing, unparseable or shaped differently is simply no
+Reading a `meezeek.json` that is missing, unparseable or shaped differently is simply no
 commands. It is a file in the user's repository; half of it being someone else's is not a reason
 to throw.
 
@@ -395,20 +395,20 @@ and then remembers. Not on every render: the tab list changes for every status u
 selection that re-applied itself would drag the user back out of whatever they moved on to.
 
 Because a saved command's process ends every time it is run, `TerminalSession` tells the two apart by
-the exit code: `stopped` for a clean one (and for anything meeseek killed, whatever it said),
+the exit code: `stopped` for a clean one (and for anything meezeek killed, whatever it said),
 `error` only for a process that failed on its own. Before they had tabs this never came up —
 a shell only ended when someone typed `exit`, and it was reported as an error. **Nothing draws
 the difference yet:** the tab strip still marks `stopped` and `error` the same way (dimmed and
 struck through, `.terminal-tab.inactive`). Showing a failed build at a glance is worth doing and
 is deliberately still open — how it looks is undecided, so do not invent it.
 
-A project with no `meeseek.json` **at all** has its commands looked up straight away, without
+A project with no `meezeek.json` **at all** has its commands looked up straight away, without
 being asked — nobody has set it up here, and that is the one moment where guessing is worth the
 wait. Which is why `readCommands` answers `null` for a missing file and `[]` for one that is
 there but holds nothing: a list someone emptied on purpose stays empty. It runs at most once
 per project per session, guarded by a ref.
 
-The order of the array in `meeseek.json` is the order on screen — there is no field for it,
+The order of the array in `meezeek.json` is the order on screen — there is no field for it,
 because two records of the same thing drift apart. Rows are reordered by dragging, the way the
 project list is — both through `useDragReorder` (`src/renderer/components/drag-reorder.ts`),
 which is also where the reasons behind the drag details live (own MIME type per list, the
@@ -529,7 +529,7 @@ would pull JSX into that bundle and the agent's setup code into the renderer's.
 
 ## Never touch the user's agent configuration
 
-Everything meeseek generates lives under its own `userData` directory and is pointed at from
+Everything meezeek generates lives under its own `userData` directory and is pointed at from
 outside:
 
 - Claude Code: a generated settings file passed as `--settings`, which the CLI layers on top of
@@ -538,13 +538,13 @@ outside:
   client, the server is what loads plugins). It is additive — it does not replace the user's
   own `plugins/`. The plugins directory is shared across repositories because opencode pays a
   minutes-long install the first time it sees an unfamiliar config dir, so each repository's
-  generated plugin needs a unique filename *and* a runtime guard on `MEESEEK_PROJECT_ROOT`, or
+  generated plugin needs a unique filename *and* a runtime guard on `MEEZEEK_PROJECT_ROOT`, or
   every open repository's context gets appended to every message. Only write the file when its
   content actually changed; a changed plugin triggers a recompile.
 
 ## Files other processes read
 
-The context file and the shell transcript are written by meeseek and read by a separate
+The context file and the shell transcript are written by meezeek and read by a separate
 process — an agent's prompt hook, or the agent's own file reads. Write beside the target and
 `rename` into place, never in place. Measured under continuous rewriting: writing in place
 cost 41 EBUSY failures out of ~1100 Node reads and one IOException in ~380 PowerShell reads,

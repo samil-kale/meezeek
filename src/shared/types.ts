@@ -28,6 +28,40 @@ export interface AddRepositoryResult {
   error?: string;
 }
 
+export type ProviderId = "github" | "gitlab";
+
+/** A configured account of a repository host. The token lives with it, encrypted, main-side. */
+export interface ProviderAccount {
+  id: string;
+  provider: ProviderId;
+  /** "github.com", or wherever a self-hosted instance answers. */
+  host: string;
+  /** The login the token belongs to, read from the API when the account was added. */
+  user: string;
+}
+
+/** One repository the remote tab lists, in the shape its rows and the clone tab need. */
+export interface RemoteRepository {
+  /** "owner/name", the way both hosts spell it. */
+  fullName: string;
+  /** The default folder name of a clone, which the clone tab is prefilled with. */
+  name: string;
+  private: boolean;
+  /** The https url git clones; the account's token can authenticate it. */
+  cloneUrl: string;
+}
+
+/** How adding an account answers: the account once its token checked out, or the API's message. */
+export interface AddAccountResult {
+  account?: ProviderAccount;
+  error?: string;
+}
+
+export interface ListRepositoriesResult {
+  repos?: RemoteRepository[];
+  error?: string;
+}
+
 /**
  * One saved shell command of a project. `cwd` is where it runs, relative to the project root —
  * a monorepo's frontend scripts belong to the folder that declares them, and writing

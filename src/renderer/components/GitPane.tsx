@@ -109,7 +109,7 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
       confirmLabel: "Discard changes"
     });
     if (answer.confirmed) {
-      act(() => window.meeseek.repository.discard(project.id, paths));
+      act(() => window.meezeek.repository.discard(project.id, paths));
     }
   };
 
@@ -118,7 +118,7 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
     [project.path, ...relative.split("/")].join(isWindows() ? "\\" : "/");
 
   /**
-   * GitHub Desktop's changed-file menu, minus the editor entries meeseek has no setting for.
+   * GitHub Desktop's changed-file menu, minus the editor entries meezeek has no setting for.
    * It acts on the whole selection where that makes sense, and on the one file where it does
    * not — a diff and a file manager both show exactly one thing.
    */
@@ -129,13 +129,13 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
     const extension = /\.[^./]+$/.exec(change.path)?.[0];
     const discard = (targets: string[]) => () => void confirmDiscard(targets);
     const ignore = (scope: "file" | "extension") => () =>
-      act(() => window.meeseek.repository.ignore(project.id, change.path, scope));
+      act(() => window.meezeek.repository.ignore(project.id, change.path, scope));
 
     const entries: ContextMenuEntry[] = [
       { label: "Open diff", run: one ? () => onOpenDiff(change.path) : undefined },
       {
         label: "Open in external editor",
-        run: one ? () => void window.meeseek.shell.openFileExternally(project.id, change.path) : undefined
+        run: one ? () => void window.meezeek.shell.openFileExternally(project.id, change.path) : undefined
       },
       SEPARATOR,
       { label: one ? "Discard changes..." : `Discard ${paths.length} selected changes...`, run: discard(paths) },
@@ -148,7 +148,7 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
       SEPARATOR,
       {
         label: revealLabel(),
-        run: one ? () => void window.meeseek.shell.revealFile(project.id, change.path) : undefined
+        run: one ? () => void window.meezeek.shell.revealFile(project.id, change.path) : undefined
       },
       {
         label: one ? "Copy file path" : "Copy file paths",
@@ -192,7 +192,7 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
               title="Stash all changes"
               disabled={branch.busy || acting || state.changes.length === 0}
               onClick={() =>
-                branch.run("Stashing changes...", () => window.meeseek.repository.stashPush(project.id, ""))
+                branch.run("Stashing changes...", () => window.meezeek.repository.stashPush(project.id, ""))
               }
             >
               <StashIcon />

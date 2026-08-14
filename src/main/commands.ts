@@ -7,10 +7,10 @@ import { resolveCommand } from "./pty";
 
 /**
  * Shell commands a project keeps around — "npm run build", a deploy script, whatever is typed
- * often enough to be worth a button. They live in the repository rather than in meeseek's own
+ * often enough to be worth a button. They live in the repository rather than in meezeek's own
  * storage, so they travel with it and can be shared like any other project file.
  */
-const FILE = "meeseek.json";
+const FILE = "meezeek.json";
 
 /**
  * What that file holds. A command is written as a plain string while the command line alone
@@ -38,7 +38,7 @@ function file(root: string): string {
 }
 
 /**
- * The project's saved commands, or **null** when it has no meeseek.json at all — which is the
+ * The project's saved commands, or **null** when it has no meezeek.json at all — which is the
  * one case worth telling apart, since that is when the caller offers to fill the list itself.
  * A file that is there but unreadable or shaped differently is no commands rather than none:
  * it is a file in the user's repository, and half of it being someone else's is a good enough
@@ -161,7 +161,7 @@ const SUGGEST_PROMPT = [
   '"&&" or "||", no ">" redirection, no "$(...)", no backticks, no "$VAR", and no',
   '"VAR=value cmd" prefix. Quotes group one argument and are the only way to put a space in',
   "one.",
-  'Environment variables go in an "env" object instead, and meeseek sets them:',
+  'Environment variables go in an "env" object instead, and meezeek sets them:',
   '  {"command": "java -jar target/app.jar", "env": {"PROFILE": "DEVELOPMENT"}}',
   "Two things that have to run one after the other are two entries, not one line.",
   "",

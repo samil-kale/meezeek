@@ -65,9 +65,9 @@ export function TerminalsPane({
   useEffect(() => {
     void (async () => {
       const [existing, available, isStarting] = await Promise.all([
-        window.meeseek.terminals.list(project.id),
-        window.meeseek.agents.list(),
-        window.meeseek.terminals.starting(project.id)
+        window.meezeek.terminals.list(project.id),
+        window.meezeek.agents.list(),
+        window.meezeek.terminals.starting(project.id)
       ]);
       setAgents(available);
       setTabs(existing);
@@ -75,7 +75,7 @@ export function TerminalsPane({
         setStarting(isStarting);
       }
     })();
-    return window.meeseek.terminals.onTabs((payload) => {
+    return window.meezeek.terminals.onTabs((payload) => {
       if (payload.projectId === project.id) {
         setTabs(payload.tabs);
       }
@@ -84,7 +84,7 @@ export function TerminalsPane({
 
   useEffect(
     () =>
-      window.meeseek.terminals.onStatus(({ projectId, tabId, status }) => {
+      window.meezeek.terminals.onStatus(({ projectId, tabId, status }) => {
         if (projectId === project.id) {
           setTabs((current) => current.map((tab) => (tab.tabId === tabId ? { ...tab, status } : tab)));
         }
@@ -94,7 +94,7 @@ export function TerminalsPane({
 
   useEffect(
     () =>
-      window.meeseek.terminals.onStartupProgress(({ projectId, show }) => {
+      window.meezeek.terminals.onStartupProgress(({ projectId, show }) => {
         if (projectId === project.id) {
           progressPushed.current = true;
           setStarting(show);
@@ -187,7 +187,7 @@ export function TerminalsPane({
 
   const createTab = useCallback(
     async (agentId: AgentId) => {
-      const descriptor = await window.meeseek.terminals.create(project.id, agentId);
+      const descriptor = await window.meezeek.terminals.create(project.id, agentId);
       setActiveId(descriptor.tabId);
     },
     [project.id]
@@ -207,7 +207,7 @@ export function TerminalsPane({
   }, [openedTabId, tabs]);
 
   const closeTabs = useCallback(
-    (tabIds: string[]) => void window.meeseek.terminals.close(project.id, tabIds),
+    (tabIds: string[]) => void window.meezeek.terminals.close(project.id, tabIds),
     [project.id]
   );
 
@@ -226,7 +226,7 @@ export function TerminalsPane({
         maxLength: MAX_TITLE_LENGTH
       });
       if (answer !== null && answer.value !== tab.title) {
-        void window.meeseek.terminals.rename(project.id, tab.tabId, answer.value);
+        void window.meezeek.terminals.rename(project.id, tab.tabId, answer.value);
       }
     },
     [project.id]

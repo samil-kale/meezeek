@@ -198,8 +198,31 @@ export class ProjectSessionManager {
     this.acquireIndicator();
     try {
       await Promise.all(AGENTS.map((agent) => this.runtimeFor(agent.id).ready));
+      this.openFirstAgentTab();
     } finally {
       this.releaseIndicator();
+    }
+  }
+
+  /**
+   * A project that restored no session at all — a repository just cloned, or one whose
+   * sessions were all deleted — opens with one agent tab rather than an empty pane: the
+   * terminals are what the window is for, and the first thing anyone does here is start an
+   * agent. Which agent is registration order, so Claude Code where it is installed and
+   * opencode otherwise; the shell is skipped by having no sessions, the same rule that
+   * decides whether a tab takes its title from one.
+   *
+   * Nothing is spawned by this. `addTab` only puts the tab in the list, and the pane's first
+   * resize is what starts the CLI — so a project the user never switches to costs nothing,
+   * and a fresh tab persists no session, which is why this runs again on the next start.
+   */
+  private openFirstAgentTab(): void {
+    if (this.disposed || this.tabs.length > 0) {
+      return;
+    }
+    const agent = AGENTS.find((candidate) => candidate.sessions && this.canStart(this.runtimeFor(candidate.id)));
+    if (agent) {
+      this.createTab(agent.id);
     }
   }
 
@@ -300,7 +323,7 @@ export class ProjectSessionManager {
       runtime.prepareFailed = false;
       return true;
     } catch (error) {
-      console.error("[meeseek] spawn preparation failed:", error);
+      console.error("[meezeek] spawn preparation failed:", error);
       this.callbacks.onNotice("error", `${agent.displayName} could not be started: ${String(error)}`);
       runtime.prepareFailed = true;
       return false;
@@ -386,7 +409,7 @@ export class ProjectSessionManager {
       this.callbacks.onNotice(
         "error",
         `"${command.command}" cannot run: ${operator} is shell syntax, and a saved command is ` +
-          `started without one. Split it into two commands, or add "shell": true to it in meeseek.json.`
+          `started without one. Split it into two commands, or add "shell": true to it in meezeek.json.`
       );
       return undefined;
     }

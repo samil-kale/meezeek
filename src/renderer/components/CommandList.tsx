@@ -10,7 +10,7 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  * A type of our own, for the same reason the project list has one: a row dragged across a
  * terminal must not end up pasted into it, and this list is no target for anything else.
  */
-const DRAG_TYPE = "application/x-meeseek-command";
+const DRAG_TYPE = "application/x-meezeek-command";
 
 /** The whole command as a tooltip: the line, where it runs, and what it runs with. */
 function describe(command: ProjectCommand): string {
@@ -37,7 +37,7 @@ interface CommandListProps {
 }
 
 /**
- * A project's saved shell commands, under the project list. They come from a meeseek.json in
+ * A project's saved shell commands, under the project list. They come from a meezeek.json in
  * the repository's own root, so they belong to the project rather than to this machine — and
  * they change with the project the sidebar has selected.
  *
@@ -82,12 +82,12 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
       return;
     }
     let cancelled = false;
-    void window.meeseek.commands.list(projectId).then((saved) => {
+    void window.meezeek.commands.list(projectId).then((saved) => {
       if (cancelled) {
         return;
       }
       applyCommands(saved ?? []);
-      // No meeseek.json at all: nobody has set this project up here, which is the one moment
+      // No meezeek.json at all: nobody has set this project up here, which is the one moment
       // where looking its commands up unasked is worth the wait. A file with an empty list is
       // someone having deleted them all, and stays empty.
       if (saved === null && !autoSuggested.current.has(projectId)) {
@@ -117,14 +117,14 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
       return;
     }
     applyCommands(next);
-    void window.meeseek.commands.save(projectId, next);
+    void window.meezeek.commands.save(projectId, next);
   };
 
   const askAdd = async (): Promise<void> => {
     const answer = await prompt({
       title: "New command",
       label: "Command",
-      detail: "Saved to meeseek.json in the project. The command is started without a shell.",
+      detail: "Saved to meezeek.json in the project. The command is started without a shell.",
       value: "",
       confirmLabel: "Save",
       extras: [
@@ -137,7 +137,7 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
     }
     const [cwd, env] = answer.extras;
     // Only what was filled in: a folder or an environment written into every entry would put
-    // the long form in meeseek.json for commands that have nothing to say beyond themselves.
+    // the long form in meezeek.json for commands that have nothing to say beyond themselves.
     const command: ProjectCommand = { command: answer.value };
     if (cwd) {
       command.cwd = cwd;
@@ -156,7 +156,7 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
     const answer = await confirm({
       title: "Delete command",
       message: `Delete "${command.command}"?`,
-      detail: "It is removed from the project's meeseek.json.",
+      detail: "It is removed from the project's meezeek.json.",
       confirmLabel: "Delete"
     });
     if (answer.confirmed) {
@@ -178,7 +178,7 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
     }
     setSuggestingIn((current) => [...current, project]);
     try {
-      const found = await window.meeseek.commands.suggest(project);
+      const found = await window.meezeek.commands.suggest(project);
       if (shown.current === project) {
         applyCommands(found);
       }
@@ -193,7 +193,7 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
       return;
     }
     const project = projectId;
-    void window.meeseek.commands.run(project, command).then((tab) => {
+    void window.meezeek.commands.run(project, command).then((tab) => {
       if (tab) {
         onOpenTab(project, tab.tabId);
       }

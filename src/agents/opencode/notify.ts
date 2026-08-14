@@ -5,7 +5,7 @@ import type { NotificationSettings } from "../notifications";
 
 /**
  * Fires the OS notifications for opencode. No hooks and no generated plugin are involved:
- * the server's own event stream carries what a notification would be about, and meeseek is
+ * the server's own event stream carries what a notification would be about, and meezeek is
  * already subscribed to it for everything else — opencode's configuration stays untouched.
  */
 export function createOpencodeNotifier(
