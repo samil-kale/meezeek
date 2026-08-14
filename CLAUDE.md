@@ -149,10 +149,11 @@ rebasing HEAD onto one, "Update from <default>", aborting the merge or rebase gi
 half-way through, creating and pushing tags, checking one out, deleting it, and applying,
 popping or dropping a stash. The changes list takes a ctrl- and shift-click selection, discards
 it in one go and opens a file in whatever the OS opens its type with; its header carries the two
-that clear the whole list — stash everything, discard everything. Still missing, roughly in
-order: clone, then GitHub and GitLab behind one `GitProvider` interface (authenticate, list
-repositories, resolve a clone URL) under `src/providers/`. Providers stay separate from the
-local git layer — once a repository is cloned, everything goes back through the CLI.
+that clear the whole list — stash everything, discard everything. Cloning landed with the
+add-repository dialog, and GitHub and GitLab with it, behind one `GitProvider` interface
+(authenticate, list repositories, resolve a clone URL) under `src/providers/`. Providers stay
+separate from the local git layer — once a repository is cloned, everything goes back through
+the CLI.
 
 Every one of those commands goes through `Repository.runAction`, which runs one at a time per
 repository and refreshes after it: two of them race for the same index lock, and a fetch on top
@@ -193,9 +194,27 @@ a tag on the remote, pushing a tag — runs with `NETWORK_ENV`, and every part o
 stop git asking a question: `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (unset, git falls back to the very
 terminal the first variable is trying to avoid), and `ssh -oBatchMode=yes`. There is no console
 to answer in, and a command waiting for an answer that cannot come would hold the repository's
-one action slot open indefinitely. Credentials come from the user's own credential helper or
-they do not come at all — meezeek has no login of its own and is not getting one before the
-providers land.
+one action slot open indefinitely. Credentials come from the user's own credential helper, from
+a provider account's token, or they do not come at all — meezeek writes nothing into that
+helper, which is machine-wide and every other git client's too.
+
+`LC_ALL=C` is in there for a different reason: git translates its own messages, and `runNetwork`
+matches two of them (`could not read Username`, `Authentication failed`) to set `authRequired` on
+the result. There is no exit code for it — every fatal error of a clone is 128 — so reading the
+text is what is left, which is what GitHub Desktop does too, with a whole table of patterns
+mapped onto its error codes. Pinned to C, or a machine with `LANG=de_DE` answers
+"Authentifizierung fehlgeschlagen" and matches nothing. A repository git could not find stays
+out of that list on purpose: GitHub and GitLab answer 404 for a private repository *and* for a
+typo, so credentials would be a guess rather than the answer.
+
+That flag is what the add-repository dialog's clone acts on, and the only thing it does is ask:
+the clone runs with nothing, and only when it comes back short does `CloneAuth` appear under the
+fields — the accounts for *this host* on one side of a switch, a token on the other, never both.
+A typed token is validated and stored as an account on the way through, so the next clone from
+that host finds it already there. What git said is a notice like every other failure; the block
+is the state that follows from it, not a message of its own. An ssh url never gets there, since
+a missing key fails with a message none of the patterns match — which is the truth, as no token
+would have helped.
 
 Ahead and behind are read from the `git status --branch` header that a refresh already asks
 for (`main...origin/main [ahead 1, behind 2]`), not from a `rev-list` of their own — the rule
@@ -256,8 +275,9 @@ agent should be asked to do — in a place where the answer, the conflict and th
 visible. A second, half-complete way to do it in a side panel makes the tool bigger without
 making it better.
 
-Nor does the pane offer a login of its own, PRs or CI status; those wait on the providers.
-What *is* still open: clone, and the provider work above.
+Nor does the pane offer PRs or CI status; those are still open. The provider accounts are not a
+login of the pane's either — they live in the add-repository dialog, which is the one place that
+talks to a host rather than to a repository.
 
 ### git used to share a process with everyone's keystrokes
 

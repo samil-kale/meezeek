@@ -34,8 +34,11 @@ export interface MeezeekApi {
   };
   projects: {
     list(): Promise<Project[]>;
-    /** Opens a native folder picker; resolves null when it was cancelled. */
-    pickDirectory(title: string): Promise<string | null>;
+    /**
+     * Opens a native folder picker; resolves null when it was cancelled. `defaultPath` is the
+     * folder it opens in — a folder that is no longer there is ignored by the platform.
+     */
+    pickDirectory(title: string, defaultPath?: string): Promise<string | null>;
     /** Opens the folder — or the repository it is a subdirectory of — as a project. */
     open(directory: string): Promise<Project>;
     /**
@@ -55,6 +58,8 @@ export interface MeezeekApi {
     /** Validates the token against the host and stores the account; the token stays main-side. */
     addAccount(provider: ProviderId, host: string, token: string): Promise<AddAccountResult>;
     removeAccount(accountId: string): Promise<void>;
+    /** Keeps the group the remote tab was narrowed to; "" is all of them, and is a choice too. */
+    setNamespace(accountId: string, namespace: string): Promise<void>;
     /** Every repository the account can reach, most recently active first. */
     repos(accountId: string): Promise<ListRepositoriesResult>;
   };

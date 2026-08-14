@@ -14,7 +14,7 @@ const api: MeezeekApi = {
   },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
-    pickDirectory: (title) => ipcRenderer.invoke("projects:pick-directory", title),
+    pickDirectory: (title, defaultPath) => ipcRenderer.invoke("projects:pick-directory", title, defaultPath),
     open: (directory) => ipcRenderer.invoke("projects:open-path", directory),
     clone: (url, directory, name, accountId) => ipcRenderer.invoke("projects:clone", url, directory, name, accountId),
     create: (directory, name) => ipcRenderer.invoke("projects:create", directory, name),
@@ -25,6 +25,7 @@ const api: MeezeekApi = {
     accounts: () => ipcRenderer.invoke("providers:accounts"),
     addAccount: (provider, host, token) => ipcRenderer.invoke("providers:add-account", provider, host, token),
     removeAccount: (accountId) => ipcRenderer.invoke("providers:remove-account", accountId),
+    setNamespace: (accountId, namespace) => ipcRenderer.invoke("providers:set-namespace", accountId, namespace),
     repos: (accountId) => ipcRenderer.invoke("providers:repos", accountId)
   },
   repository: {

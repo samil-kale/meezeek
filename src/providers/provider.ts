@@ -28,27 +28,76 @@ export async function getJson(url: string, headers: Record<string, string>): Pro
   return response.json();
 }
 
-/** Follows `Link: rel="next"` from the first page until the cap, collecting array bodies. */
+/**
+ * Every page of a listing, up to the cap. The first one is what says how many there are: both
+ * hosts send `rel="last"` alongside `rel="next"`, so the rest are fetched at once rather than
+ * one after the other — a page costs about a second, and waiting for each to name the next
+ * spends that many seconds in a row for nothing.
+ *
+ * Where there is no `rel="last"` — a listing short enough to fit on one page sends neither, and
+ * an instance may leave it out past a certain size — it falls back to following `rel="next"`.
+ */
 export async function getPaged(first: string, headers: Record<string, string>): Promise<unknown[]> {
-  const items: unknown[] = [];
-  let url: string | undefined = first;
-  for (let page = 0; url !== undefined && page < PAGE_CAP; page++) {
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new Error(await apiError(response));
+  const response = await fetch(first, { headers });
+  if (!response.ok) {
+    throw new Error(await apiError(response));
+  }
+  const items = arrayBody(await response.json());
+  const link = response.headers.get("link");
+  const last = relLink(link, "last");
+  const lastPage = last === undefined ? undefined : pageOf(last);
+  if (last === undefined || lastPage === undefined) {
+    let url = relLink(link, "next");
+    for (let page = 1; url !== undefined && page < PAGE_CAP; page++) {
+      const rest = await fetch(url, { headers });
+      if (!rest.ok) {
+        throw new Error(await apiError(rest));
+      }
+      items.push(...arrayBody(await rest.json()));
+      url = relLink(rest.headers.get("link"), "next");
     }
-    const body = (await response.json()) as unknown;
-    if (Array.isArray(body)) {
-      items.push(...body);
-    }
-    url = nextLink(response.headers.get("link"));
+    return items;
+  }
+  const urls: string[] = [];
+  for (let page = 2; page <= Math.min(lastPage, PAGE_CAP); page++) {
+    urls.push(withPage(last, page));
+  }
+  const bodies = await Promise.all(
+    urls.map(async (url) => {
+      const rest = await fetch(url, { headers });
+      if (!rest.ok) {
+        throw new Error(await apiError(rest));
+      }
+      return arrayBody(await rest.json());
+    })
+  );
+  for (const body of bodies) {
+    items.push(...body);
   }
   return items;
 }
 
-function nextLink(header: string | null): string | undefined {
-  const match = /<([^>]+)>;\s*rel="next"/.exec(header ?? "");
+/** An array body as itself; anything else — an object where a list was expected — as nothing. */
+function arrayBody(body: unknown): unknown[] {
+  return Array.isArray(body) ? body : [];
+}
+
+function relLink(header: string | null, rel: string): string | undefined {
+  const match = new RegExp(`<([^>]+)>;\\s*rel="${rel}"`).exec(header ?? "");
   return match?.[1];
+}
+
+/** The `page` a paging url carries; both hosts number their pages with that one parameter. */
+function pageOf(url: string): number | undefined {
+  const value = Number(new URL(url).searchParams.get("page"));
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** The same url with its page replaced — the rest of the query has to be carried along. */
+function withPage(url: string, page: number): string {
+  const next = new URL(url);
+  next.searchParams.set("page", String(page));
+  return next.toString();
 }
 
 /** Both APIs put their reason in a `message` field; the status line is the fallback. */

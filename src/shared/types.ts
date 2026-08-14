@@ -48,6 +48,8 @@ export interface Project {
 export interface AddRepositoryResult {
   project?: Project;
   error?: string;
+  /** See GitActionResult: the clone wants credentials, and the dialog asks for them. */
+  authRequired?: boolean;
 }
 
 export type ProviderId = "github" | "gitlab";
@@ -60,6 +62,12 @@ export interface ProviderAccount {
   host: string;
   /** The login the token belongs to, read from the API when the account was added. */
   user: string;
+  /**
+   * The group the remote tab's list was last narrowed to, "" for all of them. Undefined until
+   * one was picked, which is what lets the tab fall back to wherever the most recent activity
+   * was instead of overruling a choice that was never made.
+   */
+  namespace?: string;
 }
 
 /** One repository the remote tab lists, in the shape its rows and the clone tab need. */
@@ -244,6 +252,12 @@ export interface DiffOptions {
 export interface GitActionResult {
   ok: boolean;
   error?: string;
+  /**
+   * Whether git stopped for want of credentials rather than for any other reason. Only a
+   * command that reaches a remote ever sets it, and only the clone acts on it — by offering an
+   * account or a token and running again.
+   */
+  authRequired?: boolean;
 }
 
 /** A branch to check out: a local branch, or a remote-tracking one like "origin/development". */

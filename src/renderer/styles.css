@@ -44,6 +44,27 @@ input:focus {
   border-color: var(--vscode-focusBorder);
 }
 
+/* The same shape as an input, in the colors VS Code keeps for a dropdown — they are all but
+   the input's, except for the popup's own background, which the option below needs. */
+select {
+  font: inherit;
+  color: var(--vscode-dropdown-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: 2px;
+  outline: none;
+  padding: 3px 6px;
+}
+
+select:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+/* Without this the list Chrome opens is the platform's own white one under a dark field. */
+option {
+  background: var(--vscode-dropdown-listBackground);
+}
+
 /* Scrollbars, VS Code's way: no arrows, no track of their own, and a slider translucent
    enough to read the content through. Declared once for the document — every scrollable pane
    wants the same ones. Where a pane wants none at all it hides them itself. */
@@ -1359,7 +1380,7 @@ input:focus {
 /* Add repository ------------------------------------------------------------------------- */
 
 .add-repository {
-  width: 560px;
+  width: 720px;
   /* Sized to the remote tab, the fullest one, and fixed: switching tabs must not resize the
      dialog under the pointer. The body stretches, so the buttons stay pinned to the bottom. */
   height: 440px;
@@ -1464,11 +1485,13 @@ input:focus {
   color: var(--vscode-descriptionForeground);
 }
 
+/* Roomier than the sidebar's 3px rows: this is a list to read through and pick from once, not
+   navigation that is on screen all day, and the row carries a button on hover. */
 .remote-repo {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 6px 3px 8px;
+  padding: 6px 6px 6px 8px;
   font-size: 12px;
 }
 

@@ -86,10 +86,19 @@ export function registerIpc({
 
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
-  ipcMain.handle("projects:pick-directory", async (_event, title: string): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({ title, properties: ["openDirectory"] });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
-  });
+  ipcMain.handle(
+    "projects:pick-directory",
+    async (_event, title: string, defaultPath?: string): Promise<string | null> => {
+      // Undefined rather than "" for a folder nobody has picked yet: an empty defaultPath is a
+      // path too, and the platform would open wherever it resolves to.
+      const result = await dialog.showOpenDialog({
+        title,
+        defaultPath: defaultPath === "" ? undefined : defaultPath,
+        properties: ["openDirectory"]
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    }
+  );
 
   ipcMain.handle("projects:open-path", async (_event, directory: string): Promise<Project> => {
     // Picking a subdirectory of a repository opens the repository itself: git reports every
@@ -108,7 +117,9 @@ export function registerIpc({
     try {
       const result = await action;
       if (!result.ok) {
-        return { error: result.error || `${label} failed` };
+        // The dialog asks for an account or a token when this says the credentials were what
+        // was missing, so it has to survive the trip rather than be flattened into the message.
+        return { error: result.error || `${label} failed`, authRequired: result.authRequired };
       }
     } catch (error) {
       // The git process died mid-command; its message is all that is left to report.
@@ -155,6 +166,10 @@ export function registerIpc({
   );
 
   ipcMain.handle("providers:remove-account", (_event, accountId: string): void => accounts.remove(accountId));
+
+  ipcMain.handle("providers:set-namespace", (_event, accountId: string, namespace: string): void =>
+    accounts.setNamespace(accountId, namespace)
+  );
 
   ipcMain.handle("providers:repos", async (_event, accountId: string): Promise<ListRepositoriesResult> => {
     const account = accounts.get(accountId);

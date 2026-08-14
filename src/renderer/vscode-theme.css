@@ -50,6 +50,11 @@
   --vscode-input-border: #3c3c3c;
   --vscode-input-placeholderForeground: #989898;
 
+  --vscode-dropdown-background: #313131;
+  --vscode-dropdown-foreground: #cccccc;
+  --vscode-dropdown-border: #3c3c3c;
+  --vscode-dropdown-listBackground: #1f1f1f;
+
   --vscode-button-background: #0078d4;
   --vscode-button-foreground: #ffffff;
   --vscode-button-hoverBackground: #026ec1;

@@ -11,7 +11,13 @@ interface StoredAccount extends ProviderAccount {
 
 /** The account as the renderer may see it — every field but the token. */
 function toAccount(entry: StoredAccount): ProviderAccount {
-  return { id: entry.id, provider: entry.provider, host: entry.host, user: entry.user };
+  return {
+    id: entry.id,
+    provider: entry.provider,
+    host: entry.host,
+    user: entry.user,
+    namespace: entry.namespace
+  };
 }
 
 /**
@@ -60,6 +66,15 @@ export class AccountStore {
     return toAccount(stored);
   }
 
+  /** Remembers the group the remote tab was narrowed to, so it opens there the next time. */
+  setNamespace(accountId: string, namespace: string): void {
+    const entry = this.accounts.find((account) => account.id === accountId);
+    if (entry) {
+      entry.namespace = namespace;
+      this.save();
+    }
+  }
+
   remove(accountId: string): void {
     this.accounts = this.accounts.filter((account) => account.id !== accountId);
     this.save();
@@ -92,7 +107,9 @@ export class AccountStore {
             ((entry as StoredAccount).provider === "github" || (entry as StoredAccount).provider === "gitlab") &&
             typeof (entry as StoredAccount).host === "string" &&
             typeof (entry as StoredAccount).user === "string" &&
-            typeof (entry as StoredAccount).token === "string"
+            typeof (entry as StoredAccount).token === "string" &&
+            ((entry as StoredAccount).namespace === undefined ||
+              typeof (entry as StoredAccount).namespace === "string")
         );
       }
     } catch {

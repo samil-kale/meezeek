@@ -362,7 +362,8 @@ async function run(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
  * What every command that reaches a remote runs with. git must never stop to ask for a
  * password here: there is no terminal it could ask in, and a command waiting for an answer
  * that cannot come would hold this repository's one action slot open forever. Credentials
- * come from the user's own credential helper or they do not come at all.
+ * come from the user's own credential helper, from an account's token, or they do not come at
+ * all.
  */
 const NETWORK_ENV: NodeJS.ProcessEnv = {
   GIT_TERMINAL_PROMPT: "0",
@@ -371,11 +372,32 @@ const NETWORK_ENV: NodeJS.ProcessEnv = {
   GIT_ASKPASS: "",
   SSH_ASKPASS: "",
   // Keeps a host key it has never seen from turning into a question nobody can answer.
-  GIT_SSH_COMMAND: "ssh -oBatchMode=yes"
+  GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
+  // git translates its own messages, and the two below are matched as text. Pinned to C, or a
+  // machine running with LANG=de_DE answers "Authentifizierung fehlgeschlagen" and matches none
+  // of them.
+  LC_ALL: "C"
 };
 
-function runNetwork(cwd: string, args: string[]): Promise<GitActionResult> {
-  return run(cwd, args, NETWORK_ENV);
+/**
+ * The two messages that mean git stopped for want of credentials. There is no exit code for
+ * it — every fatal error of a clone is 128 — so this reads the message, the way GitHub Desktop
+ * maps git's stderr onto its own error codes. Both lines are git's own and read the same
+ * whatever host answered: `GIT_TERMINAL_PROMPT=0` above is what produces the first, and a 401
+ * or 403 the second.
+ *
+ * A repository git could not find is deliberately not in here. GitHub and GitLab answer 404
+ * for a private repository *and* for a typo, so credentials would be a guess rather than the
+ * answer, and asking for them would put the blame on the wrong thing.
+ */
+const AUTH_FAILURES = [/could not read Username/i, /Authentication failed/i];
+
+async function runNetwork(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitActionResult> {
+  const result = await run(cwd, args, { ...NETWORK_ENV, ...env });
+  if (result.ok || !AUTH_FAILURES.some((pattern) => pattern.test(result.error ?? ""))) {
+    return result;
+  }
+  return { ...result, authRequired: true };
 }
 
 /** `--prune`, like GitHub Desktop: a branch deleted on the remote goes from the tree too. */
@@ -465,8 +487,7 @@ export async function cloneWithToken(
   token: string
 ): Promise<GitActionResult> {
   const askpass = await ensureAskpass();
-  return run(os.homedir(), ["-c", "credential.helper=", "clone", "--", url, directory], {
-    ...NETWORK_ENV,
+  return runNetwork(os.homedir(), ["-c", "credential.helper=", "clone", "--", url, directory], {
     GIT_ASKPASS: askpass,
     MEEZEEK_ASKPASS_USER: user,
     MEEZEEK_ASKPASS_TOKEN: token
