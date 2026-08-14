@@ -100,6 +100,12 @@ export interface ListRepositoriesResult {
  */
 export interface ProjectCommand {
   command: string;
+  /**
+   * What the row calls it, where the command line itself is not the clearest thing to read —
+   * "Start the backend" over `mvn compile exec:java -Dexec.mainClass=...`. Only a label: the
+   * line is what runs, and the tooltip is where it stays visible.
+   */
+  name?: string;
   /** Relative to the project root; absent means the root itself. */
   cwd?: string;
   /**

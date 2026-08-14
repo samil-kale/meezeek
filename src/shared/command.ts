@@ -68,6 +68,18 @@ export function isSameCommand(one: ProjectCommand, other: ProjectCommand): boole
  * without an `=` names nothing and is dropped; the first `=` separates, so a value may hold
  * more of them.
  */
+/**
+ * An environment written the way that field takes it — the inverse of `parseEnv`, and here for
+ * the same reason it is: the row that shows one and the dialog that opens with one in it have
+ * to spell it the way the parser reads it back. A value holding a space is quoted, since that
+ * is what makes it one word again.
+ */
+export function formatEnv(env: Record<string, string> | undefined): string {
+  return Object.entries(env ?? {})
+    .map(([name, value]) => `${name}=${/\s/.test(value) ? `"${value}"` : value}`)
+    .join(" ");
+}
+
 export function parseEnv(text: string): Record<string, string> | undefined {
   const env: Record<string, string> = {};
   for (const token of splitCommand(text)) {

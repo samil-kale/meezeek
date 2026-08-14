@@ -18,7 +18,9 @@ const FILE = "meezeek.json";
  * — so the common case stays a one-line entry a person can read, and an older file full of
  * strings is still a valid one.
  */
-type StoredCommand = string | { command?: unknown; cwd?: unknown; env?: unknown; shell?: unknown };
+type StoredCommand =
+  | string
+  | { command?: unknown; name?: unknown; cwd?: unknown; env?: unknown; shell?: unknown };
 
 interface ProjectFile {
   commands?: StoredCommand[];
@@ -86,6 +88,9 @@ function toCommand(entry: StoredCommand): ProjectCommand | undefined {
     return undefined;
   }
   const command: ProjectCommand = { command: entry.command };
+  if (typeof entry.name === "string" && entry.name.trim()) {
+    command.name = entry.name;
+  }
   if (typeof entry.cwd === "string" && entry.cwd.trim()) {
     command.cwd = entry.cwd;
   }
@@ -114,7 +119,9 @@ export async function readCommands(root: string): Promise<ProjectCommand[] | nul
 export function writeCommands(root: string, commands: ProjectCommand[]): Promise<void> {
   // Back to the short form wherever there is nothing else to say about the command.
   return patch(root, {
-    commands: commands.map((command) => (command.cwd || command.env || command.shell ? command : command.command))
+    commands: commands.map((command) =>
+      command.name || command.cwd || command.env || command.shell ? command : command.command
+    )
   });
 }
 

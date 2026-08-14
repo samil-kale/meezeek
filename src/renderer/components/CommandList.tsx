@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { isSameCommand, parseEnv } from "../../shared/command";
+import { formatEnv, isSameCommand, parseEnv } from "../../shared/command";
 import type { ProjectCommand } from "../../shared/types";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
-import { confirm, prompt } from "./Dialog";
+import { confirm, prompt, type PromptAnswer } from "./Dialog";
 import { reorder, useDragReorder } from "./drag-reorder";
 import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
 
@@ -12,17 +12,41 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  */
 const DRAG_TYPE = "application/x-meezeek-command";
 
+/** The optional fields of the dialog, the same in the one that adds and the one that edits. */
+const EXTRA_FIELDS = [
+  { label: "Name (optional)", placeholder: "what the row calls it, e.g. Start the backend" },
+  { label: "Folder (optional)", placeholder: "relative to the project, e.g. web" },
+  { label: "Environment (optional)", placeholder: "PROFILE=DEVELOPMENT PORT=8080" }
+];
+
+const COMMAND_DETAIL = "Saved to meezeek.json in the project. The command is started without a shell.";
+
 /**
- * What the row shows beside the command itself. Both of these are optional extras, and there
- * is room for one: the environment goes first, because a variable changes what the command
- * *does* while the folder only says where it stands. The tooltip has both either way.
+ * What the dialog was answered with as an entry, carrying only what was filled in: a folder or
+ * an environment written into every one of them would put the long form in meezeek.json for
+ * commands that have nothing to say beyond themselves.
+ *
+ * `shell` is carried over from the command being edited rather than asked for — the dialog does
+ * not offer it (a command that needs a shell only runs where it was written), and editing one
+ * must not quietly change how it is started.
  */
-function extraOf(command: ProjectCommand): string {
-  const variables = Object.entries(command.env ?? {});
-  if (variables.length > 0) {
-    return variables.map(([name, value]) => `${name}=${value}`).join(" ");
+function toCommand(answer: PromptAnswer, edited?: ProjectCommand): ProjectCommand {
+  const [name, cwd, env] = answer.extras;
+  const command: ProjectCommand = { command: answer.value };
+  if (name) {
+    command.name = name;
   }
-  return command.cwd ?? "";
+  if (cwd) {
+    command.cwd = cwd;
+  }
+  const variables = parseEnv(env);
+  if (variables) {
+    command.env = variables;
+  }
+  if (edited?.shell) {
+    command.shell = true;
+  }
+  return command;
 }
 
 /** The whole command as a tooltip: the line, where it runs, and what it runs with. */
@@ -137,32 +161,48 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
     const answer = await prompt({
       title: "New command",
       label: "Command",
-      detail: "Saved to meezeek.json in the project. The command is started without a shell.",
+      detail: COMMAND_DETAIL,
       value: "",
       confirmLabel: "Save",
-      extras: [
-        { label: "Folder (optional)", placeholder: "relative to the project, e.g. web" },
-        { label: "Environment (optional)", placeholder: "PROFILE=DEVELOPMENT PORT=8080" }
-      ]
+      extras: EXTRA_FIELDS,
+      valueIndex: 1
     });
     if (answer === null) {
       return;
     }
-    const [cwd, env] = answer.extras;
-    // Only what was filled in: a folder or an environment written into every entry would put
-    // the long form in meezeek.json for commands that have nothing to say beyond themselves.
-    const command: ProjectCommand = { command: answer.value };
-    if (cwd) {
-      command.cwd = cwd;
-    }
-    const variables = parseEnv(env);
-    if (variables) {
-      command.env = variables;
-    }
+    const command = toCommand(answer);
     const current = latest.current;
     if (!current.some((entry) => isSameCommand(entry, command))) {
       save([...current, command]);
     }
+  };
+
+  /** The same dialog as `askAdd`, opened with what the command already says. */
+  const askEdit = async (command: ProjectCommand): Promise<void> => {
+    const answer = await prompt({
+      title: "Edit command",
+      label: "Command",
+      detail: COMMAND_DETAIL,
+      value: command.command,
+      confirmLabel: "Save",
+      extras: [
+        { ...EXTRA_FIELDS[0], value: command.name },
+        { ...EXTRA_FIELDS[1], value: command.cwd },
+        { ...EXTRA_FIELDS[2], value: formatEnv(command.env) }
+      ],
+      valueIndex: 1
+    });
+    if (answer === null) {
+      return;
+    }
+    const current = latest.current;
+    const index = current.indexOf(command);
+    // Gone from the list while the dialog stood — the wand can replace it wholesale, and what
+    // was edited is then a row that no longer exists. Writing it back would put it there again.
+    if (index === -1) {
+      return;
+    }
+    save(current.map((entry, position) => (position === index ? toCommand(answer, command) : entry)));
   };
 
   const askRemove = async (command: ProjectCommand): Promise<void> => {
@@ -215,6 +255,7 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
 
   const menuEntries = (command: ProjectCommand): ContextMenuEntry[] => [
     { label: "Run", run: () => run(command) },
+    { label: "Edit...", run: () => void askEdit(command) },
     { label: "Delete...", run: () => void askRemove(command) }
   ];
 
@@ -253,10 +294,14 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
               setMenu({ x: event.clientX, y: event.clientY, command });
             }}
           >
-            <span className="command-line">{command.command}</span>
-            {/* What it runs with, or else where — the command alone would otherwise look like
-                it belongs to a folder that has no such script, or runs with nothing set. */}
-            {extraOf(command) && <span className="command-extra">{extraOf(command)}</span>}
+            {/* Its name where it has one: a long invocation is not what the row is for, and the
+                line itself is a tooltip away. */}
+            <span className="command-line">{command.name ?? command.command}</span>
+            {/* What it runs with, where anything is set — the command alone would otherwise
+                look like it runs with a plain environment. Never the folder: a variable changes
+                what the command does, while the folder only says where it stands, and the
+                tooltip has that. */}
+            {formatEnv(command.env) && <span className="command-extra">{formatEnv(command.env)}</span>}
             <button className="icon-button" title={`Run ${command.command} in a new tab`} onClick={() => run(command)}>
               <PlayIcon />
             </button>

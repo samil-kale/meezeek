@@ -30,10 +30,16 @@ export interface PromptOptions {
   maxLength?: number;
   /**
    * Further fields, for a question whose optional parts sit next to its answer — a saved
-   * command's folder and environment next to it. Empty is a valid answer for each of them; the
-   * first field is the one that must be filled in.
+   * command's name, folder and environment next to it. Empty is a valid answer for each of
+   * them; the answer's own field is the one that must be filled in.
    */
   extras?: { label: string; placeholder?: string; value?: string }[];
+  /**
+   * Where the answer's own field sits among the extras, first by default. A saved command's
+   * name is the one that goes above it: it is what the row will be called, and a label reads
+   * as the heading of what it names rather than as a note under it.
+   */
+  valueIndex?: number;
 }
 
 export interface PromptAnswer {
@@ -177,6 +183,36 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
     field.current?.select();
   }, []);
 
+  // Optional by construction: only the answer's own field can hold the dialog back, wherever
+  // `valueIndex` puts it among them.
+  const fields = (dialog.extras ?? []).map((entry, index) => (
+    <label key={entry.label} className="dialog-field">
+      <span>{entry.label}</span>
+      <input
+        type="text"
+        value={extras[index] ?? ""}
+        placeholder={entry.placeholder}
+        onChange={(event) =>
+          setExtras((current) => current.map((held, position) => (position === index ? event.target.value : held)))
+        }
+      />
+    </label>
+  ));
+  fields.splice(
+    dialog.valueIndex ?? 0,
+    0,
+    <label key="value" className="dialog-field">
+      <span>{dialog.label}</span>
+      <input
+        type="text"
+        value={value}
+        maxLength={dialog.maxLength}
+        onChange={(event) => setValue(event.target.value)}
+        ref={field}
+      />
+    </label>
+  );
+
   return (
     <Frame
       title={dialog.title}
@@ -185,30 +221,7 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
       onSubmit={() => dialog.answer({ value: value.trim(), extras: extras.map((entry) => entry.trim()) })}
       onCancel={() => dialog.answer(null)}
     >
-      <label className="dialog-field">
-        <span>{dialog.label}</span>
-        <input
-          type="text"
-          value={value}
-          maxLength={dialog.maxLength}
-          onChange={(event) => setValue(event.target.value)}
-          ref={field}
-        />
-      </label>
-      {/* Optional by construction: only the first field can hold the answer back. */}
-      {(dialog.extras ?? []).map((entry, index) => (
-        <label key={entry.label} className="dialog-field">
-          <span>{entry.label}</span>
-          <input
-            type="text"
-            value={extras[index] ?? ""}
-            placeholder={entry.placeholder}
-            onChange={(event) =>
-              setExtras((current) => current.map((held, position) => (position === index ? event.target.value : held)))
-            }
-          />
-        </label>
-      ))}
+      {fields}
       {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
     </Frame>
   );

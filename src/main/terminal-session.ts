@@ -74,7 +74,16 @@ export class TerminalSession {
    */
   ensureStarted(cols: number, rows: number): void {
     if (this.process) {
-      this.process.resize(cols, rows);
+      // A pty that has just died is still held here until node-pty's own exit event arrives,
+      // and resizing one throws rather than reporting anything — which took the whole main
+      // process with it. A saved command whose program does not exist dies inside exactly that
+      // window: it is spawned by the first resize and gone before the second one lands.
+      try {
+        this.process.resize(cols, rows);
+      } catch {
+        // The exit handler is on its way and is what sets the status; there is nothing to do
+        // for a size the process will never draw at.
+      }
       return;
     }
     if (!this.installed) {

@@ -364,8 +364,8 @@ option {
   font-family: var(--vscode-editor-font-family);
 }
 
-/* What it runs with, or the folder it runs in — see extraOf. Kept small and dimmed: it is
-   context for the command, not part of it. */
+/* The variables it runs with. Kept small and dimmed: it is context for the command, not part
+   of it. */
 .command-extra {
   flex: none;
   max-width: 40%;

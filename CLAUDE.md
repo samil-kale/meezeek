@@ -360,10 +360,12 @@ repository's own root (`src/main/commands.ts`), under a `commands` key, not in m
 anything else. That also means the file shows up as an untracked change in the git pane until
 someone commits or ignores it.
 
-A saved command is a command line and, where they are not the obvious ones, the folder it runs
-in and the environment variables it runs with. In the file it is a plain string while neither
-is needed and an object once one of them is (`{"command": "npm run build", "cwd": "web"}`), so
-the common case stays one readable line. The key was `actions` until the whole feature was
+A saved command is a command line and, where they are not the obvious ones, a name to show it
+under, the folder it runs in and the environment variables it runs with. In the file it is a
+plain string while none of them is needed and an object once one of them is
+(`{"command": "npm run build", "cwd": "web"}`), so the common case stays one readable line.
+`name` is a label and nothing more: the row shows it *instead of* the command line, since a long
+invocation is not what a list is for, and the line itself stays a tooltip away. The key was `actions` until the whole feature was
 renamed, and nothing reads that spelling any more: a `meezeek.json` written before the rename
 looks like a project nobody has set up here, and the wand fills it again. The command
 is then the one you would type standing in that folder — `npm run build`, not
@@ -378,13 +380,18 @@ variables outrank the ones inherited from the machine — every other environmen
 a terminal is a *default* that the user's own wins over, and this is the one case where the
 opposite is right: the user wrote it next to the command.
 
-The `+` dialog asks for all three: the command, and optionally a folder and an environment. The
+The `+` dialog asks for all of them: the command, and optionally a name, a folder and an
+environment. "Edit..." in a row's context menu is the same dialog with the row's own values in
+it, `formatEnv` writing the environment back into the one field `parseEnv` reads. What it does
+not ask about is `shell`, which is therefore carried over rather than dropped — editing a
+command must not quietly change how it is started. The
 environment is one field, written the way it would be typed — `PROFILE=DEVELOPMENT PORT=8080` —
 and read by `parseEnv`, which splits it with the very same `splitCommand` the command itself
 goes through, so `NAME="a b"` means there what it means everywhere else. That is why the two
 live in `src/shared/`: the renderer reads the field, the main process starts the process, and
 two spellings of "what counts as one word" would drift apart. `prompt` carries them as `extras`,
-a list of optional fields — only the first field of a dialog can hold its answer back.
+a list of optional fields — only the answer's own field can hold a dialog back, which is why the
+name is one of the extras even though `valueIndex` puts it above the command.
 
 **Running one opens a terminal tab for it.** The tab's *process is the command*, in its own
 directory, ending when the command does. Nothing is buffered and nothing is
