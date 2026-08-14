@@ -297,11 +297,14 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
             {/* Its name where it has one: a long invocation is not what the row is for, and the
                 line itself is a tooltip away. */}
             <span className="command-line">{command.name ?? command.command}</span>
-            {/* What it runs with, where anything is set — the command alone would otherwise
-                look like it runs with a plain environment. Never the folder: a variable changes
-                what the command does, while the folder only says where it stands, and the
-                tooltip has that. */}
-            {formatEnv(command.env) && <span className="command-extra">{formatEnv(command.env)}</span>}
+            {/* What it runs with, where anything is set and the row is still showing the command
+                line itself — the line alone would otherwise look like it runs with a plain
+                environment. A named row says nothing of the kind and stays a label; its tooltip
+                has all of it. Never the folder either: a variable changes what the command does,
+                while the folder only says where it stands. */}
+            {!command.name && formatEnv(command.env) && (
+              <span className="command-extra">{formatEnv(command.env)}</span>
+            )}
             <button className="icon-button" title={`Run ${command.command} in a new tab`} onClick={() => run(command)}>
               <PlayIcon />
             </button>

@@ -1,6 +1,9 @@
 {
   "commands": [
-    "npm run compile",
+    {
+      "command": "npm run compile",
+      "name": "rpm compile"
+    },
     "npm start",
     "npm run watch",
     "npm run typecheck",
