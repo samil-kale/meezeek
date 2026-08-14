@@ -137,22 +137,47 @@ function createWindow(): void {
   void window.loadFile(path.join(__dirname, "index.html"));
 }
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
-  // Only when NODE_DEBUG asks for it; see startEventLoopMonitor.
-  startEventLoopMonitor(path.join(app.getPath("userData"), "event-loop.log"));
-  // Up front rather than on the first repository: forking it costs a moment, and every
-  // project that opens below is about to ask it something.
-  startGitProcess();
-  registerIpc({ store, accounts, repositories, sessions, send, openProject, openWorkspace });
-  createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+/**
+ * One instance, because there is one of everything it keeps: the projects and the accounts are
+ * rewritten whole from what this process holds in memory, so a second window saving after the
+ * first would drop whatever the first had added; the agents' sessions are listed, adopted and
+ * deleted in the same directories by both; and the two would run git in the same repository
+ * without either knowing, which `Repository.runAction` only prevents within one process.
+ *
+ * The second start therefore hands over and leaves. Asked before anything is opened — the lock
+ * is the app's, not the window's, and Electron only tells the first instance about the others.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  // Somebody started it again, which is a request to look at it: bring what is already there
+  // to the front rather than doing nothing at all.
+  app.on("second-instance", () => {
+    if (window) {
+      if (window.isMinimized()) {
+        window.restore();
+      }
+      window.focus();
     }
   });
-});
+
+  app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    // Only when NODE_DEBUG asks for it; see startEventLoopMonitor.
+    startEventLoopMonitor(path.join(app.getPath("userData"), "event-loop.log"));
+    // Up front rather than on the first repository: forking it costs a moment, and every
+    // project that opens below is about to ask it something.
+    startGitProcess();
+    registerIpc({ store, accounts, repositories, sessions, send, openProject, openWorkspace });
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

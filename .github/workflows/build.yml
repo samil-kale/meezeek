@@ -1,0 +1,49 @@
+# The installers, one runner per platform: a dmg is only built on macOS, an AppImage and a deb
+# only on Linux, and node-pty's prebuilt binary is picked per platform as well.
+#
+# Deliberately not on every push. This repository is private, so the minutes are metered — and
+# Windows counts double, macOS ten times. A tag is what asks for installers; the button covers
+# everything else.
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      # One platform failing must not take the other two artifacts with it.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The same two gates the working copy is held to, before anything is packaged.
+      - run: npm run typecheck
+      - run: npm run lint
+
+      - run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meezeek-${{ matrix.os }}
+          # Just the installers — release/ also holds the unpacked app and the builder's
+          # own metadata, which together are several hundred megabytes.
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error

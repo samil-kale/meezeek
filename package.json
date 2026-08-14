@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Git workspace for coding agents",
+  "author": "Samil Kale",
   "license": "MIT",
   "main": "./dist/main.js",
   "scripts": {
@@ -10,7 +11,8 @@
     "watch": "node esbuild.js --watch",
     "start": "npm run compile && electron .",
     "typecheck": "tsc --noEmit -p .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "dist": "npm run compile -- --production && electron-builder"
   },
   "dependencies": {
     "node-pty": "1.2.0-beta.14"
@@ -26,6 +28,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "react": "^19.2.0",
