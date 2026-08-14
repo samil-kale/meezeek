@@ -63,6 +63,20 @@ export interface AppSettings {
   notifications: NotificationSettings;
 }
 
+/**
+ * What meezeek *is*, as opposed to what it is set to — the settings dialog's Info tab. Read once
+ * when the dialog opens: none of it can change while the process runs.
+ */
+export interface AppInfo {
+  /** package.json's version, which is what the installers are named after. */
+  version: string;
+  electron: string;
+  chromium: string;
+  node: string;
+  /** `process.platform` and `process.arch`, spelled the way node spells them. */
+  os: string;
+}
+
 /** How clone and create answer: the project once its folder is open, or git's own message. */
 export interface AddRepositoryResult {
   project?: Project;
@@ -322,4 +336,11 @@ export interface TerminalDescriptor {
    * mark opens the *oldest* one first, and clicking it again the next.
    */
   finishedAt?: number;
+  /**
+   * Whether the agent is working on a turn right now — the spinner in place of the tab's
+   * agent icon. Reported by the agent itself at both ends of the turn, so it is a state and
+   * not a guess: nothing here is derived from what the TUI drew. Always false for a tab whose
+   * process has ended, whatever the agent last said.
+   */
+  busy?: boolean;
 }

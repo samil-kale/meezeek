@@ -1,6 +1,6 @@
 import { createByteThresholdCheck } from "../../main/session-ready";
 import type { AgentDefinition } from "../agent";
-import { setupClaudeHooks, watchFinished } from "./hooks";
+import { setupClaudeHooks, watchMarkers } from "./hooks";
 import { claudeSessionProvider } from "./sessions";
 
 export const claudeAgent: AgentDefinition = {
@@ -15,19 +15,20 @@ export const claudeAgent: AgentDefinition = {
   sessions: claudeSessionProvider,
   prepareSpawn: (_executable, cwd, paths) => {
     let args: string[] = [];
-    let stopWatching = (): void => undefined;
+    const watchers: (() => void)[] = [];
     try {
       args = setupClaudeHooks(paths.agentDir, cwd, "Claude", paths.notifications, paths);
-      // The Stop hook is a process of its own and cannot call back into meezeek, so it leaves
-      // a file behind and this is what picks it up.
-      stopWatching = watchFinished(paths.agentDir, paths.onSessionFinished);
+      // A hook is a process of its own and cannot call back into meezeek, so each end of a turn
+      // leaves a file behind and these are what pick them up.
+      watchers.push(watchMarkers(paths.agentDir, "busy", paths.onSessionBusy));
+      watchers.push(watchMarkers(paths.agentDir, "finished", paths.onSessionFinished));
     } catch (error) {
       // Unlike opencode's server, these hooks are not what makes the CLI usable — losing
       // the notifications must not keep Claude from starting, so this is swallowed rather
       // than rejected (a rejection marks the whole agent as unstartable).
       console.error("[meezeek] could not write Claude hook settings:", error);
     }
-    return Promise.resolve({ args, dispose: stopWatching });
+    return Promise.resolve({ args, dispose: () => watchers.forEach((stop) => stop()) });
   },
   // Tuned empirically: Claude Code doesn't draw an early splash before its real UI, so no
   // grace period is needed — 500 sits comfortably above its startup handshake (well under

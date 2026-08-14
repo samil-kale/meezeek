@@ -10,25 +10,38 @@ import {
 import type { NotificationSettings } from "../../shared/types";
 
 /**
- * The directory the Stop hook drops a finished session's marker into, and the one meezeek
- * watches for them. Its *filenames* are the whole message — nothing is read out of a file, so
- * a reader never races a half-written one, which every other file shared with another process
- * here has to be written around.
+ * Where a hook drops its markers, and where meezeek watches for them. Two kinds, either end of
+ * a turn: `busy` from UserPromptSubmit, `finished` from Stop. A marker's *filename* is the whole
+ * message — nothing is read out of a file, so a reader never races a half-written one, which
+ * every other file shared with another process here has to be written around.
  */
-function finishedDir(storageDir: string): string {
-  return path.join(storageDir, "finished");
+type Marker = "busy" | "finished";
+
+/**
+ * How often the marker directories are swept regardless of the watcher — see watchMarkers for
+ * what this is a net under. Two seconds: a spinner that stops a moment late reads as the agent
+ * finishing, while one that never stops reads as a broken app.
+ */
+const MARKER_SWEEP_MS = 2000;
+
+function markerDir(storageDir: string, kind: Marker): string {
+  return path.join(storageDir, kind);
 }
 
 /**
- * The meezeek half of the hook above: reports every session it marked as finished and takes
- * the marker away again. From then on the mark lives in the tab's own state, so a file left
- * lying around would report the same turn again on the next start.
+ * The meezeek half of the hooks below: reports every session marked with `kind` and takes the
+ * marker away again. From then on the state lives in the tab, so a file left lying around would
+ * report the same turn again on the next start.
  *
  * Whatever is already in there at startup is therefore deleted *without* being reported: those
  * turns ended before this window existed, and every tab is freshly opened at that point.
  */
-export function watchFinished(storageDir: string, onFinished: (sessionId: string) => void): () => void {
-  const dir = finishedDir(storageDir);
+export function watchMarkers(
+  storageDir: string,
+  kind: Marker,
+  onMarker: (sessionId: string) => void
+): () => void {
+  const dir = markerDir(storageDir, kind);
   let stopped = false;
 
   const drain = async (report: boolean): Promise<void> => {
@@ -48,7 +61,7 @@ export function watchFinished(storageDir: string, onFinished: (sessionId: string
         continue;
       }
       if (report && !stopped) {
-        onFinished(name);
+        onMarker(name);
       }
     }
   };
@@ -58,12 +71,85 @@ export function watchFinished(storageDir: string, onFinished: (sessionId: string
   try {
     watcher = fs.watch(dir, () => void drain(true));
   } catch (error) {
-    console.error("[meezeek] could not watch Claude's finished sessions:", error);
+    console.error(`[meezeek] could not watch Claude's ${kind} sessions:`, error);
   }
+  // The watcher alone is not enough, and this was measured rather than feared: a marker sat in
+  // `finished/` for seven minutes while the process that should have picked it up was running
+  // and healthy — the next write drained it along with the fresh one. On win32 fs.watch can
+  // fire before the new name is in the directory listing, and nothing fires a second time, so
+  // one lost event strands a turn *forever*: the spinner never stops and the mark never lands.
+  // A readdir on an all-but-always-empty directory is a syscall, not a process, so the net
+  // costs nothing; the watcher stays because it is what makes the common case immediate.
+  const sweep = setInterval(() => void drain(true), MARKER_SWEEP_MS);
   return () => {
     stopped = true;
+    clearInterval(sweep);
     watcher?.close();
   };
+}
+
+/**
+ * The lines that turn the payload's session id into a marker file, in each shell. Shared by
+ * both hooks so the one thing that has to be exactly right — that nothing but a session id can
+ * ever become a filename — is written once. `$json` (win32) / `$json` (sh) must be in scope.
+ */
+function markPowershell(dir: string): string {
+  return `  # Matched before it is used as a path: the id is a uuid and nothing else may become
+  # a filename here. -Force so a session that reaches this twice overwrites its own marker
+  # rather than erroring - the file is empty, there is nothing in it to lose.
+  $id = [string]$json.session_id
+  if ($id -match '^[0-9a-fA-F-]+$') {
+    New-Item -ItemType File -Force -Path (Join-Path ${powershellSingleQuote(dir)} $id) -ErrorAction SilentlyContinue | Out-Null
+  }`;
+}
+
+function markPosix(dir: string): string {
+  return `# Only the uuid characters are captured, so nothing else can ever become a filename below.
+id=$(printf '%s' "$json" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F-]*\\)".*/\\1/p')
+# touch rather than a ">" redirection: ":" is a special built-in, and POSIX has a failed
+# redirection on one of those end the whole shell - which would take whatever follows with it
+# the one time the directory is missing.
+if [ -n "$id" ]; then
+  touch ${shellSingleQuote(dir)}/"$id" 2>/dev/null || true
+fi`;
+}
+
+/**
+ * Builds the UserPromptSubmit hook that records the session as working: the other end of the
+ * turn from the Stop hook below, and what puts the spinner on its tab. It has no guard of its
+ * own — a prompt was submitted, so the agent is busy, full stop.
+ *
+ * It shares UserPromptSubmit with the command that prints the context file, whose stdout is
+ * appended to the prompt, so this one has to stay **silent**; and it must exit 0 whatever
+ * happens, since a non-zero UserPromptSubmit hook can hold the prompt back.
+ */
+function buildBusyCommand(storageDir: string): string {
+  const marks = markerDir(storageDir, "busy");
+  fs.mkdirSync(marks, { recursive: true });
+  if (process.platform === "win32") {
+    const scriptFile = path.join(storageDir, "busy.ps1");
+    fs.writeFileSync(
+      scriptFile,
+      WIN_BOM +
+        `try {
+  $json = [Console]::In.ReadToEnd() | ConvertFrom-Json
+${markPowershell(marks)}
+} catch {}
+exit 0
+`
+    );
+    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
+  }
+  const scriptFile = path.join(storageDir, "busy.sh");
+  writePosixScript(
+    scriptFile,
+    `#!/bin/sh
+json=$(cat)
+${markPosix(marks)}
+exit 0
+`
+  );
+  return `sh "${scriptFile}"`;
 }
 
 /**
@@ -84,7 +170,7 @@ export function watchFinished(storageDir: string, onFinished: (sessionId: string
  * stuck in the list silencing every future one.
  */
 function buildStopCommand(storageDir: string, notifyCommand: string | undefined): string {
-  const marks = finishedDir(storageDir);
+  const marks = markerDir(storageDir, "finished");
   fs.mkdirSync(marks, { recursive: true });
   if (process.platform === "win32") {
     const scriptFile = path.join(storageDir, "stop-guard.ps1");
@@ -102,13 +188,7 @@ function buildStopCommand(storageDir: string, notifyCommand: string | undefined)
   if ($running.Count -gt 0) {
     exit 0
   }
-  # Matched before it is used as a path: the id is a uuid and nothing else may become a
-  # filename here. -Force so a session that finishes twice overwrites its own marker
-  # rather than erroring - the file is empty, there is nothing in it to lose.
-  $id = [string]$json.session_id
-  if ($id -match '^[0-9a-fA-F-]+$') {
-    New-Item -ItemType File -Force -Path (Join-Path ${powershellSingleQuote(marks)} $id) -ErrorAction SilentlyContinue | Out-Null
-  }
+${markPowershell(marks)}
 } catch {}
 ${notifyCommand ?? ""}
 `
@@ -128,14 +208,7 @@ tasks=$(printf '%s' "$json" | sed -n 's/.*"background_tasks"[[:space:]]*:[[:spac
 if printf '%s' "$tasks" | grep -q '"status"[[:space:]]*:[[:space:]]*"running"'; then
   exit 0
 fi
-# Only the uuid characters are captured, so nothing else can ever become a filename below.
-id=$(printf '%s' "$json" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F-]*\\)".*/\\1/p')
-# touch rather than a ">" redirection: ":" is a special built-in, and POSIX has a failed
-# redirection on one of those end the whole shell - which would take the notification below
-# with it the one time the directory is missing.
-if [ -n "$id" ]; then
-  touch ${shellSingleQuote(marks)}/"$id" 2>/dev/null || true
-fi
+${markPosix(marks)}
 ${notifyCommand ?? ""}
 `
   );
@@ -179,8 +252,17 @@ export function setupClaudeHooks(
   context: { contextFile: string; contextReadPaths: string[] }
 ): string[] {
   const hooks: Record<string, unknown> = {
+    // Two commands on the one event: the context file's contents become part of the prompt,
+    // and the marker says the session has started working. Order matters only in that the
+    // second must print nothing — everything a UserPromptSubmit hook writes is appended to
+    // the prompt itself.
     UserPromptSubmit: [
-      { hooks: [{ type: "command", command: buildReadContextCommand(storageDir, context.contextFile) }] }
+      {
+        hooks: [
+          { type: "command", command: buildReadContextCommand(storageDir, context.contextFile) },
+          { type: "command", command: buildBusyCommand(storageDir) }
+        ]
+      }
     ]
   };
   const repositoryName = path.basename(cwd);

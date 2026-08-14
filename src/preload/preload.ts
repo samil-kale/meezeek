@@ -12,6 +12,9 @@ const api: MeezeekApi = {
     check: () => ipcRenderer.invoke("startup:check"),
     quit: () => ipcRenderer.send("startup:quit")
   },
+  app: {
+    info: () => ipcRenderer.invoke("app:info")
+  },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
     save: (settings) => ipcRenderer.invoke("settings:save", settings)

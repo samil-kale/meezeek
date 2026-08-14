@@ -136,6 +136,16 @@ option {
   --content-min-width: 320px;
   /* Every list row in the window, wherever it is. See the rule that applies it. */
   --list-row-height: 28px;
+  /**
+   * Every icon in the window, wherever it is — the tab strip, the branch tree, the branch bar,
+   * an action button, a session mark. It was three sizes (14 in the strips, 15 in a button, 18
+   * standing alone), which is half of why icons kept reading as unequal; `extent` in icons.tsx
+   * is the other half, and settles how much of that box each drawing covers. One number now, so
+   * this is the single knob that resizes every icon in the window. The title bar's gear keeps
+   * its own 14 — its neighbours there are the platform's caption glyphs, not this window's
+   * icons.
+   */
+  --icon-size: 13px;
 }
 
 /* Title bar ------------------------------------------------------------------------------ */
@@ -202,10 +212,17 @@ option {
 
 /* Every other icon in the window is rendered at 18. Its neighbours here are the platform's
    caption glyphs, which are hairlines around 10px, so at 18 the gear would be the heaviest
-   thing in the bar by some way. */
+   thing in the bar by some way. At 14 the gear's own silhouette (2.2-13.8 of its 16 grid)
+   spans just over 10px, which is that extent.
+   The weight is the other half of it, and CSS is where it is settled: the shared <Svg> sets
+   stroke-width as an attribute for icons drawn at 18, and a rule here overrides it. 1.15 of a
+   16 grid rendered at 14 lands on 1px on screen — Segoe Fluent's caption glyphs are hairlines,
+   and a gear is a busier shape than a line or a cross to begin with, so matching their size
+   without matching their weight is what made it the darkest thing in the bar. */
 .titlebar-button svg {
   width: 14px;
   height: 14px;
+  stroke-width: 1.15;
 }
 
 /* The translucent hover every action button in the window takes, which is also about what the
@@ -215,18 +232,39 @@ option {
 }
 
 /* 24px around an 18px icon — the box only has to leave the hover background something to
-   draw. Barely dimmed rather than at 0.75: these are line drawings on a dark ground, and
-   every step down costs contrast the shapes need to stay readable. */
-.icon-button {
+   draw. `.session-mark-box` is not a button and takes none of the button styling below, but it
+   stands in a row of them and has to keep their rhythm: an icon at the same 18 with 3px of air
+   either side of it, rather than one pressed straight against its neighbours. Declared together
+   so the two boxes cannot drift apart. */
+.icon-button,
+.session-mark-box {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
+  flex: none;
+  /* The reset at the top of this file drops a button's border and background but not its
+     padding, and Chrome's default for one is `1px 6px`. With `box-sizing: border-box` that
+     left 24 − 12 = 12px of content, and a flex item is free to shrink into it: every icon in
+     every one of these buttons rendered 12 wide by 18 tall — a third narrower than the same
+     icon standing in a plain span, which is what made two identical spinners look like two
+     different sizes. Measured in the browser against this stylesheet, not guessed. */
+  padding: 0;
+}
+
+.icon-button svg,
+.session-mark-box svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
+/* Barely dimmed rather than at 0.75: these are line drawings on a dark ground, and every step
+   down costs contrast the shapes need to stay readable. */
+.icon-button {
   border-radius: 3px;
   color: inherit;
   opacity: 0.9;
-  flex: none;
 }
 
 /* Never the list's own hover colour: on a row that is already hovered it would be invisible,
@@ -294,8 +332,8 @@ option {
 .branch-count svg,
 .branch-sync svg {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
 .branch-name {
@@ -633,13 +671,12 @@ option {
   color: var(--vscode-focusBorder);
 }
 
-/* The row icon size the branch bar and the tab strip already use. */
 .tree-icon,
 .tree-header svg,
 .tree-item.remote > svg {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
 .tree-icon {
@@ -790,29 +827,30 @@ option {
   color: var(--vscode-errorForeground);
 }
 
-/* A session finished a turn out of sight — the speech bubble on its tab and the one on its
-   project's row. The same shape in both places and declared once, in the colour everything
-   that points at something here is drawn in: two marks for one thing must not come to read
-   as two different things. */
+/* What a session is doing: the spinner while a turn runs, the speech bubble once one finished
+   out of sight. One rule for both and for both places they appear — a tab and its project's
+   row — in the colour everything here that singles something out is drawn in. Two states of
+   one thing, so they must not come to read as two different kinds of thing.
+   On a tab each takes the agent icon's place and its size with it (`.terminal-tab-icon`), so
+   nothing here states a size: only in the sidebar do they stand on their own, at the 18 every
+   icon there is drawn at. */
+/* The size is stated here, not left to the <svg>'s own width attribute. Every other icon in the
+   window is sized from CSS — `.terminal-tab-icon`, `.tree-icon`, `.titlebar-button svg` — and
+   the one place that trusted the attribute rendered at its container's 24 instead of its own 18:
+   measured off a screenshot at 17px of ring, where the commands header's identical spinner drew
+   12. Do not take it back out. */
+/* Only the colour: what size a mark is comes from where it stands, like every other icon. It
+   carried its own 17px here once, to make the spinner's ring reach as far as the agent icon it
+   replaces — that is what `extent` in icons.tsx does now, for all of them at once. */
 .session-mark {
   flex: none;
   color: var(--vscode-focusBorder);
 }
 
-/* On a tab, at the size of the agent icon at the other end of the label rather than the 18 an
-   icon is drawn at everywhere else. */
-.terminal-tab .session-mark {
-  width: 14px;
-  height: 14px;
-}
-
-/* 14px, not the 18px an icon has elsewhere: a tab is a label with a mark in front of it, and
-   the mark stays smaller than the text it introduces. Sized here rather than per icon, so the
-   git tab's branch icon (drawn at 18 like all of icons.tsx) matches the agents' own. */
 .terminal-tab-icon {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: var(--icon-size);
+  height: var(--icon-size);
   opacity: 0.9;
 }
 
@@ -1412,6 +1450,37 @@ option {
   width: 560px;
 }
 
+/* A dialog with more than one pane heads itself with these instead of a title, shaped like the
+   terminal tabs so choosing one reads like choosing a tab anywhere else. Pulled to the dialog's
+   edges: a tab strip runs the full width of what it heads, and the dialog's own padding stays
+   for what is below — which is why this has to be the dialog's first child. Add repository and
+   the settings both use it; a second strip differing by a few pixels would read as a different
+   kind of thing. */
+.dialog-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 35px;
+  margin: -16px -16px 0;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+  background: var(--vscode-tab-inactiveBackground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.dialog-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 12px;
+  color: var(--vscode-tab-inactiveForeground);
+}
+
+.dialog-tab.active {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-tab-activeBackground);
+  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
+}
+
 .dialog-title {
   font-size: 15px;
   font-weight: 600;
@@ -1441,10 +1510,40 @@ option {
   cursor: pointer;
 }
 
-/* What one group of settings is called, above its switches. The body's own gap is the spacing;
-   nothing here needs a second one. */
-.settings-group {
-  font-weight: 600;
+/* Sized to the notifications tab, the fuller one, and fixed for the reason add-repository is:
+   switching tabs must not resize the dialog under the pointer. */
+.settings-dialog {
+  height: 300px;
+}
+
+.settings-dialog .dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The Info tab's values, shrunk to the widest row and centred in the pane rather than stretched
+   across it: five short versions held apart by the dialog's full width read as two lists rather
+   than as one, and the tab has nothing else in it to align to. */
+.settings-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: center;
+  margin: auto 0;
+}
+
+/* What it is called in the description colour, over a column wide enough for the longest of
+   them, so the values themselves still line up. */
+.settings-info-row {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-info-row span:first-child {
+  width: 80px;
+  flex: none;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* The field a name is typed into, with its label above it. */
@@ -1692,34 +1791,6 @@ option {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-/* The three ways in, shaped like the terminal tabs so choosing one reads like choosing a tab
-   anywhere else. Pulled to the dialog's edges: a tab strip runs the full width of what it
-   heads, and the dialog's own padding stays for the fields below. */
-.add-repository-tabs {
-  display: flex;
-  align-items: stretch;
-  height: 35px;
-  margin: -16px -16px 0;
-  border-radius: 6px 6px 0 0;
-  overflow: hidden;
-  background: var(--vscode-tab-inactiveBackground);
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-
-.add-repository-tab {
-  display: flex;
-  align-items: center;
-  padding: 0 14px;
-  font-size: 12px;
-  color: var(--vscode-tab-inactiveForeground);
-}
-
-.add-repository-tab.active {
-  color: var(--vscode-tab-activeForeground);
-  background: var(--vscode-tab-activeBackground);
-  box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
 }
 
 /* A path field's input with its Browse button beside it. */

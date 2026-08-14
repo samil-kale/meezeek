@@ -654,12 +654,12 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
           }
         }}
       >
-        <div className="add-repository-tabs">
+        <div className="dialog-tabs">
           {MODES.map((entry) => (
             <button
               key={entry.id}
               type="button"
-              className={mode === entry.id ? "add-repository-tab active" : "add-repository-tab"}
+              className={mode === entry.id ? "dialog-tab active" : "dialog-tab"}
               onClick={() => switchMode(entry.id)}
             >
               {entry.label}

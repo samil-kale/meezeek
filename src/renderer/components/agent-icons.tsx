@@ -1,4 +1,5 @@
 import type { AgentId } from "../../shared/types";
+import { fitIcon, fitStroke } from "./icons";
 
 /**
  * Which icon belongs to which agent. The one piece of agent-specific knowledge outside
@@ -18,7 +19,7 @@ interface AgentIconProps {
 /** Claude Code's own extension icon (sbc-claude-code/media/icon.svg). */
 function ClaudeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className={className} width="13" height="13" viewBox={fitIcon(22.15, 12, 12.14, 24)} aria-hidden="true">
       <path
         fill="currentColor"
         fillRule="evenodd"
@@ -32,7 +33,14 @@ function ClaudeIcon({ className }: { className?: string }) {
 /** opencode's own extension icon (sbc-open-code/media/icon.svg). */
 function OpencodeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="14" height="14" viewBox="96 96 320 320" fill="none" aria-hidden="true">
+    <svg
+      className={className}
+      width="13"
+      height="13"
+      viewBox={fitIcon(256.27, 255.15, 255.72, 320)}
+      fill="none"
+      aria-hidden="true"
+    >
       <path d="M320 224V352H192V224H320Z" fill="currentColor" opacity="0.6" />
       <path
         fillRule="evenodd"
@@ -49,12 +57,12 @@ function ShellIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      viewBox={fitIcon(13.4, 8, 8, 16)}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.3"
+      strokeWidth={fitStroke(13.4, 16, 1.3)}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

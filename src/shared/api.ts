@@ -3,6 +3,7 @@ import type {
   AddRepositoryResult,
   AgentId,
   AgentInfo,
+  AppInfo,
   AppSettings,
   CheckoutTarget,
   DiffOptions,
@@ -32,6 +33,10 @@ export interface MeezeekApi {
     check(): Promise<Requirements>;
     /** Leaves, for the user who would rather install first. */
     quit(): void;
+  };
+  /** What meezeek is rather than what it is set to; the settings dialog's Info tab shows it. */
+  app: {
+    info(): Promise<AppInfo>;
   };
   /** What the settings dialog reads and writes; there is one set of them for the whole app. */
   settings: {

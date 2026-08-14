@@ -5,7 +5,7 @@ import { AgentIcon } from "./agent-icons";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { TerminalHost } from "./TerminalHost";
-import { BranchIcon, CloseIcon, CommentIcon, PlusIcon } from "./icons";
+import { BranchIcon, CloseIcon, CommentIcon, PlusIcon, SpinnerIcon } from "./icons";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
 const RESIZE_DEBOUNCE_MS = 100;
@@ -322,11 +322,18 @@ export function TerminalsPane({
             }}
             title={tabTooltip(tab)}
           >
-            <AgentIcon agentId={tab.agentId} className="terminal-tab-icon" />
+            {/* What this session is doing takes the agent icon's place rather than claiming room
+                of its own — the tab is as wide as its label and nothing more. Working outranks
+                finished: a turn that started after the last one ended is the newer truth, and
+                the mark is still there underneath for when it stops. */}
+            {tab.busy ? (
+              <SpinnerIcon className="terminal-tab-icon session-mark spinning" />
+            ) : markedTabIds.includes(tab.tabId) ? (
+              <CommentIcon className="terminal-tab-icon session-mark" />
+            ) : (
+              <AgentIcon agentId={tab.agentId} className="terminal-tab-icon" />
+            )}
             <span className="terminal-tab-label">{tabLabel(tab)}</span>
-            {/* Not a button: the tab itself is what opens the session, and clicking anywhere
-                on it is already the way to make this go away. */}
-            {markedTabIds.includes(tab.tabId) && <CommentIcon className="session-mark" />}
             <button
               className="icon-button"
               title={tab.hasSession ? "Close tab and delete its session" : "Close tab"}

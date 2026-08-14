@@ -32,6 +32,13 @@ const WATCH_DEBOUNCE_MS = 300;
 // A killed CLI gets a moment to die before its transcript is removed, so a final in-flight
 // write can't resurrect the file we just deleted.
 const SESSION_REMOVE_DELAY_MS = 500;
+/**
+ * How long a turn whose session no tab has claimed is held before it is given up on. It has to
+ * outlast the gap between a CLI reporting its first prompt and persisting the transcript that
+ * the session listing reads — seconds, not milliseconds — and it is the only thing bounding
+ * `pendingTurns`, so it must not be indefinite either.
+ */
+const PENDING_TURN_TTL_MS = 60_000;
 // Readiness fires on the CLI's first full frame, which is a moment before the terminal
 // actually looks settled — hiding the indicator right then reads as a flicker.
 const INDICATOR_LINGER_MS = 700;
@@ -82,8 +89,17 @@ interface AgentRuntime {
   reconcileRetriesLeft: number;
   /** Latest point in time the debounced reconcile may be pushed to; unset once it fires. */
   reconcileDeadline?: number;
-  /** Sessions reported finished before any tab had claimed their id — see markFinished. */
-  readonly pendingFinished: Set<string>;
+  /**
+   * Sessions whose turn state arrived before any tab had claimed their id, what that state was,
+   * and when it came in — see markTurn and PENDING_TURN_TTL_MS.
+   */
+  readonly pendingTurns: Map<string, PendingTurn>;
+}
+
+/** One end of a turn, waiting for the reconcile that gives its session a tab. */
+interface PendingTurn {
+  busy: boolean;
+  since: number;
 }
 
 export interface SessionManagerCallbacks {
@@ -102,8 +118,19 @@ function titleUnsettled(tab: TabState): boolean {
   return !tab.sessionId || !tab.title || tab.provisionalTitle === true;
 }
 
+/**
+ * A turn started or ended. The spinner follows it either way, and the end of one also leaves
+ * the mark that outlives it — the two belong together, so one function sets both.
+ */
+function setTurn(tab: TabState, busy: boolean): void {
+  tab.busy = busy;
+  if (!busy) {
+    tab.finishedAt = Date.now();
+  }
+}
+
 function toDescriptor(tab: TabState): TerminalDescriptor {
-  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt } = tab;
+  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt, busy } = tab;
   return {
     tabId,
     projectId,
@@ -113,6 +140,7 @@ function toDescriptor(tab: TabState): TerminalDescriptor {
     createdAt,
     status,
     finishedAt,
+    busy,
     hasSession: sessionId !== undefined
   };
 }
@@ -163,7 +191,8 @@ export class ProjectSessionManager {
       // Read here rather than held: an agent prepares once per project, so this is the moment
       // the current settings apply, and a change reaches the ones set up after it.
       notifications: this.settings.get().notifications,
-      onSessionFinished: (sessionId) => this.markFinished(runtime, sessionId)
+      onSessionBusy: (sessionId) => this.markTurn(runtime, sessionId, true),
+      onSessionFinished: (sessionId) => this.markTurn(runtime, sessionId, false)
     };
   }
 
@@ -247,7 +276,7 @@ export class ProjectSessionManager {
       prepareFailed: false,
       released: false,
       reconcileRetriesLeft: 0,
-      pendingFinished: new Set()
+      pendingTurns: new Map()
     };
     this.runtimes.set(agentId, runtime);
     runtime.ready = this.prepareRuntime(runtime);
@@ -521,6 +550,13 @@ export class ProjectSessionManager {
           this.callbacks.onStatus(this.project.id, tabId, status);
           if (status === "stopped" || status === "error") {
             this.scheduleReconcile(runtime);
+            // A process that is gone is not working on anything, whatever the agent last said:
+            // a CLI killed mid-turn never gets to report its end, and the spinner would turn
+            // on a dead tab for the rest of the session.
+            if (tab.busy) {
+              tab.busy = false;
+              this.postTabs();
+            }
             // Safety net: the CLI may exit before ever producing enough output to cross the
             // heuristic above — don't leave the bar stuck up forever.
             hideIndicator();
@@ -664,27 +700,29 @@ export class ProjectSessionManager {
   }
 
   /**
-   * One of this project's sessions has finished a turn, as the agent itself reported it — see
-   * AgentPaths.onSessionFinished. Whether the mark is *shown* is not decided here: the
-   * renderer is the half that knows which tab is in front of the user.
+   * A turn in one of this project's sessions started or ended, as the agent itself reported it
+   * — see AgentPaths.onSessionBusy and onSessionFinished. Whether the mark a finished turn
+   * leaves is *shown* is not decided here: the renderer is the half that knows which tab is in
+   * front of the user.
    */
-  private markFinished(runtime: AgentRuntime, sessionId: string): void {
-    if (this.disposed || this.applyFinished(runtime, sessionId)) {
+  private markTurn(runtime: AgentRuntime, sessionId: string, busy: boolean): void {
+    if (this.disposed || this.applyTurn(runtime, sessionId, busy)) {
       return;
     }
-    // No tab holds that id yet — a fresh tab whose first turn ended before the reconcile that
-    // adopts its session ran, the common short-first-question case. Held rather than dropped,
-    // and re-listed at once so the wait is as short as it can be.
-    runtime.pendingFinished.add(sessionId);
+    // No tab holds that id yet — a fresh tab whose first turn began, or ended, before the
+    // reconcile that adopts its session ran; the common short-first-question case. Held rather
+    // than dropped, and re-listed at once so the wait is as short as it can be. A second signal
+    // for the same session replaces the first, so what lands is the state it ended up in.
+    runtime.pendingTurns.set(sessionId, { busy, since: Date.now() });
     this.scheduleReconcile(runtime, 0);
   }
 
-  private applyFinished(runtime: AgentRuntime, sessionId: string): boolean {
+  private applyTurn(runtime: AgentRuntime, sessionId: string, busy: boolean): boolean {
     const tab = this.tabsOf(runtime).find((candidate) => candidate.sessionId === sessionId);
     if (!tab) {
       return false;
     }
-    tab.finishedAt = Date.now();
+    setTurn(tab, busy);
     this.postTabs();
     return true;
   }
@@ -806,17 +844,20 @@ export class ProjectSessionManager {
       }
     }
 
-    // Turns reported before their tab had claimed the session — see markFinished. One gone
-    // from the listing is dropped rather than waited on: no tab will claim an id no session
-    // has any more, and that is what bounds this set.
-    for (const sessionId of runtime.pendingFinished) {
+    // Turns reported before their tab had claimed the session — see markTurn. Held until a tab
+    // takes them or they age out, and **not** dropped merely for being absent from this
+    // listing: a brand new session's `busy` arrives from UserPromptSubmit *before* Claude Code
+    // has written the transcript that listing reads, so dropping it there lost the spinner for
+    // exactly the case it matters most — the first turn of a fresh tab. The age limit is what
+    // bounds the map instead.
+    for (const [sessionId, pending] of runtime.pendingTurns) {
       const tab = ownTabs.find((candidate) => candidate.sessionId === sessionId);
       if (tab) {
-        tab.finishedAt = Date.now();
-        runtime.pendingFinished.delete(sessionId);
+        setTurn(tab, pending.busy);
+        runtime.pendingTurns.delete(sessionId);
         changed = true;
-      } else if (!infos.some((info) => info.id === sessionId)) {
-        runtime.pendingFinished.delete(sessionId);
+      } else if (Date.now() - pending.since > PENDING_TURN_TTL_MS) {
+        runtime.pendingTurns.delete(sessionId);
       }
     }
 

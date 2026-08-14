@@ -5,7 +5,7 @@ import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { reorder, useDragReorder } from "./drag-reorder";
 import { notify } from "./Notices";
-import { CloseIcon, CommentIcon, PlusIcon } from "./icons";
+import { CloseIcon, CommentIcon, PlusIcon, SpinnerIcon } from "./icons";
 
 /**
  * A type of our own rather than text/plain: a project dragged across a terminal must not end
@@ -27,6 +27,8 @@ interface ProjectListProps {
   onOpenTerminal: (projectId: string) => void;
   /** Whether a session of this project finished a turn nobody has looked at yet. */
   hasFinished: (projectId: string) => boolean;
+  /** Whether one of its sessions is working on a turn right now. */
+  hasBusy: (projectId: string) => boolean;
   /** Opens the oldest of those; pressing the mark again moves on to the next. */
   onShowFinished: (projectId: string) => void;
 }
@@ -71,6 +73,7 @@ export function ProjectList({
   remoteOf,
   onOpenTerminal,
   hasFinished,
+  hasBusy,
   onShowFinished
 }: ProjectListProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; project: Project } | null>(null);
@@ -159,6 +162,14 @@ export function ProjectList({
             }}
           >
             <span className="project-item-label">{project.name}</span>
+            {/* Both states of a project's sessions, and both can hold at once — one tab working
+                while another waits to be read. The spinner is not a button: there is nothing to
+                go and do about work that is still running. */}
+            {hasBusy(project.id) && (
+              <span className="session-mark-box">
+                <SpinnerIcon className="session-mark spinning" />
+              </span>
+            )}
             {/* A session of this project finished while its terminal was out of sight. Pressing
                 it goes there, which is also what takes it away again. */}
             {hasFinished(project.id) && (

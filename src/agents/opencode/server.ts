@@ -4,7 +4,12 @@ import { countActivity } from "../../main/event-loop-monitor";
 import { resolveCommand } from "../../main/pty";
 import type { AgentPaths, SpawnPreparation } from "../agent";
 import { installContextPlugin } from "./context-plugin";
-import { createOpencodeNotifier, SESSION_FINISHED_EVENT } from "./notify";
+import {
+  createOpencodeNotifier,
+  SESSION_BUSY_STATUS,
+  SESSION_FINISHED_EVENT,
+  SESSION_STATUS_EVENT
+} from "./notify";
 import { installTuiConfig } from "./tui-config";
 
 const SERVER_START_TIMEOUT_MS = 15_000;
@@ -28,6 +33,12 @@ const EVENT_RETRY_MS = 2000;
 export interface OpencodeEvent {
   type: string;
   sessionId?: string;
+  /**
+   * What `session.status` says the session is doing, e.g. "busy". opencode models it as a
+   * tagged union, so the tag is the whole of what is read here — its other branches carry a
+   * provider, a title and a link that nothing in meezeek acts on.
+   */
+  status?: string;
 }
 
 export class OpencodeServer {
@@ -221,11 +232,16 @@ export async function prepareOpencodeSpawn(
   const notify = createOpencodeNotifier(paths.agentDir, cwd, "OpenCode", paths.notifications);
   const unsubscribe = server.subscribe(cwd, (event) => {
     notify(event.type);
-    // The very event the "Finished" toast is built on. Unlike Claude Code, opencode says so
-    // itself over a stream meezeek already holds — nothing has to be read off the TUI, and
-    // nothing has to be written to disk to carry it across a process boundary.
-    if (event.type === SESSION_FINISHED_EVENT && event.sessionId) {
+    // Both ends of a turn, and one of them is the very event the "Finished" toast is built on.
+    // Unlike Claude Code, opencode says all of this itself over a stream meezeek already holds
+    // — nothing is read off the TUI, and nothing crosses a process boundary through a file.
+    if (!event.sessionId) {
+      return;
+    }
+    if (event.type === SESSION_FINISHED_EVENT) {
       paths.onSessionFinished(event.sessionId);
+    } else if (event.type === SESSION_STATUS_EVENT && event.status === SESSION_BUSY_STATUS) {
+      paths.onSessionBusy(event.sessionId);
     }
   });
   return {
@@ -254,12 +270,20 @@ export async function prepareOpencodeSpawn(
  */
 function parseEvent(payload: string): OpencodeEvent | undefined {
   try {
-    const event = JSON.parse(payload) as { type?: unknown; properties?: { sessionID?: unknown } };
+    const event = JSON.parse(payload) as {
+      type?: unknown;
+      properties?: { sessionID?: unknown; status?: { type?: unknown } };
+    };
     if (typeof event.type !== "string") {
       return undefined;
     }
     const sessionId = event.properties?.sessionID;
-    return { type: event.type, sessionId: typeof sessionId === "string" ? sessionId : undefined };
+    const status = event.properties?.status?.type;
+    return {
+      type: event.type,
+      sessionId: typeof sessionId === "string" ? sessionId : undefined,
+      status: typeof status === "string" ? status : undefined
+    };
   } catch {
     return undefined;
   }

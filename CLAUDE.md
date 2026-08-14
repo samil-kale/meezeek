@@ -422,6 +422,14 @@ puts *questions* and is built around a form with two buttons. This asks nothing 
 the moment it is flipped, as VS Code's own settings do, so there is nothing to confirm and nothing
 to take back, and the one button closes it.
 
+It is tabbed — Notifications, then Info — and the strip is the add-repository dialog's own
+(`.dialog-tabs`, shaped like the terminal tabs), which is also why neither dialog carries a
+`.dialog-title`: the selected tab names what is under it. The dialog's height is fixed to the
+fuller tab for the same reason add-repository's is, so switching does not resize it under the
+pointer. Info is read-only and reads nothing but `app:info` — meezeek's version and the Electron,
+Chromium and Node it runs on — asked once when the dialog opens, since none of it can change
+while the process does.
+
 The values live in a `settings.json` in meezeek's `userData` (`src/main/settings.ts`), written
 whole from memory like the projects beside them and read back defensively: a key of the wrong
 type falls back to its default rather than reaching an agent as `undefined`.
@@ -493,53 +501,95 @@ and report through `App`, which hands the active project's bar what they say. An
 reports it, no view writes "Loading..." of its own; the diff pane simply goes empty while it
 reads one.
 
-A button that turns while its *own* action runs is not a second one of these — it is a state of
-that button, in the place the user pressed, the way VS Code spins its own refresh actions. The
-sparkle in the commands list is the one so far: `SpinnerIcon` with the `spinning` class takes the
-icon's place, and `.busy` keeps the disabled dimming off it. A wait belonging to the project
-rather than to one control still goes in the bar.
+**A spinner in place of an icon is not a second one of these.** The bar is about the project;
+this is about the one thing the icon already stands for, drawn where the user is looking for it.
+`SpinnerIcon` with the `spinning` class takes that icon's place — never a slot of its own beside
+it — and there are two:
 
-## A session that finished out of sight
+- the wand in the commands list, while it is asking an agent (`.busy` keeps the disabled dimming
+  off it, since it is disabled for being underway rather than for having nothing to do)
+- a tab's agent icon, while that session is working on a turn (`TerminalDescriptor.busy`)
 
-An agent turn that ends while its terminal is not on screen leaves a mark: a speech bubble on its
-tab and the same one on its project's row in the sidebar, both left of the close button. One shape
-for one thing — a bell in the sidebar was tried and taken back out, since two glyphs for the same
-condition read as two conditions. The project row's is a button: it opens the session that
-finished first, and pressing it again moves on to the next. Everything about it
-goes away the moment the tab is in front of the user — that is the whole feature, and it is
-deliberately not a notice: a notice is something that happened once, this is a condition that
-holds until it is answered.
+The project row is the one place a spinner does stand on its own, and it is not an exception to
+the rule but the reason for it: that row has no icon to replace, and what it reports is not the
+project being slow but one of its sessions still writing.
 
-**Nothing here is read off the terminal.** Each agent already knows when a turn is over, and
-`AgentPaths.onSessionFinished` is how it says so:
+A wait belonging to the project rather than to one icon still goes in the bar, and nothing gets a
+second indicator on top of the one it already has.
 
-- opencode says `session.idle` on the event stream meezeek is already subscribed to. Only the
-  event's `type` used to cross `subscribe`; it now carries `properties.sessionID` as well, which
-  is verified against the binary's own `mo.define({type:"session.idle",schema:{sessionID}})` and
-  the `{type, properties}` envelope it publishes with.
-- Claude Code's Stop hook is a process of its own that cannot call back into meezeek, so it
-  `touch`es an empty file named after the session id in `<agentDir>/finished/` and `watchFinished`
-  picks it up. Both halves live in `hooks.ts`, either side of `finishedDir`.
+## Both ends of a turn
+
+A session says whether it is *working* and whether it *finished out of sight*, and the two are one
+mechanism read at either end of the same turn. Both are drawn in both places — on the tab and on
+its project's row — so a project that is not on screen still says what its sessions are doing:
+
+- **working**: a spinner, for as long as the turn runs.
+- **finished out of sight**: a speech bubble. One shape for one thing — a bell in the sidebar was
+  tried and taken back out, since two glyphs for the same condition read as two conditions. The
+  project row's is a button: it opens the session that finished first, and pressing it again moves
+  on to the next. It goes away the moment the tab is in front of the user, and it is deliberately
+  not a notice: a notice is something that happened once, this is a condition that holds until it
+  is answered.
+
+**On a tab both take the agent icon's place** rather than a slot of their own — a tab is as wide
+as its label, and the icon is already what stands for "which session is this". Working outranks
+finished where both hold, since a turn that started after the last one ended is the newer truth
+and the mark is still underneath when it stops. In the sidebar there is no icon to replace, so
+the two stand next to each other, left of the close button. Both are `--vscode-focusBorder` under
+one `.session-mark` rule: two states of one thing must not read as two kinds of thing.
+
+**Nothing here is read off the terminal.** Each agent already knows when a turn starts and ends,
+and `AgentPaths.onSessionBusy` / `onSessionFinished` are how it says so:
+
+- opencode says `session.status` with a `busy` status, then `session.idle`, on the event stream
+  meezeek is already subscribed to. Only the event's `type` used to cross `subscribe`; it now
+  carries `properties.sessionID` and `properties.status.type` as well, all three verified against
+  the binary's own `mo.define({type:"session.idle",schema:{sessionID}})`, its `SessionStatus`
+  union, and the `{type, properties}` envelope it publishes with.
+- Claude Code's hooks are processes of their own that cannot call back into meezeek, so each end
+  `touch`es an empty file named after the session id — `UserPromptSubmit` into `<agentDir>/busy/`,
+  `Stop` into `<agentDir>/finished/` — and `watchMarkers` picks them up. Both halves live in
+  `hooks.ts`, either side of `markerDir`. The busy hook shares `UserPromptSubmit` with the command
+  that prints the context file, so it must stay **silent**: everything such a hook writes is
+  appended to the prompt itself. It must also exit 0 whatever happens, since a failing
+  UserPromptSubmit hook can hold the prompt back.
+
+`watchMarkers` sweeps its directory on a timer **as well as** watching it, and that net is not
+optional. It was written watcher-only and a marker was found sitting in `finished/` seven minutes
+after it was written, with the process that owns the watcher running and healthy the whole time;
+the next marker drained both. On win32 `fs.watch` can fire before the new name is in the
+directory listing, and nothing ever fires again for that file — so a single lost event strands
+that turn forever: the spinner never stops and the mark never lands. A `readdir` on an almost
+always empty directory is a syscall rather than a process, so the net is free in the terms the
+section below counts in.
 
 Reusing the Stop hook is the point of it: it already carries the `background_tasks` guard, so a
 turn that only launched a subagent and returned is not "finished". Any guess made from the TUI's
-output would lose exactly that. The hook is therefore registered whatever the notification
-settings say — only the toast inside it is optional, since the mark is not a notification the user
-turns off but how a session is found again. Whatever sits in `finished/` at startup is deleted
-*without* being reported: those turns ended before this window existed, and every tab is freshly
-opened at that point.
+output would lose exactly that. The hooks are therefore registered whatever the notification
+settings say — only the toast inside Stop is optional, since none of this is a notification the
+user turns off. Whatever sits in either directory at startup is deleted *without* being reported:
+those turns ended before this window existed, and every tab is freshly opened at that point.
 
-The mark itself is `TerminalDescriptor.finishedAt`, held per tab in the main process the way
-`hasSession` is, so a closed tab takes it with it. A time rather than a flag, because the project
-row's mark opens the oldest one first. Two halves keep it honest, and neither can do the other's job:
+The state is `TerminalDescriptor.busy` and `finishedAt`, held per tab in the main process the way
+`hasSession` is, so a closed tab takes it with it. `finishedAt` is a time rather than a flag,
+because the project row's mark opens the oldest one first, and `setTurn` writes both at once —
+ending a turn is exactly "stop spinning and leave the mark". Two halves keep it honest, and
+neither can do the other's job:
 
 - the **main process** sets it, and never asks whether it should — it cannot know what is on
-  screen. A turn reported before any tab has claimed its session id (a fresh tab whose first
-  question was short) is held in `pendingFinished` and applied by the next reconcile; one whose
-  session is gone from the listing is dropped, which is what bounds that set.
+  screen. A turn reported before any tab has claimed its session id is held in `pendingTurns`
+  and applied by a later reconcile. It is held on a **timer**, not until it is missing from the
+  session listing: `UserPromptSubmit` fires before Claude Code has written the transcript that
+  listing reads, so dropping an id for being absent from it lost the spinner for the very case
+  it matters most — the first turn of a brand new tab, which is why one session would spin and
+  the next would not. `PENDING_TURN_TTL_MS` is what bounds the map instead. A tab whose process
+  stops or errors is cleared of `busy` there and then: a CLI killed mid-turn never reports its
+  end, and the spinner would otherwise turn on a dead tab for the rest of the session.
 - the **renderer** decides what is *shown* and clears what was seen (`terminals.seen`). The rule
   lives once, in `App.markedTabs`, and both views are handed its answer — two views applying it
-  themselves would be two chances to disagree.
+  themselves would be two chances to disagree. Only the mark goes through that rule: `busy` is
+  drawn wherever the tab is, on screen or not, because "this one is working" is worth seeing
+  precisely while you are looking somewhere else.
 
 That is why `App` holds every project's tabs, next to the repository states and for the same
 reason: the project list needs all of them at once, while a `TerminalsPane` only ever knew its
@@ -571,8 +621,9 @@ bundle and the agent's setup code into the renderer's.
 - `prepareSpawn` — async setup that must finish before the first spawn, and the only place an
   agent may write anything. It is handed `AgentPaths`; a rejection marks the agent unstartable,
   so only reject for something that really makes it unusable (opencode's server does, a failed
-  notification script does not). `AgentPaths.onSessionFinished` is the one thing an agent reports
-  back out of band rather than through a return value — see "A session that finished out of sight"
+  notification script does not). `AgentPaths.onSessionBusy` and `onSessionFinished` are the one
+  thing an agent reports back out of band rather than through a return value — see "Both ends of
+  a turn"
 - `resolveUrlPrefix` — completes a url the agent's TUI wrapped across rows
 - `createIsSessionReady` — the per-agent guess at "the CLI has drawn its first real frame", which
   drives the progress bar under the tab strip
@@ -689,6 +740,45 @@ the others.
   `--vscode-panel-border` between panes, and a pane sized in percent stating its floor in percent
   as well. When something looks like it needs a size of its own, check what the neighbouring view
   uses first.
+- **An icon is one size everywhere, and it took two numbers to get there.** The box is
+  `--icon-size`, 15px, and it is the same in the tab strip, the branch tree, the branch bar, an
+  action button and a session mark — it was 14 / 15 / 18 depending on where you stood, which is
+  half of why icons kept reading as unequal. The other half is how much of its grid a *path*
+  covers, which ranged from 59% (the chevron) to 100% (Claude's mark): every icon now declares
+  the `extent` it was **measured** at, and `Svg` crops the viewBox so all of them cover
+  `TARGET_EXTENT`, scaling `strokeWidth` by the same factor so one weight survives it. The
+  extents are tuned to each icon's *geometric mean* rather than its longer side — normalising
+  the long side alone leaves a 12×9 shape looking small beside a 12×12 one, which is what the
+  branch icon, the sync arrows, the sparkle and Claude's mark were each reported for in turn.
+  Verified at a mean of 11.9–12.0px for every icon whose shape allows it; a chevron and a row
+  of dots stay narrow by nature and are capped rather than stretched.
+- Neither half is optional. A shared box with unequal extents is what the app looked like for
+  months; equal extents in three different boxes is what it looked like an hour later. Change
+  `--icon-size` to resize every icon in the window at once — that is the one knob.
+- Adding or redrawing an icon therefore means re-measuring it, not estimating: render it, read
+  `getBBox()` on each child grown by half its stroke, and write that extent and centre down.
+  Guessing puts the icon back out of line with every other one, and it only shows up on screen
+  next to what it should have matched. The gear in the title bar is the one icon left out — it
+  declares no extent and so keeps its own proportions among the platform's caption glyphs.
+- **State an icon's size in CSS; never rely on the `width`/`height` the shared `<Svg>` writes as
+  attributes.** Those are a fallback that a flex container is free to shrink: `.icon-button` is a
+  `<button>`, the reset at the top of `styles.css` clears its border and background but not its
+  padding, and Chrome's default `1px 6px` with `border-box` left 12px of content inside a 24px
+  box — so *every* icon in *every* one of those buttons rendered a third too narrow, at 12 by 18,
+  for as long as the class has existed. `.icon-button` sets `padding: 0` now. It went unnoticed
+  because a squashed icon still looks like an icon; it only surfaced when the same glyph appeared
+  in a plain `<span>` beside one and the two disagreed.
+- **When two things that should look identical do not, measure them — do not read the code
+  harder.** The above cost several rounds of reasoning about rules that were all correct. What
+  found it in one step: rebuild a page with the *built* stylesheet and the real markup, serve it
+  over http (`file://` is blocked for the browser tools), and read `getComputedStyle` for each
+  element. Use the layout size, not `getBoundingClientRect`, on anything carrying `.spinning` —
+  a rotated square reports a larger hull box than its own edge.
+- The box *around* an icon counts as part of its size. The same 18px glyph reads smaller inside
+  a 24px `.icon-button` than standing bare in a row, because the button leaves 3px of air on
+  every side. So an icon placed among buttons gets that box too even when it is not one —
+  `.session-mark-box` is the project row's spinner, declared next to `.icon-button` so the two
+  measurements cannot drift.
 - **The same goes for anything that marks or points at something.** Every line of that kind is
   1px in `--vscode-focusBorder`: the drop indicator between two rows of the project and command
   lists, the active tab's underline, the frame around a terminal a file is held over, and the
@@ -696,9 +786,10 @@ the others.
   new one copies an existing rule instead of picking a width and a color of its own — two of them
   that differ read as two different meanings, and that is the one thing they must not do. The
   active git toggle's 2px accent is the exception, and it is VS Code's own. The rule holds for a
-  mark that is a *shape* rather than a line too: a finished session is the same speech bubble on
-  its tab and on its project's row, under one `.session-mark` rule, and an icon that marks
-  something is drawn to the square its neighbours occupy rather than to the full 2–14 box.
+  mark that is a *shape* rather than a line too: what a session is doing is the same spinner and
+  the same speech bubble on its tab as on its project's row, all four under one `.session-mark`
+  rule, and an icon that marks something is drawn to the square its neighbours occupy rather than
+  to the full 2–14 box.
 - **Icons and marks are monochrome**; the only colour any of them takes is the blue above. The
   changes list's status letters are the one exception, and they are not an exception to the
   theme but the theme's own answer: `gitDecoration-*` is what VS Code colours that exact list

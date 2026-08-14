@@ -270,6 +270,16 @@ export function App() {
     [tabs, activeTabs, activeProjectId]
   );
 
+  /**
+   * Whether any session of this project is working on a turn. Unlike the mark above, the tab in
+   * front of the user is *not* left out: a spinner says what is happening now, and it says it
+   * wherever the tab is — the reason to look at it is that the answer is not there yet.
+   */
+  const hasBusyTab = useCallback(
+    (projectId: string): boolean => (tabs[projectId] ?? []).some((tab) => tab.busy),
+    [tabs]
+  );
+
   /** The project row's mark: the session that finished first, then the next one the time after. */
   const showFinished = useCallback(
     (projectId: string) => {
@@ -350,6 +360,7 @@ export function App() {
             remoteOf={(projectId) => states[projectId]?.remotes[0]}
             onOpenTerminal={openTerminal}
             hasFinished={(projectId) => markedTabs(projectId).length > 0}
+            hasBusy={hasBusyTab}
             onShowFinished={showFinished}
           />
           <Sash

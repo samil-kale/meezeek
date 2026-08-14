@@ -72,13 +72,14 @@ export interface AgentPaths {
    */
   notifications: NotificationSettings;
   /**
-   * Called whenever one of this repository's sessions has finished a turn. Each agent knows
-   * this its own way, and neither way is the terminal's output — see "A session that finished
-   * out of sight" in CLAUDE.md.
+   * The two ends of a turn, reported as the agent itself sees them — never guessed from the
+   * terminal's output. `busy` puts the spinner on the tab, `finished` takes it off again and
+   * leaves the mark behind; see "Both ends of a turn" in CLAUDE.md.
    *
    * A session id, not a tab id: an agent knows nothing about tabs. One that has no tab yet is
    * held until the next reconcile claims it, so a fresh session's first turn is not lost.
    */
+  onSessionBusy(sessionId: string): void;
   onSessionFinished(sessionId: string): void;
 }
 

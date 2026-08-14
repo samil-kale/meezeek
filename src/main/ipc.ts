@@ -8,6 +8,7 @@ import type {
   AddAccountResult,
   AddRepositoryResult,
   AgentId,
+  AppInfo,
   AppSettings,
   CheckoutTarget,
   DiffOptions,
@@ -86,6 +87,19 @@ export function registerIpc({
   });
 
   ipcMain.on("startup:quit", () => app.quit());
+
+  // The Info tab's rows. Every one of them is fixed for the life of the process, so this is
+  // asked once when the dialog opens rather than pushed at the renderer.
+  ipcMain.handle(
+    "app:info",
+    (): AppInfo => ({
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      chromium: process.versions.chrome,
+      node: process.versions.node,
+      os: `${process.platform} ${process.arch}`
+    })
+  );
 
   ipcMain.handle("settings:get", (): AppSettings => settings.get());
 

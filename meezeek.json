@@ -7,6 +7,7 @@
     "npm start",
     "npm run watch",
     "npm run typecheck",
-    "npm run lint"
+    "npm run lint",
+    "npm run dist"
   ]
 }

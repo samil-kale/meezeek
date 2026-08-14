@@ -11,6 +11,14 @@ import type { NotificationSettings } from "../../shared/types";
 export const SESSION_FINISHED_EVENT = "session.idle";
 
 /**
+ * The other end of a turn: `session.status` with a `busy` status. Verified against the
+ * binary's own `SessionStatus`, a tagged union whose other branches describe a provider
+ * rather than work in progress — so the tag is what decides, not the event on its own.
+ */
+export const SESSION_STATUS_EVENT = "session.status";
+export const SESSION_BUSY_STATUS = "busy";
+
+/**
  * Fires the OS notifications for opencode. No hooks and no generated plugin: the server's own
  * event stream carries what a notification would be about, and meezeek is already subscribed
  * to it for everything else — opencode's configuration stays untouched.
