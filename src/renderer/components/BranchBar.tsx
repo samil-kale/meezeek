@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { GitActionResult, Project, RepositoryState } from "../../shared/types";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm } from "./Dialog";
-import { ArrowDownIcon, ArrowUpIcon, BranchIcon, RefreshIcon, SyncIcon } from "./icons";
+import { ArrowDownIcon, ArrowUpIcon, BranchIcon, SyncIcon } from "./icons";
 
 interface BranchBarProps {
   /** The active project, or null when none is open — the bar is then an empty strip. */
@@ -12,16 +12,15 @@ interface BranchBarProps {
   busyLabel: string | null;
   /** Starts a branch command through App's one-at-a-time slot for this project. */
   run: (label: string, action: () => Promise<GitActionResult>) => void;
-  onRefresh: () => void;
 }
 
 /**
- * The window's bottom strip: the repository's path and HEAD on the left, and on the right the
- * one sync button plus the refresh. Its own view rather than part of App for the same reason
- * the branch tree is one — the force-push question lives with the button that asks it, since
- * this is what knows the branch and the upstream it would overwrite.
+ * The window's bottom strip: the repository's path on the left, and on the right the one sync
+ * button with HEAD after it. Its own view rather than part of App for the same reason the
+ * branch tree is one — the force-push question lives with the button that asks it, since this
+ * is what knows the branch and the upstream it would overwrite.
  */
-export function BranchBar({ project, state, busyLabel, run, onRefresh }: BranchBarProps) {
+export function BranchBar({ project, state, busyLabel, run }: BranchBarProps) {
   /** The sync button's own menu: the variants of what it does, for when its pick is not the one. */
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -119,6 +118,21 @@ export function BranchBar({ project, state, busyLabel, run, onRefresh }: BranchB
             <span className="branch-path" title={project.path}>
               {project.path}
             </span>
+            {sync && (
+              <button
+                className="branch-sync"
+                title={`${sync.title}\nRight-click for the other network commands`}
+                disabled={busyLabel !== null}
+                onClick={sync.run}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMenu({ x: event.clientX, y: event.clientY });
+                }}
+              >
+                {sync.icon}
+                <span>{sync.label}</span>
+              </button>
+            )}
             <BranchIcon className="branch-icon" />
             {/* While a branch command runs the bar says what it is doing instead of naming
                 HEAD — for those seconds the branch you are on is not the whole story. */}
@@ -138,24 +152,6 @@ export function BranchBar({ project, state, busyLabel, run, onRefresh }: BranchB
                 {state.behind}
               </span>
             )}
-            {sync && (
-              <button
-                className="branch-sync"
-                title={`${sync.title}\nRight-click for the other network commands`}
-                disabled={busyLabel !== null}
-                onClick={sync.run}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setMenu({ x: event.clientX, y: event.clientY });
-                }}
-              >
-                {sync.icon}
-                <span>{sync.label}</span>
-              </button>
-            )}
-            <button className="icon-button" title="Refresh repository" onClick={onRefresh}>
-              <RefreshIcon />
-            </button>
           </>
         )}
       </div>

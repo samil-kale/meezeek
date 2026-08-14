@@ -9,11 +9,16 @@ body,
   margin: 0;
 }
 
+/* The panel colour, not the editor's: this is what fills the window for the moment before the
+   views have drawn, and the title bar's own controls — an overlay the platform paints straight
+   away — are that colour too, so anything else shows up as a patch around them while the app
+   starts. It matches BrowserWindow's backgroundColor in main.ts, which covers the moment
+   before this file is even parsed. Nothing here shows it afterwards; every pane paints itself. */
 body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  background: var(--vscode-panel-background);
   overflow: hidden;
   user-select: none;
 }
@@ -129,6 +134,8 @@ option {
   --pane-min-width: 180px;
   --pane-min-height: 120px;
   --content-min-width: 320px;
+  /* Every list row in the window, wherever it is. See the rule that applies it. */
+  --list-row-height: 28px;
 }
 
 /* Title bar ------------------------------------------------------------------------------ */
@@ -222,7 +229,8 @@ option {
   border-top: 1px solid var(--vscode-panel-border);
 }
 
-/* Takes the leftover width, which is what pushes the branch and its actions to the right. */
+/* Takes the leftover width, which is what pushes the branch and its actions to the right. It
+   is also the one thing here that may be cut, hence the ellipsis. */
 .branch-path {
   flex: 1;
   min-width: 0;
@@ -233,9 +241,13 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
-/* The 14px the tab strip's own icons are: this one stands beside a label rather than in a
-   button of its own, and the two say the same thing about the same repository. */
-.branch-icon {
+/* The 14px the tab strip's own icons are. Every icon in this bar stands beside a label rather
+   than in a button of its own — the branch icon says the same thing as the strip's about the
+   same repository, and the arrows and the sync icon are read together with the 11px and 12px
+   text beside them. They are drawn at 18 like every other one, so the bar states its own. */
+.branch-icon,
+.branch-count svg,
+.branch-sync svg {
   flex: none;
   width: 14px;
   height: 14px;
@@ -347,7 +359,6 @@ option {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 4px;
 }
 
 .command-item:hover {
@@ -402,15 +413,31 @@ option {
   overflow-y: auto;
 }
 
-/* One row shape for both sidebar lists: the same indent, the same gap, and 28px of height —
-   the 22px action button with enough room left that its hover does not touch the row's own
-   highlight. Declared together so they cannot drift apart. */
+/* Every list in the window is one row tall, whatever a row happens to carry: the sidebar's
+   two, the branch tree, the changed files and the remote picker. They were each padded by
+   3px instead, which only looks the same while the contents do — a row with a 24px action
+   button in it stood taller than one holding nothing but text, and the lists read as four
+   different sizes. The height is stated, so what is inside cannot decide it. Anything that
+   scrolls its rows may also be a flex column, hence the floor against being squeezed. */
+.project-item,
+.command-item,
+.tree-item,
+.change-item,
+.remote-repo,
+.remote-account,
+.remote-add-account {
+  height: var(--list-row-height);
+  flex: none;
+}
+
+/* One row shape for both sidebar lists: the same indent and the same gap. Declared together
+   so they cannot drift apart. */
 .project-item,
 .command-item {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 6px 3px 10px;
+  padding: 0 6px 0 10px;
   font-size: 12px;
 }
 
@@ -537,7 +564,7 @@ option {
   align-items: center;
   gap: 5px;
   width: 100%;
-  padding: 3px 6px 3px 20px;
+  padding: 0 6px 0 20px;
   text-align: left;
   font-size: 12px;
 }
@@ -942,7 +969,7 @@ option {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 3px 8px;
+  padding: 0 8px;
   text-align: left;
   font-size: 12px;
 }
@@ -1448,7 +1475,7 @@ option {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 6px 4px 8px;
+  padding: 0 6px 0 8px;
   cursor: pointer;
 }
 
@@ -1468,11 +1495,16 @@ option {
   min-width: 0;
 }
 
+/* The one row in the window carrying two lines, so each is half of one: the account is a
+   login and the host it belongs to, and separating them is what tells two accounts on the
+   same host apart. Half a row rather than a row and a half — the list beside it is a row per
+   entry, and the two are read side by side. */
 .remote-account-user,
 .remote-account-host {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: calc(var(--list-row-height) / 2);
 }
 
 .remote-account-host {
@@ -1491,7 +1523,7 @@ option {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 0 8px;
   color: var(--vscode-descriptionForeground);
 }
 
@@ -1521,13 +1553,15 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
-/* Roomier than the sidebar's 3px rows: this is a list to read through and pick from once, not
-   navigation that is on screen all day, and the row carries a button on hover. */
+/* This one used to be roomier than the sidebar's rows, on the grounds that it is a list to
+   read through and pick from once rather than navigation that is on screen all day. It is on
+   the shared row height now: two lists in the same window that are nearly the same height read
+   as a mistake, and the extra pixels were not worth that. */
 .remote-repo {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 8px;
+  padding: 0 6px 0 8px;
   font-size: 12px;
 }
 

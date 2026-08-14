@@ -91,7 +91,13 @@ function createWindow(): void {
     // clipping something, so the window is what refuses instead.
     minWidth: 700,
     minHeight: 340,
-    backgroundColor: "#1f1f1f",
+    // What the window is painted with before the renderer has drawn anything, so it is the
+    // title bar's own color rather than the editor's: the window controls are an overlay the
+    // platform draws right away, in the color below, and against #1f1f1f they stood in a
+    // patch of their own for the moment before the first frame. --vscode-titleBar-
+    // activeBackground and --vscode-sideBar-background are both this, which is most of the
+    // window; the editor background arrives with the frame that paints it.
+    backgroundColor: "#181818",
     show: false,
     // What the taskbar and the window itself show. Windows takes the .ico, whose frames are
     // each rendered at the size they are drawn at rather than resampled from one large image

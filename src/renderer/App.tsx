@@ -205,10 +205,21 @@ export function App() {
     [showTab]
   );
 
-  const refresh = useCallback(() => {
-    if (activeProjectId) {
-      void window.meezeek.repository.refresh(activeProjectId);
+  /**
+   * Coming back to the window is when a change the watcher missed would show, so that is when
+   * the repository is read again — GitHub Desktop refreshes on focus for the same reason. Only
+   * the project on screen: it is the one being looked at, and a refresh of every open one would
+   * spend three git processes each for a state nobody is reading.
+   */
+  useEffect(() => {
+    if (!activeProjectId) {
+      return;
     }
+    const onFocus = (): void => {
+      void window.meezeek.repository.refresh(activeProjectId);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [activeProjectId]);
 
   const busyLabel = branchAction?.projectId === activeProjectId ? branchAction.label : null;
@@ -339,7 +350,6 @@ export function App() {
             void runBranchAction(activeProjectId, label, action);
           }
         }}
-        onRefresh={refresh}
       />
     </div>
   );

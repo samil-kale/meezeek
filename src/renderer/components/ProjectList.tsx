@@ -131,7 +131,9 @@ export function ProjectList({
   return (
     <div className="project-list">
       <div className="sidebar-header">
-        <span>PROJECTS</span>
+        <span>
+          PROJECTS <span className="count">({projects.length})</span>
+        </span>
         <button className="icon-button" title="Add repository" onClick={onAdd}>
           <PlusIcon />
         </button>

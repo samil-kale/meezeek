@@ -32,6 +32,16 @@ const REFRESH_MIN_INTERVAL_MS = 2000;
 const AUTO_FETCH_INTERVAL_MS = 10 * 60_000;
 
 /**
+ * How long to wait before putting a failed watcher back, and the ceiling the delay doubles up
+ * to. A watcher that dies takes every change with it and nothing says so, which is worth
+ * retrying for — but a filesystem that cannot watch recursively at all (a network share, some
+ * mounts) fails every single time, and retrying that once a second would be a busy loop for
+ * as long as the window is open.
+ */
+const WATCH_RETRY_MS = 1000;
+const WATCH_RETRY_MAX_MS = 60_000;
+
+/**
  * Paths whose changes never affect what the UI shows, but which change constantly —
  * watching them would mean running `git status` for every object git writes.
  */
@@ -57,6 +67,8 @@ function isIgnoredEvent(relativePath: string): boolean {
 export class Repository {
   private state: RepositoryState = EMPTY_REPOSITORY_STATE;
   private watcher: fs.FSWatcher | undefined;
+  private watchRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private watchRetryDelay = WATCH_RETRY_MS;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshing = false;
   private refreshPending = false;
@@ -425,17 +437,42 @@ export class Repository {
         if (filename && isIgnoredEvent(filename.toString())) {
           return;
         }
+        // Events are arriving, so whatever went wrong before is over — the next failure backs
+        // off from the bottom again rather than from where the last one left the delay.
+        this.watchRetryDelay = WATCH_RETRY_MS;
         this.scheduleRefresh();
       });
       this.watcher.on("error", (error) => {
         console.error(`[meezeek] watcher failed for ${this.project.path}:`, error);
         this.watcher?.close();
         this.watcher = undefined;
+        this.retryWatching();
       });
     } catch (error) {
-      // Without a watcher the repository still works, it just only updates on refresh.
+      // A filesystem that cannot watch recursively throws here rather than emitting an error.
       console.error(`[meezeek] could not watch ${this.project.path}:`, error);
+      this.retryWatching();
     }
+  }
+
+  /**
+   * Puts a failed watcher back, and refreshes once one is up again: whatever changed while
+   * nothing was watching has to come in from somewhere. Without this a single error left the
+   * repository frozen for the life of the window, with nothing on screen saying so.
+   */
+  private retryWatching(): void {
+    clearTimeout(this.watchRetryTimer);
+    const delay = this.watchRetryDelay;
+    this.watchRetryDelay = Math.min(delay * 2, WATCH_RETRY_MAX_MS);
+    this.watchRetryTimer = setTimeout(() => {
+      if (this.disposed) {
+        return;
+      }
+      this.startWatching();
+      if (this.watcher) {
+        void this.refresh();
+      }
+    }, delay);
   }
 
   dispose(): void {
@@ -443,6 +480,7 @@ export class Repository {
     // back then belongs to a project the window has already forgotten.
     this.disposed = true;
     clearTimeout(this.debounceTimer);
+    clearTimeout(this.watchRetryTimer);
     clearInterval(this.autoFetchTimer);
     this.watcher?.close();
     this.watcher = undefined;
