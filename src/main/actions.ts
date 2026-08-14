@@ -12,11 +12,12 @@ import { resolveCommand } from "./pty";
 const FILE = "meeseek.json";
 
 /**
- * What that file holds. An action is written as a plain string while it runs in the project
- * root, and as an object once it needs a directory of its own — so the common case stays a
- * one-line entry a person can read, and an older file full of strings is still a valid one.
+ * What that file holds. An action is written as a plain string while the command alone says
+ * everything, and as an object once it needs a directory, variables or a shell of its own — so
+ * the common case stays a one-line entry a person can read, and an older file full of strings
+ * is still a valid one.
  */
-type StoredAction = string | { command?: unknown; cwd?: unknown };
+type StoredAction = string | { command?: unknown; cwd?: unknown; env?: unknown; shell?: unknown };
 
 interface ProjectFile {
   actions?: StoredAction[];
@@ -64,6 +65,17 @@ async function patch(root: string, changes: Partial<ProjectFile>): Promise<void>
   await fs.writeFile(file(root), `${JSON.stringify({ ...content, ...changes }, undefined, 2)}\n`, "utf8");
 }
 
+/** Only the string values of an `env`; anything else in there is not an environment. */
+function toEnv(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const env = Object.fromEntries(
+    Object.entries(value).filter((pair): pair is [string, string] => typeof pair[1] === "string")
+  );
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
 /** Both spellings in, one shape out; anything that is neither is dropped. */
 function toAction(entry: StoredAction): ProjectAction | undefined {
   if (typeof entry === "string") {
@@ -72,7 +84,64 @@ function toAction(entry: StoredAction): ProjectAction | undefined {
   if (typeof entry?.command !== "string" || !entry.command.trim()) {
     return undefined;
   }
-  return typeof entry.cwd === "string" && entry.cwd.trim() ? { command: entry.command, cwd: entry.cwd } : { command: entry.command };
+  const action: ProjectAction = { command: entry.command };
+  if (typeof entry.cwd === "string" && entry.cwd.trim()) {
+    action.cwd = entry.cwd;
+  }
+  const env = toEnv(entry.env);
+  if (env) {
+    action.env = env;
+  }
+  if (entry.shell === true) {
+    action.shell = true;
+  }
+  return action;
+}
+
+/**
+ * A saved command as the program and the arguments it is started with. Deliberately not a
+ * shell: quotes group a word and are dropped, and everything else is literal — a backslash
+ * included, because a Windows path is full of them and this file is read on every platform.
+ * So the way to put a space in an argument is to quote it, and there is no way to smuggle a
+ * pipe, a redirection or a variable in. A command that really needs one says `"shell": true`.
+ */
+export function splitCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  // Told apart from `current === ""` so that an empty quoted argument survives as one.
+  let started = false;
+  let quote: string | undefined;
+
+  for (const char of command) {
+    if (quote !== undefined) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (started) {
+        tokens.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+    current += char;
+    started = true;
+  }
+  // A quote nobody closed takes the rest of the line with it, which is what the user typed.
+  if (started) {
+    tokens.push(current);
+  }
+  return tokens;
 }
 
 export async function readActions(root: string): Promise<ProjectAction[] | null> {
@@ -88,7 +157,9 @@ export async function readActions(root: string): Promise<ProjectAction[] | null>
 
 export function writeActions(root: string, actions: ProjectAction[]): Promise<void> {
   // Back to the short form wherever there is nothing else to say about the command.
-  return patch(root, { actions: actions.map((action) => (action.cwd ? action : action.command)) });
+  return patch(root, {
+    actions: actions.map((action) => (action.cwd || action.env || action.shell ? action : action.command))
+  });
 }
 
 
@@ -128,6 +199,15 @@ const SUGGEST_PROMPT = [
   '"npm run build", not "npm run build --prefix web". Where that folder is not the repository',
   'root, say so with "cwd", relative to the root. A command that runs in the root is a plain',
   "string.",
+  "",
+  "Each command is started as a program with arguments, with no shell in between, so that the",
+  "same entry works on Windows and on Unix. Nothing in it is interpreted: no pipes, no",
+  '"&&" or "||", no ">" redirection, no "$(...)", no backticks, no "$VAR", and no',
+  '"VAR=value cmd" prefix. Quotes group one argument and are the only way to put a space in',
+  "one.",
+  'Environment variables go in an "env" object instead, and meeseek sets them:',
+  '  {"command": "java -jar target/app.jar", "env": {"PROFILE": "DEVELOPMENT"}}',
+  "Two things that have to run one after the other are two entries, not one line.",
   "",
   "Answer with nothing but a JSON array. The command that starts the project comes first — it",
   "is the one reached for most. After it, keep the ones that use the same tool next to each",
@@ -202,8 +282,13 @@ function tool(command: string): string {
 export function mergeActions(existing: ProjectAction[], found: ProjectAction[]): ProjectAction[] {
   const merged = [...existing];
   for (const action of found) {
-    // Same command in the same place is the same action; the same command elsewhere is not.
-    if (merged.some((entry) => entry.command === action.command && entry.cwd === action.cwd)) {
+    // Same command, same place, same variables is the same action; the same command run
+    // differently — another folder, another profile — is one of its own.
+    // Sorted, so two identical environments written in a different order still match.
+    const envKey = (entry: ProjectAction): string => JSON.stringify(Object.entries(entry.env ?? {}).sort());
+    const same = (entry: ProjectAction): boolean =>
+      entry.command === action.command && entry.cwd === action.cwd && envKey(entry) === envKey(action);
+    if (merged.some(same)) {
       continue;
     }
     let last = -1;
@@ -224,41 +309,4 @@ export function mergeActions(existing: ProjectAction[], found: ProjectAction[]):
 /** The question the wand puts, for the caller that knows which agent to put it to. */
 export function suggestQuestion(): string {
   return SUGGEST_PROMPT;
-}
-
-export interface ActionResult {
-  code: number;
-  /** stderr, or stdout when the command said nothing there. Trimmed to what a notice can hold. */
-  output: string;
-}
-
-/**
- * Runs a command in the project's directory, through the same shell its terminals use, and
- * resolves once it is over. Nothing is shown while it runs — an action is something you set
- * going and hear back about, which is what the notice is for.
- *
- * `-NoProfile` / plain `-c`: a saved command should do the same thing on every machine, and
- * loading a profile makes that depend on what the user has in it.
- */
-export function runAction(root: string, action: ProjectAction): Promise<ActionResult> {
-  const [shell, args] =
-    process.platform === "win32"
-      ? ["powershell.exe", ["-NoProfile", "-Command", action.command]]
-      : [process.env.SHELL ?? "/bin/bash", ["-c", action.command]];
-  // Its own directory when it has one, the project root otherwise. `resolve` rather than
-  // `join`, so a cwd that is already absolute is left where it is.
-  const cwd = action.cwd ? path.resolve(root, action.cwd) : root;
-
-  return new Promise((resolve) => {
-    execFile(shell, args, { cwd, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
-      const output = (stderr.trim() || stdout.trim()).slice(0, MAX_OUTPUT);
-      if (!error) {
-        resolve({ code: 0, output });
-        return;
-      }
-      // A shell that could not be started has no exit code of its own; its message is what
-      // there is to report.
-      resolve({ code: typeof error.code === "number" ? error.code : 1, output: output || error.message });
-    });
-  });
 }

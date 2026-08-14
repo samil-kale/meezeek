@@ -154,9 +154,8 @@ The project row in the sidebar carries the repository-wide entries: open it in a
 it in the file manager, copy its path, view it on whatever host its remote names, change that
 url, and close it. Nothing there touches the working tree — those actions live in the git pane,
 where what they act on is on screen. "Open in terminal" is a *shell tab in this window*, not the
-OS terminal GitHub Desktop opens: the terminals are what meeseek is for. It travels as a counter
-(`TerminalsPane`'s `newShell`) rather than a callback, because the request comes from outside
-the pane that has to answer it and each new value is one more tab.
+OS terminal GitHub Desktop opens: the terminals are what meeseek is for. It is created like any
+other tab and then brought to the front the way an action's is (see Actions).
 
 ### Talking to a remote
 
@@ -306,19 +305,59 @@ repository's own root (`src/main/actions.ts`), not in meeseek's `userData`: they
 project, so they travel with it and can be committed like anything else. That also means the
 file shows up as an untracked change in the git pane until someone commits or ignores it.
 
-An action is a command and, where it does not belong in the repository root, the folder it
-runs in. In the file it is a plain string while the root is enough and an object once it is
-not (`{"command": "npm run build", "cwd": "web"}`), so the common case stays one readable line
-and a file written before this existed is still valid. The command is then the one you would
-type standing in that folder — `npm run build`, not `npm run build --prefix web`, which is a
-flag only some tools have and which reads like part of the command when it is not.
+An action is a command and, where they are not the obvious ones, the folder it runs in and the
+environment variables it runs with. In the file it is a plain string while neither is needed
+and an object once one of them is (`{"command": "npm run build", "cwd": "web"}`), so the common
+case stays one readable line and a file written before this existed is still valid. The command
+is then the one you would type standing in that folder — `npm run build`, not
+`npm run build --prefix web`, which is a flag only some tools have and which reads like part of
+the command when it is not.
 
-Running one starts it with the same shell the project's shell tabs use, in its own directory,
-and says nothing until it is over — the notice at the end carries the exit code and,
-when it failed, the first 600 characters of its output. Nothing is streamed: an action is
-something you set going and hear back about, and anything worth watching belongs in a terminal.
-`-NoProfile` on win32 and a plain `-c` elsewhere, so a saved command does the same thing on
-every machine instead of depending on what is in someone's profile.
+`env` exists because there is no way to write a variable *into* a command that works anywhere:
+the wand once produced `PROFILE=DEVELOPMENT java -jar target/app.jar`, which is POSIX syntax
+PowerShell reads as a command name, and for `java -jar` there is no flag to express it with
+either. So it is a field, set on the process instead (`SpawnOptions.envOverride`). Those
+variables outrank the ones inherited from the machine — every other environment meeseek passes
+a terminal is a *default* that the user's own wins over, and this is the one case where the
+opposite is right: the user wrote it next to the command.
+
+**Running one opens a terminal tab for it.** The tab's *process is the command*, in the
+action's own directory, ending when the command does. Nothing is buffered and nothing is
+summarised — the output arrives while it works and is still there afterwards, which is what a
+build actually needs.
+
+This replaced running them in the background with a notice at the end, and that is not a
+variant worth keeping alongside: the terminals are what meeseek is for, and a truncated
+600-character summary of a failed build was the worst of both. The tab takes the command as
+its label — a shell tab has no session to take a title from, so nothing overwrites it — and
+closing it kills the process like any other terminal.
+
+**There is no shell in between.** `splitCommand` reads the saved line as a program and its
+arguments, and that program is started directly. This is what makes one entry in a repository
+run the same on every machine, and it is the reason the field for environment variables exists:
+with no shell there is nothing to interpret, so a pipe, a redirection, `&&`, `$(...)` and `$VAR`
+are all simply not available — and none of them worked on both platforms anyway. Quotes group
+one argument and are dropped; a backslash is literal, because a Windows path is full of them
+and this file is read everywhere. Where the same command line goes on Windows is decided by
+`resolveCommand` (`src/main/pty.ts`), which already knew how: a native `.exe` is started as
+itself, a `.cmd` shim — `mvn`, `npm` — goes through `cmd.exe`, and an argument holding a space
+survives both (measured, not assumed).
+
+The way out is `"shell": true` on an action, which hands the line to `AgentDefinition.runArgs`
+instead — the same shell the project's shell tabs use, `-NoProfile -Command` on win32 and a
+plain `-c` elsewhere. That entry then only works where it was written, which is the trade it
+makes. It is deliberately not in the wand's prompt: what an agent writes into a repository
+should run everywhere.
+
+An operator that survives the split as a word of its own (`&&`, `|`, `>`, ...) is refused with
+a notice naming it, rather than passed to the program as an argument — `rm x && y` would ask
+`rm` to delete two files called `&&` and `y`. Files written while actions still went through a
+shell are where such a line comes from, so it has to fail loudly rather than quietly do
+something else.
+
+Either way `createActionTab` is `createTab` with a program, arguments, a directory and an
+environment attached to the tab, so an action's terminal goes through the same lazy spawn, the
+same output batching and the same close path as every other one.
 
 Reading a `meeseek.json` that is missing, unparseable or shaped differently is simply no
 actions. It is a file in the user's repository; half of it being someone else's is not a reason
@@ -326,9 +365,22 @@ to throw.
 
 One `ActionList` serves every project, so anything it starts has to name the project it was
 started for: the wand can run for minutes, and its answer belongs to the project it asked
-about, not to whichever one is on screen when it comes back. The running commands and the
-projects being looked up are therefore keyed by project, and the result is only put on screen
-when that project is still the one shown.
+about, not to whichever one is on screen when it comes back. The projects being looked up are
+therefore kept as a set, and the result is only put on screen when that project is still the
+one shown. Running a command needs none of that any more — it hands over to a tab and is done.
+
+A tab opened from outside the terminals pane — an action's, or the shell a project's row asks
+for — is brought to the front through `openedTabId`, which the pane applies once per tab id
+and then remembers. Not on every render: the tab list changes for every status update, and a
+selection that re-applied itself would drag the user back out of whatever they moved on to.
+
+Because an action's process ends every time it is run, `TerminalSession` tells the two apart by
+the exit code: `stopped` for a clean one (and for anything meeseek killed, whatever it said),
+`error` only for a process that failed on its own. Before actions had tabs this never came up —
+a shell only ended when someone typed `exit`, and it was reported as an error. **Nothing draws
+the difference yet:** the tab strip still marks `stopped` and `error` the same way (dimmed and
+struck through, `.terminal-tab.inactive`). Showing a failed build at a glance is worth doing and
+is deliberately still open — how it looks is undecided, so do not invent it.
 
 A project with no `meeseek.json` **at all** has its commands looked up straight away, without
 being asked — nobody has set it up here, and that is the one moment where guessing is worth the
@@ -442,6 +494,8 @@ would pull JSX into that bundle and the agent's setup code into the renderer's.
   keeps it out. A question asked in the background must not leave a session behind, or it
   comes back as a tab on the next start: Claude Code takes `--no-session-persistence`, and
   opencode — which has no such switch — titles the run and deletes it again in `cleanupAsk`
+- `runArgs` — one command run *in* a terminal, which ends when it does; a project's saved
+  actions are what use it, and only the shell has it, since an action is a shell command
 - `sessions` — listing, resume args, rename, delete, and an optional `watch`
 - `prepareSpawn` — async setup that must finish before the first spawn, and the only place an
   agent may write anything. It is handed `AgentPaths`; a rejection marks the agent unstartable,
@@ -504,6 +558,26 @@ for the others.
 - A terminal that is merely hidden must keep its layout (`visibility`, not `display`) — xterm
   needs a laid-out element to measure itself. A whole pane may use `display: none`, but then it
   has to be refit when it comes back.
+- A terminal sits 6px inside its pane on every side (`.terminal-stack`'s padding and
+  `.terminal-host`'s matching inset — an absolutely positioned child is laid out against the
+  padding box, so the padding alone does not move it). That gutter is terminal background like
+  the rest, and it is what keeps the CLI from reading as if it were pressed against the window
+  frame.
+- **The element xterm mounts into is `.terminal-host`, never `.terminal`.** xterm gives its own
+  element the class list `terminal xterm ...`, so a rule named for the plain word lands on both
+  it and the container — the inset above was taken twice for months, which read as a doubled
+  gutter on three sides and none on the fourth. Anything new in that subtree gets a name of its
+  own for the same reason; xterm's own classes are `xterm`, `xterm-viewport`, `xterm-screen`
+  and `terminal`.
+- A file dragged over a terminal frames the **pane** (`.terminal.drag-over`), so it is clear
+  which of the mounted terminals would take the drop. sbc-vsc-agents had the same thing, dashed
+  and around the whole webview, because VS Code only let a drag through while Shift was held;
+  here it is per pane and solid. It is a `::after` overlay whose inset negates `.terminal`'s,
+  not a border: a border would shrink the box xterm measures, so every drag across a terminal
+  would refit it and resize the pty. Only a drag carrying files raises it, which is also the
+  only kind the drop handler acts on. A file dropped anywhere *else* is swallowed in
+  `main.tsx`: unhandled, Electron navigates the window to it and the app is gone. Files only —
+  text dragged into a field is a drop that field still has to receive.
 - The terminal's background lives on `.terminal`, and `.xterm-viewport` is forced transparent
   over it: xterm.css hardcodes that viewport to black, which showed through as a black gutter
   and as a black strip under the last row while a pane was dragged taller. Ported from
@@ -519,6 +593,13 @@ for the others.
   all use it, and the next one uses it too. Same for the 22px action button, the 1px `--vscode-panel-border`
   between panes, and a pane sized in percent stating its floor in percent as well. When
   something looks like it needs a size of its own, check what the neighbouring view uses first.
+- **The same goes for anything that marks or points at something.** Every line of that kind is
+  1px in `--vscode-focusBorder`: the drop indicator between two rows of the project and action
+  lists, the active tab's underline, the frame around a terminal a file is held over, and the
+  sash while it is dragged (`--vscode-sash-hoverBorder`, VS Code's own name for the same blue).
+  A new one copies an existing rule instead of picking a width and a color of its own — two of
+  them that differ read as two different meanings, and that is the one thing they must not do.
+  The active git toggle's 2px accent is the exception, and it is VS Code's own.
 - Colors come from `--vscode-*` variables only (`src/renderer/vscode-theme.css`). Add a new
   variable rather than hardcoding, and use the name VS Code uses.
 - The VS Code being copied is the **classic** one (Dark Modern's own palette, the pre-Modern

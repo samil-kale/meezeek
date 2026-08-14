@@ -33,10 +33,10 @@ interface TerminalsPaneProps {
   /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
   onOpenDiff: (path: string) => void;
   /**
-   * Counts the shell tabs asked for from this project's row in the sidebar. A number rather
-   * than a callback: the request comes from outside, and each new value is one more tab.
+   * A tab opened from outside this pane — a shell from the project's row, an action's own
+   * terminal — that should be brought to the front once the host reports it.
    */
-  newShell: number;
+  openedTabId: string | null;
 }
 
 export function TerminalsPane({
@@ -46,7 +46,7 @@ export function TerminalsPane({
   onToggleGit,
   externalBusy,
   onOpenDiff,
-  newShell
+  openedTabId
 }: TerminalsPaneProps) {
   const [tabs, setTabs] = useState<TerminalDescriptor[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -57,6 +57,8 @@ export function TerminalsPane({
   const stack = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
   const knownTabs = useRef<TerminalDescriptor[]>([]);
+  /** The last tab this pane was told to bring to the front, so it does so exactly once. */
+  const opened = useRef<string | null>(null);
   /** Whether onStartupProgress has fired; the initial query must not overwrite a push. */
   const progressPushed = useRef(false);
 
@@ -191,12 +193,18 @@ export function TerminalsPane({
     [project.id]
   );
 
-  // Zero is "nothing asked for yet"; every later value is one request from the project row.
+  /**
+   * Selects a tab someone else opened, once it has arrived in the list. Only ever once per
+   * tab: the id stays set afterwards, and the list changes for every status update — without
+   * this the pointer would jump back to it while the user is somewhere else.
+   */
   useEffect(() => {
-    if (newShell > 0) {
-      void createTab("shell");
+    if (!openedTabId || opened.current === openedTabId || !tabs.some((tab) => tab.tabId === openedTabId)) {
+      return;
     }
-  }, [newShell, createTab]);
+    opened.current = openedTabId;
+    setActiveId(openedTabId);
+  }, [openedTabId, tabs]);
 
   const closeTabs = useCallback(
     (tabIds: string[]) => void window.meeseek.terminals.close(project.id, tabIds),

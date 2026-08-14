@@ -26,5 +26,5 @@ export function TerminalHost({ projectId, tabId, active }: TerminalHostProps) {
 
   // "hidden" is visibility, not display — xterm needs a laid-out element to measure itself,
   // both when it opens and when output arrives for a background tab.
-  return <div ref={container} className={`terminal${active ? "" : " hidden"}`} />;
+  return <div ref={container} className={`terminal-host${active ? "" : " hidden"}`} />;
 }

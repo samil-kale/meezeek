@@ -32,6 +32,20 @@ export interface ProjectAction {
   command: string;
   /** Relative to the project root; absent means the root itself. */
   cwd?: string;
+  /**
+   * Environment variables the command runs with. Its own field because there is no way to
+   * write one *into* a command that works everywhere: `PROFILE=x java -jar ...` is POSIX
+   * syntax that PowerShell reads as a command name. These win over the ones inherited from
+   * the machine — the action says what it needs.
+   */
+  env?: Record<string, string>;
+  /**
+   * Hands the command to a shell instead of starting the program itself — for the one that
+   * really needs a pipe or a redirection, and which then only works on the platform it was
+   * written for. Off by default: with no shell in the way there is no syntax to differ
+   * between machines.
+   */
+  shell?: boolean;
 }
 
 export interface RemoteInfo {

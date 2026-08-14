@@ -1,8 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENTS, getAgent } from "../agents";
+import { splitCommand } from "./actions";
 import type { AgentDefinition, AgentPaths, SpawnPreparation } from "../agents/agent";
-import type { AgentId, NoticeSeverity, Project, TerminalDescriptor, TerminalStatus } from "../shared/types";
+import type {
+  AgentId,
+  NoticeSeverity,
+  Project,
+  ProjectAction,
+  TerminalDescriptor,
+  TerminalStatus
+} from "../shared/types";
 import { countActivity } from "./event-loop-monitor";
 import { ShellContext } from "./shell-context";
 import { checkAgentInstalled, TerminalSession } from "./terminal-session";
@@ -26,6 +34,12 @@ const SESSION_REMOVE_DELAY_MS = 500;
 // Readiness fires on the CLI's first full frame, which is a moment before the terminal
 // actually looks settled — hiding the indicator right then reads as a flicker.
 const INDICATOR_LINGER_MS = 700;
+/**
+ * A token that only means anything to a shell. A saved action is started without one, so it
+ * would silently become an argument; such a command is refused with a message instead. Whole
+ * tokens only — `2>&1` and `>>` are matched, an argument that merely holds a `>` is not.
+ */
+const SHELL_OPERATOR = /^(?:&&|\|\||[|;&]|\d*>>?|\d*>&\d*|<)$/;
 
 /**
  * `hasSession` is left out here: `sessionId` below is the source of truth for it, and it is
@@ -38,6 +52,14 @@ interface TabState extends Omit<TerminalDescriptor, "hasSession"> {
   spawnedAt?: number;
   /** Mirrors AgentSessionInfo.provisionalTitle for this tab's session. */
   provisionalTitle?: boolean;
+  /** The program a saved action runs, when that is not this agent's own executable. */
+  executable?: string;
+  /** A saved action's arguments — its own program's, or a shell's when it asked for one. */
+  runArgs?: string[];
+  /** Where its process runs, when that is not the project root — an action's own folder. */
+  cwd?: string;
+  /** A saved action's own environment variables, which outrank the machine's. */
+  env?: Record<string, string>;
 }
 
 /** Per-agent state within one project: its executable, its setup, its reconcile loop. */
@@ -326,6 +348,51 @@ export class ProjectSessionManager {
   }
 
   createTab(agentId: AgentId): TerminalDescriptor {
+    return this.addTab(agentId, {});
+  }
+
+  /**
+   * A tab that runs one of the project's saved commands and ends with it. Its process *is*
+   * the command: the output arrives while it runs and stays readable afterwards, which is
+   * what a build wants and what a notice could never give. The command is its label, since a
+   * shell tab has no session to take a title from.
+   *
+   * The program is started directly, without a shell — that is what makes one saved entry run
+   * the same everywhere, and `resolveCommand` is where "the same everywhere" is decided (a
+   * `.cmd` shim on win32 goes through cmd.exe). Only an action that asked for a shell gets
+   * one, and then it is the same one the project's shell tabs use.
+   */
+  createActionTab(action: ProjectAction): TerminalDescriptor | undefined {
+    const shared = {
+      title: action.command,
+      // `resolve` rather than `join`, so a folder that is already absolute is left alone.
+      cwd: action.cwd ? path.resolve(this.project.path, action.cwd) : undefined,
+      env: action.env
+    };
+    if (action.shell) {
+      const runArgs = getAgent("shell").runArgs?.(action.command);
+      return runArgs ? this.addTab("shell", { ...shared, runArgs }) : undefined;
+    }
+    const [executable, ...runArgs] = splitCommand(action.command);
+    if (!executable) {
+      return undefined;
+    }
+    // Shell syntax would be handed to the program as an ordinary argument here — `rm x && y`
+    // would ask rm to delete "&&" and "y". Said out loud rather than run: a file written when
+    // actions still went through a shell is exactly where this comes from.
+    const operator = [executable, ...runArgs].find((token) => SHELL_OPERATOR.test(token));
+    if (operator) {
+      this.callbacks.onNotice(
+        "error",
+        `"${action.command}" cannot run: ${operator} is shell syntax, and an action is started ` +
+          `without one. Split it into two actions, or add "shell": true to it in meeseek.json.`
+      );
+      return undefined;
+    }
+    return this.addTab("shell", { ...shared, executable, runArgs });
+  }
+
+  private addTab(agentId: AgentId, extra: Partial<TabState>): TerminalDescriptor {
     const runtime = this.runtimeFor(agentId);
     this.newTabCounter += 1;
     const tab: TabState = {
@@ -333,7 +400,8 @@ export class ProjectSessionManager {
       projectId: this.project.id,
       agentId,
       title: "",
-      status: this.canStart(runtime) ? "ready" : "missing"
+      status: this.canStart(runtime) ? "ready" : "missing",
+      ...extra
     };
     this.tabs.push(tab);
     this.postTabs();
@@ -395,9 +463,15 @@ export class ProjectSessionManager {
       setTimeout(() => this.releaseIndicator(), INDICATOR_LINGER_MS);
     };
 
+    // A tab that brings its own program — a saved action's — is not this agent's process, so
+    // nothing the agent itself would have been started with applies to it.
+    const args = tab.executable
+      ? (tab.runArgs ?? [])
+      : [...(agent.args ?? []), ...(preparation?.args ?? []), ...resumeArgs, ...(tab.runArgs ?? [])];
+
     const session = new TerminalSession(
-      executable,
-      this.project.path,
+      tab.executable ?? executable,
+      tab.cwd ?? this.project.path,
       { ...agent.env, ...preparation?.env },
       {
         onOutput: (data) => {
@@ -425,7 +499,8 @@ export class ProjectSessionManager {
           }
         }
       },
-      [...(agent.args ?? []), ...(preparation?.args ?? []), ...resumeArgs]
+      args,
+      tab.env
     );
 
     if (!tab.sessionId) {

@@ -37,7 +37,9 @@ export class TerminalSession {
     private readonly cwd: string,
     private readonly env: Record<string, string> | undefined,
     private readonly callbacks: SessionCallbacks,
-    private readonly args: string[] = []
+    private readonly args: string[] = [],
+    /** A saved action's own variables, which outrank the ones inherited from the machine. */
+    private readonly envOverride?: Record<string, string>
   ) {}
 
   getStatus(): TerminalStatus {
@@ -92,7 +94,13 @@ export class TerminalSession {
     }
 
     try {
-      this.process = spawnAgentProcess(this.executable, this.args, { cwd: this.cwd, cols, rows, env: this.env });
+      this.process = spawnAgentProcess(this.executable, this.args, {
+        cwd: this.cwd,
+        cols,
+        rows,
+        env: this.env,
+        envOverride: this.envOverride
+      });
     } catch (error) {
       console.error(`[meeseek] failed to spawn ${this.executable}:`, error);
       this.callbacks.onOutput(`\r\n[meeseek] failed to spawn ${this.executable}:\r\n${String(error)}\r\n`);
@@ -107,7 +115,10 @@ export class TerminalSession {
       if (!this.intentionalStop) {
         this.callbacks.onOutput(`\r\n[meeseek] ${this.executable} exited with code ${exitCode}\r\n`);
       }
-      this.setStatus(this.intentionalStop ? "stopped" : "error");
+      // What the process said, not merely that it is gone: a saved action ends by itself every
+      // time it is run, and a build that passed is not an error. Killed by us is "stopped"
+      // whatever the code, since that code is our doing rather than the command's.
+      this.setStatus(this.intentionalStop || exitCode === 0 ? "stopped" : "error");
       this.intentionalStop = false;
     });
   }

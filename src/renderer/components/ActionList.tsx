@@ -10,11 +10,28 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  */
 const DRAG_TYPE = "application/x-meeseek-action";
 
+/** The whole action as a tooltip: the command, where it runs, and what it runs with. */
+function describe(action: ProjectAction): string {
+  const lines = [action.command];
+  if (action.cwd) {
+    lines.push(`in ${action.cwd}`);
+  }
+  for (const [name, value] of Object.entries(action.env ?? {})) {
+    lines.push(`${name}=${value}`);
+  }
+  if (action.shell) {
+    lines.push("through a shell, so only on this platform");
+  }
+  return lines.join("\n");
+}
+
 interface ActionListProps {
   /** Whose actions these are; null when no project is open. */
   projectId: string | null;
   /** Dragged on the sash above the list, which is why it isn't a style of its own. */
   height: number;
+  /** The tab a started command opened, so the app can bring it to the front. */
+  onOpenTab: (projectId: string, tabId: string) => void;
 }
 
 /**
@@ -22,18 +39,12 @@ interface ActionListProps {
  * the repository's own root, so they belong to the project rather than to this machine — and
  * they change with the project the sidebar has selected.
  *
- * Running one shows nothing while it goes; the notice at the end says how it went. Anything
- * you want to watch belongs in a terminal, which is what the tabs next door are for.
+ * Running one opens a terminal tab and hands it over: the command is that tab's process, so
+ * this list has nothing to report afterwards and keeps no state about what is going.
  */
-export function ActionList({ projectId, height }: ActionListProps) {
+export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
   const [actions, setActions] = useState<ProjectAction[]>([]);
-  /**
-   * What is running right now, keyed by project *and* command: this view outlives a project
-   * switch, and a command still going in the project you left must not light up a row of the
-   * same name in the one you moved to.
-   */
-  const [running, setRunning] = useState<string[]>([]);
-  /** The projects the wand is out for, same reasoning. */
+  /** The projects the wand is out for; this view outlives a project switch. */
   const [suggestingIn, setSuggestingIn] = useState<string[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; action: ProjectAction } | null>(null);
   /**
@@ -49,8 +60,6 @@ export function ActionList({ projectId, height }: ActionListProps) {
   /** Where the dragged action would land: the index it would take among the others. */
   const [dropAt, setDropAt] = useState<number | null>(null);
 
-  const key = (project: string, action: ProjectAction): string => `${project} ${action.cwd ?? "."} ${action.command}`;
-  const isRunning = (action: ProjectAction): boolean => projectId !== null && running.includes(key(projectId, action));
   const suggesting = projectId !== null && suggestingIn.includes(projectId);
 
   useEffect(() => {
@@ -155,16 +164,17 @@ export function ActionList({ projectId, height }: ActionListProps) {
     }
   };
 
-  /** Marked as running until it answers, so a long one is not started twice over. */
+  /** Opens the tab the command runs in and switches to it; the tab is where it is watched. */
   const run = (action: ProjectAction): void => {
-    if (!projectId || isRunning(action)) {
+    if (!projectId) {
       return;
     }
-    const entry = key(projectId, action);
-    setRunning((current) => [...current, entry]);
-    void window.meeseek.actions
-      .run(projectId, action)
-      .finally(() => setRunning((current) => current.filter((candidate) => candidate !== entry)));
+    const project = projectId;
+    void window.meeseek.actions.run(project, action).then((tab) => {
+      if (tab) {
+        onOpenTab(project, tab.tabId);
+      }
+    });
   };
 
   /**
@@ -233,11 +243,8 @@ export function ActionList({ projectId, height }: ActionListProps) {
     move(Number(event.dataTransfer.getData(DRAG_TYPE)), actions.length);
   };
 
-  const itemClass = (action: ProjectAction, index: number): string => {
+  const itemClass = (index: number): string => {
     const classes = ["action-item"];
-    if (isRunning(action)) {
-      classes.push("running");
-    }
     if (index === dragged) {
       classes.push("dragging");
     }
@@ -281,9 +288,12 @@ export function ActionList({ projectId, height }: ActionListProps) {
       <div className="action-items" onDragOver={overEnd} onDrop={dropAtEnd}>
         {actions.map((action, index) => (
           <div
-            key={`${action.cwd ?? ""} ${action.command}`}
-            className={itemClass(action, index)}
-            title={action.cwd ? `${action.command}\nin ${action.cwd}` : action.command}
+            // The position, not the command: the same command can be in the list more than
+            // once — another folder, another set of variables — and the rows hold no state
+            // of their own that reordering could carry to the wrong one.
+            key={index}
+            className={itemClass(index)}
+            title={describe(action)}
             draggable
             onDragStart={(event) => begin(event, index)}
             onDragOver={(event) => over(event, index)}
@@ -301,12 +311,7 @@ export function ActionList({ projectId, height }: ActionListProps) {
             {/* Where it runs, when that is not the project root — the command alone would
                 otherwise look like it belongs to a folder that has no such script. */}
             {action.cwd && <span className="action-cwd">{action.cwd}</span>}
-            <button
-              className="icon-button"
-              title={isRunning(action) ? "Running..." : `Run ${action.command}`}
-              disabled={isRunning(action)}
-              onClick={() => run(action)}
-            >
+            <button className="icon-button" title={`Run ${action.command} in a new tab`} onClick={() => run(action)}>
               <PlayIcon />
             </button>
           </div>

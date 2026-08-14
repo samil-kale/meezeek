@@ -95,7 +95,7 @@ input:focus {
 }
 
 /* The app's own mark, ahead of its name. The same file the window and taskbar use, scaled
-   down here — it is drawn at 1004px so the taskbar has something to work with. */
+   down here — it is drawn at 1254px so the taskbar has something to work with. */
 .titlebar-icon {
   width: 18px;
   height: 18px;
@@ -288,12 +288,6 @@ input:focus {
 
 .action-item:hover {
   background: var(--vscode-list-hoverBackground);
-}
-
-/* A command that is on its way out; its button is disabled until it answers. */
-.action-item.running .action-command {
-  color: var(--vscode-descriptionForeground);
-  font-style: italic;
 }
 
 /* Takes the leftover width, which is what holds the run button at the row's right edge. */
@@ -740,31 +734,60 @@ input:focus {
   position: relative;
   flex: 1;
   min-height: 0;
-  padding: 4px 0 4px 6px;
+  /* The same 6px on every side — the gutter a row keeps from its pane elsewhere in the app. It
+     is what stops the CLI reading as if it were pressed against the window frame. */
+  padding: 6px;
   background: var(--vscode-terminal-background);
 }
 
-/* Carries the terminal background itself, rather than borrowing whatever pane it sits in:
+/* Where one xterm is mounted. Named `-host` and not `terminal`, which is what it used to be:
+   xterm puts *its own* element's class list as "terminal xterm ...", so a rule named for the
+   plain word applied to that one too — and every inset here was silently taken twice.
+
+   It carries the terminal background itself, rather than borrowing whatever pane it sits in:
    xterm paints exactly its rows and columns, and the strip left over between the last row and
    the bottom edge — widest right after a drag — has to be the same color the CLI is drawn on.
    `theme.ts` reads this very variable for xterm's own background, so the two cannot drift. */
-.terminal {
+.terminal-host {
   position: absolute;
-  inset: 4px 0 4px 6px;
+  /* Repeats the stack's padding rather than inheriting it: an absolutely positioned child is
+     laid out against the padding box, so the padding above does not move it. */
+  inset: 6px;
   background: var(--vscode-terminal-background);
 }
 
 /* visibility, not display: xterm needs a laid-out element to measure itself. */
-.terminal.hidden {
+.terminal-host.hidden {
   visibility: hidden;
+}
+
+/* A file is being held over this terminal, and this is the one that would take it. Drawn as an
+   overlay rather than a border on the host itself: a border would shrink the box xterm
+   measures, and every drag across a terminal would refit it and resize the pty. Ported from
+   sbc-vsc-agents, where it framed the whole webview and was dashed. */
+.terminal-host.drag-over::after {
+  content: "";
+  position: absolute;
+  /* Negates the host's inset above, so the frame lands on the pane's own edges — what is being
+     pointed at is the pane that takes the drop, not the terminal inside it. The right is one
+     pixel short of that: three of these edges border another view, but the right one is the
+     window's own, and a line lying exactly on it is not drawn (the window frame is there).
+     One pixel in, it is, and against 6px of gutter nobody can tell it from flush. */
+  inset: -6px -5px -6px -6px;
+  /* 1px, like every other line that points at something: the drop indicator between two rows,
+     the active tab's underline, the sash while it is dragged. */
+  border: 1px solid var(--vscode-focusBorder);
+  /* Above xterm's own layers, which go up to 7 for its decorations. */
+  z-index: 10;
+  pointer-events: none;
 }
 
 /*
  * xterm.css hardcodes a black background here — its own comment says it is "required on OS X
  * for the scroll bar to appear fully opaque" — and that black is what shows through wherever
- * the viewport is larger than the rows drawn in it: the gutter beside .terminal's left inset,
+ * the viewport is larger than the rows drawn in it: the gutter around the host's inset,
  * and the strip under the last row while a pane is being dragged taller. The theme's own
- * background sits on .terminal, so this only has to get out of the way.
+ * background sits on .terminal-host, so this only has to get out of the way.
  *
  * The selector matches xterm.css's own two-class one, or it would lose the cascade despite
  * loading later. This is the same fix sbc-vsc-agents carries, for the same reason.

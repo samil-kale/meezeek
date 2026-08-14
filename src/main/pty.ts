@@ -8,6 +8,12 @@ export interface SpawnOptions {
   cols: number;
   rows: number;
   env?: Record<string, string>;
+  /**
+   * Environment variables that win over the machine's own, unlike `env` above. A saved
+   * action's are the only ones: the user wrote them next to the command, so a variable of
+   * the same name already in the environment is not what that command asked for.
+   */
+  envOverride?: Record<string, string>;
 }
 
 const WIN32_NATIVE_EXTENSIONS = [".exe", ".com"];
@@ -58,7 +64,11 @@ export function resolveCommand(executable: string, args: string[]): { command: s
 export function spawnAgentProcess(executable: string, args: string[], options: SpawnOptions): IPty {
   // options.env are defaults, not overrides: a variable the user already has set (e.g. their
   // own OPENCODE_TUI_CONFIG) must win, or we'd silently replace their own configuration.
-  const env: { [key: string]: string } = { ...options.env, ...(process.env as { [key: string]: string }) };
+  const env: { [key: string]: string } = {
+    ...options.env,
+    ...(process.env as { [key: string]: string }),
+    ...options.envOverride
+  };
   const { command, args: resolvedArgs } = resolveCommand(executable, args);
 
   return pty.spawn(command, resolvedArgs, {

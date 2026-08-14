@@ -80,8 +80,12 @@ export interface MeeseekApi {
     list(projectId: string): Promise<ProjectAction[] | null>;
     /** Writes the whole list; adding, removing and reordering all go through here. */
     save(projectId: string, actions: ProjectAction[]): Promise<void>;
-    /** Runs one in its own directory, in the background, and reports the outcome as a notice. */
-    run(projectId: string, action: ProjectAction): Promise<void>;
+    /**
+     * Opens a terminal tab whose process is that command, in its own directory. Resolves to
+     * the tab, so the caller can bring it to the front; null when there is nothing to run it
+     * with.
+     */
+    run(projectId: string, action: ProjectAction): Promise<TerminalDescriptor | null>;
     /**
      * Has an installed agent read the project and name the commands it can run, adds what is
      * new to the list, and resolves to the whole list. Reports what happened as a notice.

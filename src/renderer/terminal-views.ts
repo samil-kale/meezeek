@@ -229,10 +229,32 @@ export function attachTerminal(projectId: string, tabId: string, container: HTML
   view.term.open(container);
 
   // On the container rather than the document: several terminals are mounted at once, and a
-  // drop belongs to the one it landed on.
-  container.addEventListener("dragover", (event) => event.preventDefault());
+  // drop belongs to the one it landed on. Which one that is, is what the frame says — and it
+  // only appears for a drag that carries files, since that is all this takes. A project row
+  // dragged past carries a type of its own and is no drop here.
+  const holdsFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes("Files") === true;
+  const frame = (shown: boolean): void => {
+    container.classList.toggle("drag-over", shown);
+  };
+
+  container.addEventListener("dragover", (event) => {
+    if (!holdsFiles(event)) {
+      return;
+    }
+    // Only a prevented dragover makes this a drop target at all.
+    event.preventDefault();
+    frame(true);
+  });
+  container.addEventListener("dragleave", (event) => {
+    // Fires for every nested element xterm draws, too; only leaving the container counts, and
+    // a null relatedTarget is the pointer leaving the window altogether.
+    if (!container.contains(event.relatedTarget as Node | null)) {
+      frame(false);
+    }
+  });
   container.addEventListener("drop", (event) => {
     event.preventDefault();
+    frame(false);
     void pasteDroppedFiles(view.term, Array.from(event.dataTransfer?.files ?? []));
   });
   container.addEventListener("contextmenu", (event) => {

@@ -108,6 +108,12 @@ export interface AgentDefinition {
    */
   askArgs?: (question: string) => string[];
   /**
+   * Args that hand one command to this agent *in a terminal*, ending when it does. Only the
+   * shell has it, and only a saved action that asked for a shell uses it — an action is
+   * otherwise started as the program it names, with nothing in between.
+   */
+  runArgs?: (command: string) => string[];
+  /**
    * Removes what `askArgs` left behind, for an agent that persists a session either way — a
    * question asked in the background must not come back as a tab on the next start. Left out
    * by an agent that can be told not to persist one in the first place.

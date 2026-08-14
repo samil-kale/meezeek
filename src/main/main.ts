@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
 import { AGENTS, listAgents } from "../agents";
 import type { AgentDefinition } from "../agents/agent";
-import { mergeActions, readActions, runAction, suggestActions, suggestQuestion, writeActions } from "./actions";
+import { mergeActions, readActions, suggestActions, suggestQuestion, writeActions } from "./actions";
 import { checkAgentInstalled } from "./terminal-session";
 import type {
   AgentId,
@@ -237,23 +237,15 @@ function registerIpc(): void {
   });
 
   /**
-   * Runs one and reports how it went. Nothing is streamed while it runs: an action is started
-   * and then waited on, and the answer is a single notice either way.
+   * Running one is opening a tab for it: the command is the tab's process, so its output
+   * arrives while it works and is still there afterwards.
    */
-  ipcMain.handle("actions:run", async (_event, projectId: string, action: ProjectAction): Promise<void> => {
-    const project = store.list().find((candidate) => candidate.id === projectId);
-    if (!project) {
-      return;
+  ipcMain.handle(
+    "actions:run",
+    (_event, projectId: string, action: ProjectAction): TerminalDescriptor | null => {
+      return sessions.get(projectId)?.createActionTab(action) ?? null;
     }
-    const result = await runAction(project.path, action);
-    send("app:notice", {
-      severity: result.code === 0 ? "info" : "error",
-      message:
-        result.code === 0
-          ? `${action.command} finished`
-          : `${action.command} exited with ${result.code}${result.output ? `\n${result.output}` : ""}`
-    });
-  });
+  );
 
   /**
    * The wand: asks whichever agent is installed what this project can run, and adds what it

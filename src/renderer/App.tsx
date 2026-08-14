@@ -55,10 +55,11 @@ export function App() {
   /** The sync button's own menu: the variants of what it does, for when its pick is not the one. */
   const [syncMenu, setSyncMenu] = useState<{ x: number; y: number } | null>(null);
   /**
-   * A shell tab asked for from a project's row. The counter is what makes a second request
-   * for the same project a new one; the pane it belongs to opens the tab.
+   * A tab that was just opened from outside its own pane — a shell asked for from a project's
+   * row, or the terminal a saved action runs in. The pane brings it to the front once it
+   * arrives; a tab id is only ever created once, so it acts exactly once.
    */
-  const [shellRequest, setShellRequest] = useState<{ projectId: string; nonce: number } | null>(null);
+  const [openedTab, setOpenedTab] = useState<{ projectId: string; tabId: string } | null>(null);
 
   useEffect(() => {
     const unsubscribe = window.meeseek.repository.onState(({ projectId, state }) =>
@@ -143,11 +144,19 @@ export function App() {
     [branchAction, runBranchAction]
   );
 
-  /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
-  const openTerminal = useCallback((projectId: string) => {
+  /** Shows a tab something outside the terminals pane opened: its project, then the tab. */
+  const showTab = useCallback((projectId: string, tabId: string) => {
     setActiveProjectId(projectId);
-    setShellRequest((current) => ({ projectId, nonce: (current?.nonce ?? 0) + 1 }));
+    setOpenedTab({ projectId, tabId });
   }, []);
+
+  /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
+  const openTerminal = useCallback(
+    (projectId: string) => {
+      void window.meeseek.terminals.create(projectId, "shell").then((tab) => showTab(projectId, tab.tabId));
+    },
+    [showTab]
+  );
 
   const refresh = useCallback(() => {
     if (activeProjectId) {
@@ -271,7 +280,7 @@ export function App() {
             reverse
             onResize={setActionsHeight}
           />
-          <ActionList projectId={activeProjectId} height={actionsHeight} />
+          <ActionList projectId={activeProjectId} height={actionsHeight} onOpenTab={showTab} />
         </div>
         <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
 
@@ -313,7 +322,7 @@ export function App() {
               onToggleGit={() => setGitOpen(!gitOpen)}
               externalBusy={branchAction?.projectId === project.id || (project.id === activeProjectId && gitBusy)}
               onOpenDiff={(path) => setDiffFile({ projectId: project.id, path })}
-              newShell={shellRequest?.projectId === project.id ? shellRequest.nonce : 0}
+              openedTabId={openedTab?.projectId === project.id ? openedTab.tabId : null}
             />
           ))}
           {!activeProject && (
