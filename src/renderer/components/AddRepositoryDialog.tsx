@@ -11,20 +11,19 @@ import { CloseIcon, PlusIcon, SpinnerIcon } from "./icons";
 import { notify } from "./Notices";
 
 /**
- * The four ways a repository comes in: picked off an account's list, cloned from a url, added
- * from the filesystem, or created empty. One dialog with a tab per way, SourceTree's layout in
- * this app's clothes.
+ * The three ways a repository comes in: picked off an account's list, cloned from a url, or
+ * added from the filesystem. One dialog with a tab per way, SourceTree's layout in this app's
+ * clothes.
  *
  * Not part of Dialog.tsx: that file puts one question with two buttons, and this is a small
  * surface with modes. Like DiffDialog it is its own overlay over the whole window.
  */
-type Mode = "remote" | "clone" | "add" | "create";
+type Mode = "remote" | "clone" | "add";
 
 const MODES: { id: Mode; label: string }[] = [
   { id: "remote", label: "Remote" },
   { id: "clone", label: "Clone" },
-  { id: "add", label: "Add" },
-  { id: "create", label: "Create" }
+  { id: "add", label: "Add" }
 ];
 
 const PROVIDER_LABEL: Record<ProviderId, string> = { github: "GitHub", gitlab: "GitLab" };
@@ -518,7 +517,7 @@ interface AddRepositoryDialogProps {
 export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogProps) {
   const [mode, setMode] = useState<Mode>("remote");
   const [url, setUrl] = useState("");
-  /** Where the new folder goes (clone and create); the folder that already exists (add). */
+  /** Where the clone's new folder goes; the folder that already exists (add). */
   const [directory, setDirectory] = useState("");
   /** null follows the url; a string is the user's own and stays. */
   const [name, setName] = useState<string | null>(null);
@@ -566,9 +565,7 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
       ? url.trim() !== "" && directory.trim() !== "" && folderName.trim() !== "" && authAnswered
       : mode === "add"
         ? directory.trim() !== ""
-        : mode === "create"
-          ? directory.trim() !== "" && folderName.trim() !== ""
-          : false;
+        : false;
 
   /**
    * Puts the credentials block up: the accounts this host has, and a provider guessed from its
@@ -609,10 +606,7 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
         onClose();
         return;
       }
-      const result =
-        mode === "clone"
-          ? await cloneRepository()
-          : await window.meezeek.projects.create(directory.trim(), folderName.trim());
+      const result = await cloneRepository();
       if (result.project) {
         onAdded(result.project);
         onClose();
@@ -717,21 +711,6 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
               onChange={setDirectory}
               inputRef={firstField}
             />
-          )}
-          {mode === "create" && (
-            <>
-              <PathField
-                label="Destination"
-                value={directory}
-                pickTitle="Create in"
-                onChange={setDirectory}
-                inputRef={firstField}
-              />
-              <label className="dialog-field">
-                <span>Folder name</span>
-                <input type="text" value={folderName} onChange={(event) => setName(event.target.value)} />
-              </label>
-            </>
           )}
         </div>
         <div className="dialog-buttons">

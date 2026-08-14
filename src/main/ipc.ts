@@ -108,18 +108,14 @@ export function registerIpc({
     return project;
   });
 
-  /** Clone and create both end the same way: the new folder becomes a project like any picked one. */
-  const addRepository = async (
-    action: Promise<GitActionResult>,
-    directory: string,
-    label: string
-  ): Promise<AddRepositoryResult> => {
+  /** How a clone ends: the new folder becomes a project like any picked one. */
+  const addRepository = async (action: Promise<GitActionResult>, directory: string): Promise<AddRepositoryResult> => {
     try {
       const result = await action;
       if (!result.ok) {
         // The dialog asks for an account or a token when this says the credentials were what
         // was missing, so it has to survive the trip rather than be flattened into the message.
-        return { error: result.error || `${label} failed`, authRequired: result.authRequired };
+        return { error: result.error || "Clone failed", authRequired: result.authRequired };
       }
     } catch (error) {
       // The git process died mid-command; its message is all that is left to report.
@@ -138,12 +134,7 @@ export function registerIpc({
     const token = accountId !== undefined ? accounts.token(accountId) : undefined;
     const action =
       account && token !== undefined ? git.cloneWithToken(url, target, account.user, token) : git.clone(url, target);
-    return addRepository(action, target, "Clone");
-  });
-
-  ipcMain.handle("projects:create", (_event, directory: string, name: string) => {
-    const target = path.join(directory, name);
-    return addRepository(git.init(target), target, "Create");
+    return addRepository(action, target);
   });
 
   ipcMain.handle("providers:accounts", (): ProviderAccount[] => accounts.list());

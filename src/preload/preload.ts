@@ -17,7 +17,6 @@ const api: MeezeekApi = {
     pickDirectory: (title, defaultPath) => ipcRenderer.invoke("projects:pick-directory", title, defaultPath),
     open: (directory) => ipcRenderer.invoke("projects:open-path", directory),
     clone: (url, directory, name, accountId) => ipcRenderer.invoke("projects:clone", url, directory, name, accountId),
-    create: (directory, name) => ipcRenderer.invoke("projects:create", directory, name),
     remove: (projectId) => ipcRenderer.invoke("projects:remove", projectId),
     reorder: (projectIds) => ipcRenderer.invoke("projects:reorder", projectIds)
   },
