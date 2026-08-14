@@ -246,7 +246,7 @@ input:focus {
 
 /* Width comes from the sash beside it — the default and the limits it can be dragged to live
    with the state, in App. Same for the two panels of the git tab below. */
-/* The whole left column: projects on top, the selected one's actions below. */
+/* The whole left column: projects on top, the selected one's commands below. */
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -264,7 +264,7 @@ input:focus {
 }
 
 /* Its height is dragged and remembered; the projects above take what is left. */
-.action-list {
+.command-list {
   display: flex;
   flex-direction: column;
   flex: none;
@@ -279,19 +279,19 @@ input:focus {
   gap: 2px;
 }
 
-.action-items {
+.command-items {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 4px;
 }
 
-.action-item:hover {
+.command-item:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
 /* Takes the leftover width, which is what holds the run button at the row's right edge. */
-.action-command {
+.command-line {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -302,7 +302,7 @@ input:focus {
 
 /* The folder it runs in, where that is not the project root. Kept small and dimmed: it is
    context for the command, not part of it. */
-.action-cwd {
+.command-cwd {
   flex: none;
   max-width: 40%;
   overflow: hidden;
@@ -342,7 +342,7 @@ input:focus {
    the 22px action button with enough room left that its hover does not touch the row's own
    highlight. Declared together so they cannot drift apart. */
 .project-item,
-.action-item {
+.command-item {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -366,19 +366,19 @@ input:focus {
 /* The row is being dragged elsewhere; it stays where it is until the drop decides. Both lists
    reorder by dragging, so both draw it the same way. */
 .project-item.dragging,
-.action-item.dragging {
+.command-item.dragging {
   opacity: 0.5;
 }
 
 /* Where the drop would put it — a line between two rows rather than a highlight on one, since
    the position is between them. Inset, so it does not add to the row's height. */
 .project-item.drop-above,
-.action-item.drop-above {
+.command-item.drop-above {
   box-shadow: inset 0 1px 0 var(--vscode-focusBorder);
 }
 
 .project-item.drop-below,
-.action-item.drop-below {
+.command-item.drop-below {
   box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
 }
 
@@ -842,7 +842,7 @@ input:focus {
 }
 
 /* The lower half takes what is left and draws the line between the two, the way the sidebar's
-   action list does — the sash over it is transparent until it is grabbed. */
+   command list does — the sash over it is transparent until it is grabbed. */
 .git-section.grows {
   flex: 1;
   border-top: 1px solid var(--vscode-panel-border);

@@ -109,8 +109,8 @@ export interface AgentDefinition {
   askArgs?: (question: string) => string[];
   /**
    * Args that hand one command to this agent *in a terminal*, ending when it does. Only the
-   * shell has it, and only a saved action that asked for a shell uses it — an action is
-   * otherwise started as the program it names, with nothing in between.
+   * shell has it, and only a saved command that asked for a shell uses it — a saved command
+   * is otherwise started as the program it names, with nothing in between.
    */
   runArgs?: (command: string) => string[];
   /**

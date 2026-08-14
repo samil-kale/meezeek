@@ -46,11 +46,11 @@ const api: MeeseekApi = {
       ipcRenderer.invoke("repo:file-lines", projectId, filePath, from, to),
     onState: (listener) => subscribe("repo:state-changed", listener)
   },
-  actions: {
-    list: (projectId) => ipcRenderer.invoke("actions:list", projectId),
-    save: (projectId, actions) => ipcRenderer.invoke("actions:save", projectId, actions),
-    run: (projectId, action) => ipcRenderer.invoke("actions:run", projectId, action),
-    suggest: (projectId) => ipcRenderer.invoke("actions:suggest", projectId)
+  commands: {
+    list: (projectId) => ipcRenderer.invoke("commands:list", projectId),
+    save: (projectId, commands) => ipcRenderer.invoke("commands:save", projectId, commands),
+    run: (projectId, command) => ipcRenderer.invoke("commands:run", projectId, command),
+    suggest: (projectId) => ipcRenderer.invoke("commands:suggest", projectId)
   },
   terminals: {
     list: (projectId) => ipcRenderer.invoke("terminal:list", projectId),

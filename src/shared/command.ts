@@ -6,7 +6,7 @@
  * smuggle a pipe, a redirection or a variable in. A command that really needs one says
  * `"shell": true`.
  *
- * Shared rather than owned by the main process: the dialog that saves an action reads its
+ * Shared rather than owned by the main process: the dialog that saves a command reads its
  * environment field the same way, and two spellings of "what counts as one word" would drift.
  */
 export function splitCommand(command: string): string[] {

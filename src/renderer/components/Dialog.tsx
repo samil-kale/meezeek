@@ -29,8 +29,8 @@ export interface PromptOptions {
   confirmLabel: string;
   maxLength?: number;
   /**
-   * Further fields, for a question whose optional parts sit next to its answer — an action's
-   * folder and environment next to its command. Empty is a valid answer for each of them; the
+   * Further fields, for a question whose optional parts sit next to its answer — a saved
+   * command's folder and environment next to it. Empty is a valid answer for each of them; the
    * first field is the one that must be filled in.
    */
   extras?: { label: string; placeholder?: string; value?: string }[];

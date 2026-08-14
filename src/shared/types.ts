@@ -28,7 +28,7 @@ export interface Project {
  * `npm run build` next to the folder it runs in reads better than the flag that would move it
  * ("--prefix", "-C", "--project"), which not every tool even has.
  */
-export interface ProjectAction {
+export interface ProjectCommand {
   command: string;
   /** Relative to the project root; absent means the root itself. */
   cwd?: string;
@@ -36,7 +36,7 @@ export interface ProjectAction {
    * Environment variables the command runs with. Its own field because there is no way to
    * write one *into* a command that works everywhere: `PROFILE=x java -jar ...` is POSIX
    * syntax that PowerShell reads as a command name. These win over the ones inherited from
-   * the machine — the action says what it needs.
+   * the machine — the command says what it needs.
    */
   env?: Record<string, string>;
   /**

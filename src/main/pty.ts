@@ -10,7 +10,7 @@ export interface SpawnOptions {
   env?: Record<string, string>;
   /**
    * Environment variables that win over the machine's own, unlike `env` above. A saved
-   * action's are the only ones: the user wrote them next to the command, so a variable of
+   * command's are the only ones: the user wrote them next to the command, so a variable of
    * the same name already in the environment is not what that command asked for.
    */
   envOverride?: Record<string, string>;

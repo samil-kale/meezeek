@@ -38,7 +38,7 @@ export class TerminalSession {
     private readonly env: Record<string, string> | undefined,
     private readonly callbacks: SessionCallbacks,
     private readonly args: string[] = [],
-    /** A saved action's own variables, which outrank the ones inherited from the machine. */
+    /** A saved command's own variables, which outrank the ones inherited from the machine. */
     private readonly envOverride?: Record<string, string>
   ) {}
 
@@ -115,7 +115,7 @@ export class TerminalSession {
       if (!this.intentionalStop) {
         this.callbacks.onOutput(`\r\n[meeseek] ${this.executable} exited with code ${exitCode}\r\n`);
       }
-      // What the process said, not merely that it is gone: a saved action ends by itself every
+      // What the process said, not merely that it is gone: a saved command ends by itself every
       // time it is run, and a build that passed is not an error. Killed by us is "stopped"
       // whatever the code, since that code is our doing rather than the command's.
       this.setStatus(this.intentionalStop || exitCode === 0 ? "stopped" : "error");

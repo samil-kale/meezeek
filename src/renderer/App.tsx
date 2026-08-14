@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GitActionResult, Project, RepositoryState } from "../shared/types";
-import { ActionList } from "./components/ActionList";
+import { CommandList } from "./components/CommandList";
 import type { BranchActions } from "./components/BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./components/ContextMenu";
 import { DiffDialog } from "./components/DiffDialog";
@@ -41,7 +41,7 @@ export function App() {
   const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300);
   const [branchTreeHeight, setBranchTreeHeight] = usePaneSize("branch-tree", 260);
   // 40% of the window it first opens in.
-  const [actionsHeight, setActionsHeight] = usePaneSize("actions", Math.round(window.innerHeight * 0.4));
+  const [commandsHeight, setCommandsHeight] = usePaneSize("commands", Math.round(window.innerHeight * 0.4));
   /**
    * Whether the git pane is out. Closed until it is asked for — the terminals are what the
    * window is for, and the repository is something you look at now and then. Remembered like
@@ -56,7 +56,7 @@ export function App() {
   const [syncMenu, setSyncMenu] = useState<{ x: number; y: number } | null>(null);
   /**
    * A tab that was just opened from outside its own pane — a shell asked for from a project's
-   * row, or the terminal a saved action runs in. The pane brings it to the front once it
+   * row, or the terminal a saved command runs in. The pane brings it to the front once it
    * arrives; a tab id is only ever created once, so it acts exactly once.
    */
   const [openedTab, setOpenedTab] = useState<{ projectId: string; tabId: string } | null>(null);
@@ -274,13 +274,13 @@ export function App() {
           />
           <Sash
             orientation="horizontal"
-            size={actionsHeight}
+            size={commandsHeight}
             min={60}
             minOther={100}
             reverse
-            onResize={setActionsHeight}
+            onResize={setCommandsHeight}
           />
-          <ActionList projectId={activeProjectId} height={actionsHeight} onOpenTab={showTab} />
+          <CommandList projectId={activeProjectId} height={commandsHeight} onOpenTab={showTab} />
         </div>
         <Sash orientation="vertical" size={sidebarWidth} min={140} minOther={320} onResize={setSidebarWidth} />
 

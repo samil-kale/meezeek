@@ -8,7 +8,7 @@ import type {
   AgentId,
   NoticeSeverity,
   Project,
-  ProjectAction,
+  ProjectCommand,
   TerminalDescriptor,
   TerminalStatus
 } from "../shared/types";
@@ -36,7 +36,7 @@ const SESSION_REMOVE_DELAY_MS = 500;
 // actually looks settled — hiding the indicator right then reads as a flicker.
 const INDICATOR_LINGER_MS = 700;
 /**
- * A token that only means anything to a shell. A saved action is started without one, so it
+ * A token that only means anything to a shell. A saved command is started without one, so it
  * would silently become an argument; such a command is refused with a message instead. Whole
  * tokens only — `2>&1` and `>>` are matched, an argument that merely holds a `>` is not.
  */
@@ -53,13 +53,13 @@ interface TabState extends Omit<TerminalDescriptor, "hasSession"> {
   spawnedAt?: number;
   /** Mirrors AgentSessionInfo.provisionalTitle for this tab's session. */
   provisionalTitle?: boolean;
-  /** The program a saved action runs, when that is not this agent's own executable. */
+  /** The program a saved command runs, when that is not this agent's own executable. */
   executable?: string;
-  /** A saved action's arguments — its own program's, or a shell's when it asked for one. */
+  /** A saved command's arguments — its own program's, or a shell's when it asked for one. */
   runArgs?: string[];
-  /** Where its process runs, when that is not the project root — an action's own folder. */
+  /** Where its process runs, when that is not the project root — a command's own folder. */
   cwd?: string;
-  /** A saved action's own environment variables, which outrank the machine's. */
+  /** A saved command's own environment variables, which outrank the machine's. */
   env?: Record<string, string>;
 }
 
@@ -360,33 +360,33 @@ export class ProjectSessionManager {
    *
    * The program is started directly, without a shell — that is what makes one saved entry run
    * the same everywhere, and `resolveCommand` is where "the same everywhere" is decided (a
-   * `.cmd` shim on win32 goes through cmd.exe). Only an action that asked for a shell gets
+   * `.cmd` shim on win32 goes through cmd.exe). Only a command that asked for a shell gets
    * one, and then it is the same one the project's shell tabs use.
    */
-  createActionTab(action: ProjectAction): TerminalDescriptor | undefined {
+  createCommandTab(command: ProjectCommand): TerminalDescriptor | undefined {
     const shared = {
-      title: action.command,
+      title: command.command,
       // `resolve` rather than `join`, so a folder that is already absolute is left alone.
-      cwd: action.cwd ? path.resolve(this.project.path, action.cwd) : undefined,
-      env: action.env
+      cwd: command.cwd ? path.resolve(this.project.path, command.cwd) : undefined,
+      env: command.env
     };
-    if (action.shell) {
-      const runArgs = getAgent("shell").runArgs?.(action.command);
+    if (command.shell) {
+      const runArgs = getAgent("shell").runArgs?.(command.command);
       return runArgs ? this.addTab("shell", { ...shared, runArgs }) : undefined;
     }
-    const [executable, ...runArgs] = splitCommand(action.command);
+    const [executable, ...runArgs] = splitCommand(command.command);
     if (!executable) {
       return undefined;
     }
     // Shell syntax would be handed to the program as an ordinary argument here — `rm x && y`
     // would ask rm to delete "&&" and "y". Said out loud rather than run: a file written when
-    // actions still went through a shell is exactly where this comes from.
+    // saved commands still went through a shell is exactly where this comes from.
     const operator = [executable, ...runArgs].find((token) => SHELL_OPERATOR.test(token));
     if (operator) {
       this.callbacks.onNotice(
         "error",
-        `"${action.command}" cannot run: ${operator} is shell syntax, and an action is started ` +
-          `without one. Split it into two actions, or add "shell": true to it in meeseek.json.`
+        `"${command.command}" cannot run: ${operator} is shell syntax, and a saved command is ` +
+          `started without one. Split it into two commands, or add "shell": true to it in meeseek.json.`
       );
       return undefined;
     }
@@ -464,7 +464,7 @@ export class ProjectSessionManager {
       setTimeout(() => this.releaseIndicator(), INDICATOR_LINGER_MS);
     };
 
-    // A tab that brings its own program — a saved action's — is not this agent's process, so
+    // A tab that brings its own program — a saved command's — is not this agent's process, so
     // nothing the agent itself would have been started with applies to it.
     const args = tab.executable
       ? (tab.runArgs ?? [])

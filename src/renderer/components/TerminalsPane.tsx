@@ -33,7 +33,7 @@ interface TerminalsPaneProps {
   /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
   onOpenDiff: (path: string) => void;
   /**
-   * A tab opened from outside this pane — a shell from the project's row, an action's own
+   * A tab opened from outside this pane — a shell from the project's row, a saved command's own
    * terminal — that should be brought to the front once the host reports it.
    */
   openedTabId: string | null;

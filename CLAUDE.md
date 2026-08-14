@@ -156,7 +156,7 @@ it in the file manager, copy its path, view it on whatever host its remote names
 url, and close it. Nothing there touches the working tree — those actions live in the git pane,
 where what they act on is on screen. "Open in terminal" is a *shell tab in this window*, not the
 OS terminal GitHub Desktop opens: the terminals are what meeseek is for. It is created like any
-other tab and then brought to the front the way an action's is (see Actions).
+other tab and then brought to the front the way a saved command's is (see Commands).
 
 ### Talking to a remote
 
@@ -298,18 +298,21 @@ Filtering the bare `.git` event instead was considered and rejected: it guesses 
 form each OS reports for a change inside a directory, it was only ever measured on Windows, and
 on a platform that reports *only* the directory it would swallow a real branch switch.
 
-## Actions
+## Commands
 
 The sidebar's lower half is a project's saved shell commands — a build, a deploy script,
 whatever is typed often enough to be worth a button. They live in a `meeseek.json` in the
-repository's own root (`src/main/actions.ts`), not in meeseek's `userData`: they describe the
-project, so they travel with it and can be committed like anything else. That also means the
-file shows up as an untracked change in the git pane until someone commits or ignores it.
+repository's own root (`src/main/commands.ts`), under a `commands` key, not in meeseek's
+`userData`: they describe the project, so they travel with it and can be committed like
+anything else. That also means the file shows up as an untracked change in the git pane until
+someone commits or ignores it.
 
-An action is a command and, where they are not the obvious ones, the folder it runs in and the
-environment variables it runs with. In the file it is a plain string while neither is needed
-and an object once one of them is (`{"command": "npm run build", "cwd": "web"}`), so the common
-case stays one readable line and a file written before this existed is still valid. The command
+A saved command is a command line and, where they are not the obvious ones, the folder it runs
+in and the environment variables it runs with. In the file it is a plain string while neither
+is needed and an object once one of them is (`{"command": "npm run build", "cwd": "web"}`), so
+the common case stays one readable line. The key was `actions` until the whole feature was
+renamed, and nothing reads that spelling any more: a `meeseek.json` written before the rename
+looks like a project nobody has set up here, and the wand fills it again. The command
 is then the one you would type standing in that folder — `npm run build`, not
 `npm run build --prefix web`, which is a flag only some tools have and which reads like part of
 the command when it is not.
@@ -330,8 +333,8 @@ live in `src/shared/`: the renderer reads the field, the main process starts the
 two spellings of "what counts as one word" would drift apart. `prompt` carries them as `extras`,
 a list of optional fields — only the first field of a dialog can hold its answer back.
 
-**Running one opens a terminal tab for it.** The tab's *process is the command*, in the
-action's own directory, ending when the command does. Nothing is buffered and nothing is
+**Running one opens a terminal tab for it.** The tab's *process is the command*, in its own
+directory, ending when the command does. Nothing is buffered and nothing is
 summarised — the output arrives while it works and is still there afterwards, which is what a
 build actually needs.
 
@@ -352,7 +355,7 @@ and this file is read everywhere. Where the same command line goes on Windows is
 itself, a `.cmd` shim — `mvn`, `npm` — goes through `cmd.exe`, and an argument holding a space
 survives both (measured, not assumed).
 
-The way out is `"shell": true` on an action, which hands the line to `AgentDefinition.runArgs`
+The way out is `"shell": true` on a command, which hands the line to `AgentDefinition.runArgs`
 instead — the same shell the project's shell tabs use, `-NoProfile -Command` on win32 and a
 plain `-c` elsewhere. That entry then only works where it was written, which is the trade it
 makes. It is deliberately not in the wand's prompt: what an agent writes into a repository
@@ -360,32 +363,32 @@ should run everywhere.
 
 An operator that survives the split as a word of its own (`&&`, `|`, `>`, ...) is refused with
 a notice naming it, rather than passed to the program as an argument — `rm x && y` would ask
-`rm` to delete two files called `&&` and `y`. Files written while actions still went through a
+`rm` to delete two files called `&&` and `y`. Files written while these still went through a
 shell are where such a line comes from, so it has to fail loudly rather than quietly do
 something else.
 
-Either way `createActionTab` is `createTab` with a program, arguments, a directory and an
-environment attached to the tab, so an action's terminal goes through the same lazy spawn, the
-same output batching and the same close path as every other one.
+Either way `createCommandTab` is `createTab` with a program, arguments, a directory and an
+environment attached to the tab, so a saved command's terminal goes through the same lazy spawn,
+the same output batching and the same close path as every other one.
 
 Reading a `meeseek.json` that is missing, unparseable or shaped differently is simply no
-actions. It is a file in the user's repository; half of it being someone else's is not a reason
+commands. It is a file in the user's repository; half of it being someone else's is not a reason
 to throw.
 
-One `ActionList` serves every project, so anything it starts has to name the project it was
+One `CommandList` serves every project, so anything it starts has to name the project it was
 started for: the wand can run for minutes, and its answer belongs to the project it asked
 about, not to whichever one is on screen when it comes back. The projects being looked up are
 therefore kept as a set, and the result is only put on screen when that project is still the
 one shown. Running a command needs none of that any more — it hands over to a tab and is done.
 
-A tab opened from outside the terminals pane — an action's, or the shell a project's row asks
+A tab opened from outside the terminals pane — a saved command's, or the shell a project's row asks
 for — is brought to the front through `openedTabId`, which the pane applies once per tab id
 and then remembers. Not on every render: the tab list changes for every status update, and a
 selection that re-applied itself would drag the user back out of whatever they moved on to.
 
-Because an action's process ends every time it is run, `TerminalSession` tells the two apart by
+Because a saved command's process ends every time it is run, `TerminalSession` tells the two apart by
 the exit code: `stopped` for a clean one (and for anything meeseek killed, whatever it said),
-`error` only for a process that failed on its own. Before actions had tabs this never came up —
+`error` only for a process that failed on its own. Before they had tabs this never came up —
 a shell only ended when someone typed `exit`, and it was reported as an error. **Nothing draws
 the difference yet:** the tab strip still marks `stopped` and `error` the same way (dimmed and
 struck through, `.terminal-tab.inactive`). Showing a failed build at a glance is worth doing and
@@ -393,14 +396,14 @@ is deliberately still open — how it looks is undecided, so do not invent it.
 
 A project with no `meeseek.json` **at all** has its commands looked up straight away, without
 being asked — nobody has set it up here, and that is the one moment where guessing is worth the
-wait. Which is why `readActions` answers `null` for a missing file and `[]` for one that is
+wait. Which is why `readCommands` answers `null` for a missing file and `[]` for one that is
 there but holds nothing: a list someone emptied on purpose stays empty. It runs at most once
 per project per session, guarded by a ref.
 
 The order of the array in `meeseek.json` is the order on screen — there is no field for it,
 because two records of the same thing drift apart. Rows are reordered by dragging, the way the
 project list is. What the wand adds is slotted in behind the last command that runs the same
-tool (`mergeActions`), so the maven ones end up together and the npm ones together without
+tool (`mergeCommands`), so the maven ones end up together and the npm ones together without
 disturbing anything already there; a drag outranks that, since it only decides where something
 *new* lands.
 
@@ -479,7 +482,7 @@ what they say — they sit outside the pane that draws it.
 
 A button that turns while its *own* action runs is not a second one of these — it is a state of
 that button, in the place the user pressed, the way VS Code spins its own refresh actions. The
-sparkle in the actions list is the one so far: `SpinnerIcon` with the `spinning` class takes the
+sparkle in the commands list is the one so far: `SpinnerIcon` with the `spinning` class takes the
 icon's place, and `.busy` keeps the disabled dimming off it. A wait that belongs to the project
 rather than to one control still goes in the bar.
 
@@ -504,7 +507,7 @@ would pull JSX into that bundle and the agent's setup code into the renderer's.
   comes back as a tab on the next start: Claude Code takes `--no-session-persistence`, and
   opencode — which has no such switch — titles the run and deletes it again in `cleanupAsk`
 - `runArgs` — one command run *in* a terminal, which ends when it does; a project's saved
-  actions are what use it, and only the shell has it, since an action is a shell command
+  commands are what use it, and only the shell has it, since a saved command is a shell command
 - `sessions` — listing, resume args, rename, delete, and an optional `watch`
 - `prepareSpawn` — async setup that must finish before the first spawn, and the only place an
   agent may write anything. It is handed `AgentPaths`; a rejection marks the agent unstartable,
@@ -614,7 +617,7 @@ for the others.
   between panes, and a pane sized in percent stating its floor in percent as well. When
   something looks like it needs a size of its own, check what the neighbouring view uses first.
 - **The same goes for anything that marks or points at something.** Every line of that kind is
-  1px in `--vscode-focusBorder`: the drop indicator between two rows of the project and action
+  1px in `--vscode-focusBorder`: the drop indicator between two rows of the project and command
   lists, the active tab's underline, the frame around a terminal a file is held over, and the
   sash while it is dragged (`--vscode-sash-hoverBorder`, VS Code's own name for the same blue).
   A new one copies an existing rule instead of picking a width and a color of its own — two of

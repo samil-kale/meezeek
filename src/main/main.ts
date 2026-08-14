@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
 import { AGENTS, listAgents } from "../agents";
 import type { AgentDefinition } from "../agents/agent";
-import { mergeActions, readActions, suggestActions, suggestQuestion, writeActions } from "./actions";
+import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
 import { checkAgentInstalled } from "./terminal-session";
 import type {
   AgentId,
@@ -13,7 +13,7 @@ import type {
   FileDiff,
   GitActionResult,
   Project,
-  ProjectAction,
+  ProjectCommand,
   RepositoryState,
   StashCommand,
   TerminalDescriptor,
@@ -219,20 +219,20 @@ function registerIpc(): void {
     }
   );
 
-  ipcMain.handle("actions:list", async (_event, projectId: string): Promise<ProjectAction[] | null> => {
+  ipcMain.handle("commands:list", async (_event, projectId: string): Promise<ProjectCommand[] | null> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
-    return project ? readActions(project.path) : [];
+    return project ? readCommands(project.path) : [];
   });
 
-  ipcMain.handle("actions:save", async (_event, projectId: string, actions: ProjectAction[]): Promise<void> => {
+  ipcMain.handle("commands:save", async (_event, projectId: string, commands: ProjectCommand[]): Promise<void> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
     if (!project) {
       return;
     }
     try {
-      await writeActions(project.path, actions);
+      await writeCommands(project.path, commands);
     } catch (error) {
-      send("app:notice", { severity: "error", message: `Could not save actions: ${String(error)}` });
+      send("app:notice", { severity: "error", message: `Could not save commands: ${String(error)}` });
     }
   });
 
@@ -241,9 +241,9 @@ function registerIpc(): void {
    * arrives while it works and is still there afterwards.
    */
   ipcMain.handle(
-    "actions:run",
-    (_event, projectId: string, action: ProjectAction): TerminalDescriptor | null => {
-      return sessions.get(projectId)?.createActionTab(action) ?? null;
+    "commands:run",
+    (_event, projectId: string, command: ProjectCommand): TerminalDescriptor | null => {
+      return sessions.get(projectId)?.createCommandTab(command) ?? null;
     }
   );
 
@@ -252,7 +252,7 @@ function registerIpc(): void {
    * names to the list. Whatever it gets wrong is one right-click away from being deleted,
    * which is why its answer goes straight in rather than through a review step.
    */
-  ipcMain.handle("actions:suggest", async (_event, projectId: string): Promise<ProjectAction[]> => {
+  ipcMain.handle("commands:suggest", async (_event, projectId: string): Promise<ProjectCommand[]> => {
     const project = store.list().find((candidate) => candidate.id === projectId);
     if (!project) {
       return [];
@@ -272,16 +272,16 @@ function registerIpc(): void {
     }
     const { executable, agent } = askable;
     try {
-      const found = await suggestActions(project.path, executable, agent.askArgs!(suggestQuestion()));
-      const existing = (await readActions(project.path)) ?? [];
-      const merged = mergeActions(existing, found);
+      const found = await suggestCommands(project.path, executable, agent.askArgs!(suggestQuestion()));
+      const existing = (await readCommands(project.path)) ?? [];
+      const merged = mergeCommands(existing, found);
       const added = merged.length - existing.length;
       if (added > 0) {
-        await writeActions(project.path, merged);
+        await writeCommands(project.path, merged);
       }
       send("app:notice", {
         severity: "info",
-        message: added > 0 ? `Added ${added} actions` : "No new commands found"
+        message: added > 0 ? `Added ${added} commands` : "No new commands found"
       });
       return merged;
     } catch (error) {

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ProjectAction } from "../shared/types";
+import type { ProjectCommand } from "../shared/types";
 import { resolveCommand } from "./pty";
 
 /**
@@ -12,15 +12,15 @@ import { resolveCommand } from "./pty";
 const FILE = "meeseek.json";
 
 /**
- * What that file holds. An action is written as a plain string while the command alone says
- * everything, and as an object once it needs a directory, variables or a shell of its own — so
- * the common case stays a one-line entry a person can read, and an older file full of strings
- * is still a valid one.
+ * What that file holds. A command is written as a plain string while the command line alone
+ * says everything, and as an object once it needs a directory, variables or a shell of its own
+ * — so the common case stays a one-line entry a person can read, and an older file full of
+ * strings is still a valid one.
  */
-type StoredAction = string | { command?: unknown; cwd?: unknown; env?: unknown; shell?: unknown };
+type StoredCommand = string | { command?: unknown; cwd?: unknown; env?: unknown; shell?: unknown };
 
 interface ProjectFile {
-  actions?: StoredAction[];
+  commands?: StoredCommand[];
 }
 
 /** How many characters of a command's or an agent's output a notice is worth. */
@@ -39,7 +39,7 @@ function file(root: string): string {
 /**
  * The project's saved commands, or **null** when it has no meeseek.json at all — which is the
  * one case worth telling apart, since that is when the caller offers to fill the list itself.
- * A file that is there but unreadable or shaped differently is no actions rather than none:
+ * A file that is there but unreadable or shaped differently is no commands rather than none:
  * it is a file in the user's repository, and half of it being someone else's is a good enough
  * reason neither to throw nor to go and write over it.
  */
@@ -77,43 +77,43 @@ function toEnv(value: unknown): Record<string, string> | undefined {
 }
 
 /** Both spellings in, one shape out; anything that is neither is dropped. */
-function toAction(entry: StoredAction): ProjectAction | undefined {
+function toCommand(entry: StoredCommand): ProjectCommand | undefined {
   if (typeof entry === "string") {
     return entry.trim() ? { command: entry } : undefined;
   }
   if (typeof entry?.command !== "string" || !entry.command.trim()) {
     return undefined;
   }
-  const action: ProjectAction = { command: entry.command };
+  const command: ProjectCommand = { command: entry.command };
   if (typeof entry.cwd === "string" && entry.cwd.trim()) {
-    action.cwd = entry.cwd;
+    command.cwd = entry.cwd;
   }
   const env = toEnv(entry.env);
   if (env) {
-    action.env = env;
+    command.env = env;
   }
   if (entry.shell === true) {
-    action.shell = true;
+    command.shell = true;
   }
-  return action;
+  return command;
 }
 
 
-export async function readActions(root: string): Promise<ProjectAction[] | null> {
+export async function readCommands(root: string): Promise<ProjectCommand[] | null> {
   const content = await read(root);
   if (content === null) {
     return null;
   }
-  if (!Array.isArray(content.actions)) {
+  if (!Array.isArray(content.commands)) {
     return [];
   }
-  return content.actions.map(toAction).filter((action): action is ProjectAction => action !== undefined);
+  return content.commands.map(toCommand).filter((command): command is ProjectCommand => command !== undefined);
 }
 
-export function writeActions(root: string, actions: ProjectAction[]): Promise<void> {
+export function writeCommands(root: string, commands: ProjectCommand[]): Promise<void> {
   // Back to the short form wherever there is nothing else to say about the command.
   return patch(root, {
-    actions: actions.map((action) => (action.cwd || action.env || action.shell ? action : action.command))
+    commands: commands.map((command) => (command.cwd || command.env || command.shell ? command : command.command))
   });
 }
 
@@ -177,7 +177,7 @@ const SUGGEST_TIMEOUT_MS = 5 * 60_000;
  * Pulls the JSON array out of an agent's reply. Asked for "nothing but", they still tend to
  * wrap it in a fenced block or a sentence, so the first bracketed run is what counts.
  */
-function parseSuggestions(reply: string): ProjectAction[] {
+function parseSuggestions(reply: string): ProjectCommand[] {
   const start = reply.indexOf("[");
   const end = reply.lastIndexOf("]");
   if (start < 0 || end <= start) {
@@ -189,9 +189,9 @@ function parseSuggestions(reply: string): ProjectAction[] {
       return [];
     }
     // The same two spellings the file takes: a bare string, or a command with a directory.
-    return (parsed as StoredAction[])
-      .map(toAction)
-      .filter((action): action is ProjectAction => action !== undefined);
+    return (parsed as StoredCommand[])
+      .map(toCommand)
+      .filter((command): command is ProjectCommand => command !== undefined);
   } catch {
     return [];
   }
@@ -202,7 +202,7 @@ function parseSuggestions(reply: string): ProjectAction[] {
  * without a terminal — the wand is a button in the sidebar, not a session — so the agent gets
  * one question and one shot at replying.
  */
-export function suggestActions(root: string, executable: string, args: string[]): Promise<ProjectAction[]> {
+export function suggestCommands(root: string, executable: string, args: string[]): Promise<ProjectCommand[]> {
   const { command, args: resolved } = resolveCommand(executable, args);
   return new Promise((resolve, reject) => {
     execFile(
@@ -234,28 +234,28 @@ function tool(command: string): string {
  * order of the array is the order on screen, and the user's own dragging outranks this: it
  * only ever decides where something *new* lands.
  */
-export function mergeActions(existing: ProjectAction[], found: ProjectAction[]): ProjectAction[] {
+export function mergeCommands(existing: ProjectCommand[], found: ProjectCommand[]): ProjectCommand[] {
   const merged = [...existing];
-  for (const action of found) {
-    // Same command, same place, same variables is the same action; the same command run
+  for (const command of found) {
+    // Same command line, same place, same variables is the same command; the same line run
     // differently — another folder, another profile — is one of its own.
     // Sorted, so two identical environments written in a different order still match.
-    const envKey = (entry: ProjectAction): string => JSON.stringify(Object.entries(entry.env ?? {}).sort());
-    const same = (entry: ProjectAction): boolean =>
-      entry.command === action.command && entry.cwd === action.cwd && envKey(entry) === envKey(action);
+    const envKey = (entry: ProjectCommand): string => JSON.stringify(Object.entries(entry.env ?? {}).sort());
+    const same = (entry: ProjectCommand): boolean =>
+      entry.command === command.command && entry.cwd === command.cwd && envKey(entry) === envKey(command);
     if (merged.some(same)) {
       continue;
     }
     let last = -1;
     for (let index = 0; index < merged.length; index++) {
-      if (tool(merged[index].command) === tool(action.command)) {
+      if (tool(merged[index].command) === tool(command.command)) {
         last = index;
       }
     }
     if (last < 0) {
-      merged.push(action);
+      merged.push(command);
     } else {
-      merged.splice(last + 1, 0, action);
+      merged.splice(last + 1, 0, command);
     }
   }
   return merged;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { parseEnv } from "../../shared/command";
-import type { ProjectAction } from "../../shared/types";
+import type { ProjectCommand } from "../../shared/types";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { confirm, prompt } from "./Dialog";
 import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
@@ -9,31 +9,31 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  * A type of our own, for the same reason the project list has one: a row dragged across a
  * terminal must not end up pasted into it, and this list is no target for anything else.
  */
-const DRAG_TYPE = "application/x-meeseek-action";
+const DRAG_TYPE = "application/x-meeseek-command";
 
 /** Sorted, so two identical environments written in a different order still match. */
-function sameEnv(one: ProjectAction, other: ProjectAction): boolean {
-  const key = (action: ProjectAction): string => JSON.stringify(Object.entries(action.env ?? {}).sort());
+function sameEnv(one: ProjectCommand, other: ProjectCommand): boolean {
+  const key = (command: ProjectCommand): string => JSON.stringify(Object.entries(command.env ?? {}).sort());
   return key(one) === key(other);
 }
 
-/** The whole action as a tooltip: the command, where it runs, and what it runs with. */
-function describe(action: ProjectAction): string {
-  const lines = [action.command];
-  if (action.cwd) {
-    lines.push(`in ${action.cwd}`);
+/** The whole command as a tooltip: the line, where it runs, and what it runs with. */
+function describe(command: ProjectCommand): string {
+  const lines = [command.command];
+  if (command.cwd) {
+    lines.push(`in ${command.cwd}`);
   }
-  for (const [name, value] of Object.entries(action.env ?? {})) {
+  for (const [name, value] of Object.entries(command.env ?? {})) {
     lines.push(`${name}=${value}`);
   }
-  if (action.shell) {
+  if (command.shell) {
     lines.push("through a shell, so only on this platform");
   }
   return lines.join("\n");
 }
 
-interface ActionListProps {
-  /** Whose actions these are; null when no project is open. */
+interface CommandListProps {
+  /** Whose commands these are; null when no project is open. */
   projectId: string | null;
   /** Dragged on the sash above the list, which is why it isn't a style of its own. */
   height: number;
@@ -49,11 +49,11 @@ interface ActionListProps {
  * Running one opens a terminal tab and hands it over: the command is that tab's process, so
  * this list has nothing to report afterwards and keeps no state about what is going.
  */
-export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
-  const [actions, setActions] = useState<ProjectAction[]>([]);
+export function CommandList({ projectId, height, onOpenTab }: CommandListProps) {
+  const [commands, setCommands] = useState<ProjectCommand[]>([]);
   /** The projects the wand is out for; this view outlives a project switch. */
   const [suggestingIn, setSuggestingIn] = useState<string[]>([]);
-  const [menu, setMenu] = useState<{ x: number; y: number; action: ProjectAction } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; command: ProjectCommand } | null>(null);
   /**
    * The projects the automatic lookup has already run for. A set, not one id: switching away
    * and back would otherwise start it over, and it costs an agent run each time.
@@ -62,9 +62,9 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
   /** Which project is on screen, readable from a callback that started before a switch. */
   const shown = useRef(projectId);
   /** The list as it stands now, for callbacks that were made before the last change to it. */
-  const latest = useRef<ProjectAction[]>([]);
+  const latest = useRef<ProjectCommand[]>([]);
   const [dragged, setDragged] = useState<number | null>(null);
-  /** Where the dragged action would land: the index it would take among the others. */
+  /** Where the dragged command would land: the index it would take among the others. */
   const [dropAt, setDropAt] = useState<number | null>(null);
 
   const suggesting = projectId !== null && suggestingIn.includes(projectId);
@@ -75,15 +75,15 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
 
   useEffect(() => {
     if (!projectId) {
-      applyActions([]);
+      applyCommands([]);
       return;
     }
     let cancelled = false;
-    void window.meeseek.actions.list(projectId).then((saved) => {
+    void window.meeseek.commands.list(projectId).then((saved) => {
       if (cancelled) {
         return;
       }
-      applyActions(saved ?? []);
+      applyCommands(saved ?? []);
       // No meeseek.json at all: nobody has set this project up here, which is the one moment
       // where looking its commands up unasked is worth the wait. A file with an empty list is
       // someone having deleted them all, and stays empty.
@@ -99,27 +99,27 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
 
   /**
    * Every change to the list goes through here, and `latest` is what it is computed from
-   * rather than the `actions` a callback closed over: a dialog is awaited, and the wand can
+   * rather than the `commands` a callback closed over: a dialog is awaited, and the wand can
    * finish while one stands open — adding a command off the pre-dialog list would then write
    * the found ones straight back out of the file.
    */
-  const applyActions = (next: ProjectAction[]): void => {
+  const applyCommands = (next: ProjectCommand[]): void => {
     latest.current = next;
-    setActions(next);
+    setCommands(next);
   };
 
   /** The list is written whole; the file is the record, this is only what is on screen. */
-  const save = (next: ProjectAction[]): void => {
+  const save = (next: ProjectCommand[]): void => {
     if (!projectId) {
       return;
     }
-    applyActions(next);
-    void window.meeseek.actions.save(projectId, next);
+    applyCommands(next);
+    void window.meeseek.commands.save(projectId, next);
   };
 
   const askAdd = async (): Promise<void> => {
     const answer = await prompt({
-      title: "New action",
+      title: "New command",
       label: "Command",
       detail: "Saved to meeseek.json in the project. The command is started without a shell.",
       value: "",
@@ -135,34 +135,34 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
     const [cwd, env] = answer.extras;
     // Only what was filled in: a folder or an environment written into every entry would put
     // the long form in meeseek.json for commands that have nothing to say beyond themselves.
-    const action: ProjectAction = { command: answer.value };
+    const command: ProjectCommand = { command: answer.value };
     if (cwd) {
-      action.cwd = cwd;
+      command.cwd = cwd;
     }
     const variables = parseEnv(env);
     if (variables) {
-      action.env = variables;
+      command.env = variables;
     }
     const current = latest.current;
     // The same command in the same place with the same variables is the one already there;
     // run differently, it is an entry of its own — same rule as the wand's merge.
     const duplicate = current.some(
-      (entry) => entry.command === action.command && entry.cwd === action.cwd && sameEnv(entry, action)
+      (entry) => entry.command === command.command && entry.cwd === command.cwd && sameEnv(entry, command)
     );
     if (!duplicate) {
-      save([...current, action]);
+      save([...current, command]);
     }
   };
 
-  const askRemove = async (action: ProjectAction): Promise<void> => {
+  const askRemove = async (command: ProjectCommand): Promise<void> => {
     const answer = await confirm({
-      title: "Delete action",
-      message: `Delete "${action.command}"?`,
+      title: "Delete command",
+      message: `Delete "${command.command}"?`,
       detail: "It is removed from the project's meeseek.json.",
       confirmLabel: "Delete"
     });
     if (answer.confirmed) {
-      save(latest.current.filter((entry) => entry !== action));
+      save(latest.current.filter((entry) => entry !== command));
     }
   };
 
@@ -180,9 +180,9 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
     }
     setSuggestingIn((current) => [...current, project]);
     try {
-      const found = await window.meeseek.actions.suggest(project);
+      const found = await window.meeseek.commands.suggest(project);
       if (shown.current === project) {
-        applyActions(found);
+        applyCommands(found);
       }
     } finally {
       setSuggestingIn((current) => current.filter((entry) => entry !== project));
@@ -190,12 +190,12 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
   };
 
   /** Opens the tab the command runs in and switches to it; the tab is where it is watched. */
-  const run = (action: ProjectAction): void => {
+  const run = (command: ProjectCommand): void => {
     if (!projectId) {
       return;
     }
     const project = projectId;
-    void window.meeseek.actions.run(project, action).then((tab) => {
+    void window.meeseek.commands.run(project, command).then((tab) => {
       if (tab) {
         onOpenTab(project, tab.tabId);
       }
@@ -232,14 +232,14 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
   const move = (from: number, to: number): void => {
     setDragged(null);
     setDropAt(null);
-    const action = actions[from];
-    if (!action) {
+    const command = commands[from];
+    if (!command) {
       return;
     }
-    const reordered = actions.filter((_, position) => position !== from);
+    const reordered = commands.filter((_, position) => position !== from);
     // Everything behind it moves up once it is out of the list, so a target past it is one
     // index closer than it looked.
-    reordered.splice(to > from ? to - 1 : to, 0, action);
+    reordered.splice(to > from ? to - 1 : to, 0, command);
     save(reordered);
   };
 
@@ -248,7 +248,7 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
     move(Number(event.dataTransfer.getData(DRAG_TYPE)), insertionIndex(event, index));
   };
 
-  /** The empty space below the last action, which stands for the end of the list. */
+  /** The empty space below the last command, which stands for the end of the list. */
   const isBelowList = (event: DragEvent<HTMLDivElement>): boolean => event.target === event.currentTarget;
 
   const overEnd = (event: DragEvent<HTMLDivElement>): void => {
@@ -257,7 +257,7 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    setDropAt(actions.length);
+    setDropAt(commands.length);
   };
 
   const dropAtEnd = (event: DragEvent<HTMLDivElement>): void => {
@@ -265,11 +265,11 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
       return;
     }
     event.preventDefault();
-    move(Number(event.dataTransfer.getData(DRAG_TYPE)), actions.length);
+    move(Number(event.dataTransfer.getData(DRAG_TYPE)), commands.length);
   };
 
   const itemClass = (index: number): string => {
-    const classes = ["action-item"];
+    const classes = ["command-item"];
     if (index === dragged) {
       classes.push("dragging");
     }
@@ -277,22 +277,22 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
       classes.push("drop-above");
     }
     // The last row carries the line for the position behind it; there is no row after it.
-    if (dropAt === actions.length && index === actions.length - 1) {
+    if (dropAt === commands.length && index === commands.length - 1) {
       classes.push("drop-below");
     }
     return classes.join(" ");
   };
 
-  const menuEntries = (action: ProjectAction): ContextMenuEntry[] => [
-    { label: "Run", run: () => run(action) },
-    { label: "Delete...", run: () => void askRemove(action) }
+  const menuEntries = (command: ProjectCommand): ContextMenuEntry[] => [
+    { label: "Run", run: () => run(command) },
+    { label: "Delete...", run: () => void askRemove(command) }
   ];
 
   return (
-    <div className="action-list" style={{ height }}>
+    <div className="command-list" style={{ height }}>
       <div className="sidebar-header">
         <span>
-          ACTIONS <span className="count">({actions.length})</span>
+          COMMANDS <span className="count">({commands.length})</span>
         </span>
         <span className="sidebar-header-actions">
           {/* The button becomes the progress: an agent reading a repository takes a while,
@@ -305,20 +305,20 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
           >
             {suggesting ? <SpinnerIcon className="spinning" /> : <SparkleIcon />}
           </button>
-          <button className="icon-button" title="New action" disabled={!projectId} onClick={() => void askAdd()}>
+          <button className="icon-button" title="New command" disabled={!projectId} onClick={() => void askAdd()}>
             <PlusIcon />
           </button>
         </span>
       </div>
-      <div className="action-items" onDragOver={overEnd} onDrop={dropAtEnd}>
-        {actions.map((action, index) => (
+      <div className="command-items" onDragOver={overEnd} onDrop={dropAtEnd}>
+        {commands.map((command, index) => (
           <div
             // The position, not the command: the same command can be in the list more than
             // once — another folder, another set of variables — and the rows hold no state
             // of their own that reordering could carry to the wrong one.
             key={index}
             className={itemClass(index)}
-            title={describe(action)}
+            title={describe(command)}
             draggable
             onDragStart={(event) => begin(event, index)}
             onDragOver={(event) => over(event, index)}
@@ -329,23 +329,23 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
             }}
             onContextMenu={(event) => {
               event.preventDefault();
-              setMenu({ x: event.clientX, y: event.clientY, action });
+              setMenu({ x: event.clientX, y: event.clientY, command });
             }}
           >
-            <span className="action-command">{action.command}</span>
+            <span className="command-line">{command.command}</span>
             {/* Where it runs, when that is not the project root — the command alone would
                 otherwise look like it belongs to a folder that has no such script. */}
-            {action.cwd && <span className="action-cwd">{action.cwd}</span>}
-            <button className="icon-button" title={`Run ${action.command} in a new tab`} onClick={() => run(action)}>
+            {command.cwd && <span className="command-cwd">{command.cwd}</span>}
+            <button className="icon-button" title={`Run ${command.command} in a new tab`} onClick={() => run(command)}>
               <PlayIcon />
             </button>
           </div>
         ))}
-        {projectId && actions.length === 0 && <div className="placeholder">No actions yet.</div>}
+        {projectId && commands.length === 0 && <div className="placeholder">No commands yet.</div>}
       </div>
 
       {menu && (
-        <ContextMenu x={menu.x} y={menu.y} entries={menuEntries(menu.action)} onClose={() => setMenu(null)} />
+        <ContextMenu x={menu.x} y={menu.y} entries={menuEntries(menu.command)} onClose={() => setMenu(null)} />
       )}
     </div>
   );
