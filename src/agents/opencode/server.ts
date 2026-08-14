@@ -10,6 +10,7 @@ import {
   SESSION_FINISHED_EVENT,
   SESSION_STATUS_EVENT
 } from "./notify";
+import { basicAuth, forgetServer, killServerTree, rememberServer, serversReclaimed } from "./server-registry";
 import { installTuiConfig } from "./tui-config";
 
 const SERVER_START_TIMEOUT_MS = 15_000;
@@ -53,10 +54,32 @@ export class OpencodeServer {
     this.child = child;
     this.url = url;
     this.password = password;
-    this.authorization = "Basic " + Buffer.from(`opencode:${password}`).toString("base64");
+    this.authorization = basicAuth(password);
   }
 
-  static async start(executable: string, cwd: string, env?: Record<string, string>): Promise<OpencodeServer> {
+  /**
+   * One server comes up at a time, however many projects ask at once. Every `opencode serve` on
+   * this machine opens the same SQLite database, and four of them booting inside the same 40ms
+   * is what the loser reports as "database is locked" before it exits with code 1 — observed
+   * with four repositories restored at startup. Waiting for the one before to report its url is
+   * enough: by then it is past the setup that holds the write lock.
+   */
+  private static queue: Promise<unknown> = Promise.resolve();
+
+  static start(executable: string, cwd: string, env?: Record<string, string>): Promise<OpencodeServer> {
+    const started = OpencodeServer.queue.then(() => OpencodeServer.boot(executable, cwd, env));
+    // What the next caller waits on must carry neither this one's rejection nor its server.
+    OpencodeServer.queue = started.then(
+      () => undefined,
+      () => undefined
+    );
+    return started;
+  }
+
+  private static async boot(executable: string, cwd: string, env?: Record<string, string>): Promise<OpencodeServer> {
+    // A server a previous run left running holds that same database, so nothing starts until
+    // those are gone either — see server-registry.ts.
+    await serversReclaimed();
     // Without a password opencode serves every local process unauthenticated — it says so
     // on startup. The secret is generated per server and never leaves this process and the
     // ones we hand it to, so the port is only useful to us.
@@ -72,7 +95,11 @@ export class OpencodeServer {
       env: { ...env, ...process.env, OPENCODE_SERVER_PASSWORD: password }
     });
     try {
-      return new OpencodeServer(child, await waitForServerUrl(child), password);
+      const url = await waitForServerUrl(child);
+      if (child.pid !== undefined) {
+        rememberServer({ pid: child.pid, url, password, cwd });
+      }
+      return new OpencodeServer(child, url, password);
     } catch (error) {
       killTree(child);
       throw error;
@@ -339,15 +366,14 @@ function waitForServerUrl(server: ChildProcess): Promise<string> {
 }
 
 /**
- * On win32 resolveCommand routes a shim install (`opencode.cmd`) through cmd.exe, and
- * kill() would only take down that wrapper — verified: the server keeps running, and once
- * its parent is gone it can no longer be reached through the process tree either. So kill
- * the tree instead of the process, while the tree still exists.
+ * Takes the server down and strikes it off the registry in one place, so a server this run
+ * disposed of is not one the next run goes looking for. A child without a pid never started,
+ * and there is nothing to take down.
  */
 function killTree(child: ChildProcess): void {
-  if (process.platform === "win32" && child.pid !== undefined) {
-    spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore", windowsHide: true });
+  if (child.pid === undefined) {
     return;
   }
-  child.kill();
+  forgetServer(child.pid);
+  killServerTree(child.pid);
 }

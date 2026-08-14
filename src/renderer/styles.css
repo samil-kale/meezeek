@@ -231,13 +231,8 @@ option {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
-/* 24px around an 18px icon — the box only has to leave the hover background something to
-   draw. `.session-mark-box` is not a button and takes none of the button styling below, but it
-   stands in a row of them and has to keep their rhythm: an icon at the same 18 with 3px of air
-   either side of it, rather than one pressed straight against its neighbours. Declared together
-   so the two boxes cannot drift apart. */
-.icon-button,
-.session-mark-box {
+/* 24px around the icon — the box only has to leave the hover background something to draw. */
+.icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -253,8 +248,7 @@ option {
   padding: 0;
 }
 
-.icon-button svg,
-.session-mark-box svg {
+.icon-button svg {
   width: var(--icon-size);
   height: var(--icon-size);
 }

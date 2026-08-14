@@ -145,6 +145,16 @@ export interface AgentDefinition {
    * by an agent that can be told not to persist one in the first place.
    */
   cleanupAsk?: (executable: string, cwd: string) => Promise<void>;
+  /**
+   * One-time setup for the app rather than for a repository, run before any project opens and
+   * therefore before anything asks this agent for a session listing. What it is for is what a
+   * killed run left behind: opencode takes down the servers of one, since no dispose of ours
+   * runs when the process is killed. An agent with nothing to reclaim leaves it out.
+   *
+   * Synchronous, and nothing here waits for what it started: only the agent's own code knows
+   * which of its calls have to, and it is that code which holds the promise.
+   */
+  prepareApp?: (storageRoot: string) => void;
   /** Session enumeration/resume/deletion; a missing provider means "this agent has no sessions". */
   sessions?: SessionProvider;
   /**

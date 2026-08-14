@@ -9,7 +9,7 @@
   "scripts": {
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "start": "npm run compile && electron .",
+    "start": "npm run typecheck && npm run compile && electron .",
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint .",
     "dist": "npm run compile -- --production && electron-builder"

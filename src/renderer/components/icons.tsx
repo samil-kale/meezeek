@@ -57,6 +57,9 @@ export function fitStroke(extent: number, grid: number, stroke: number): number 
  */
 const SMALLER = 11 / 13;
 
+/** The same two pixels the other way, for an icon that asks to read larger — see agent-icons.tsx. */
+export const LARGER = 15 / 13;
+
 /**
  * `extent` is how much of the 16 grid this icon draws on, stroke included, and `cx`/`cy` where
  * that drawing is centred. All three are measured. An icon that leaves them out is left exactly

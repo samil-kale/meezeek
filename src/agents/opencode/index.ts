@@ -1,6 +1,7 @@
 import { createByteThresholdCheck } from "../../main/session-ready";
 import type { AgentDefinition } from "../agent";
 import { prepareOpencodeSpawn } from "./server";
+import { openServerRegistry } from "./server-registry";
 import { resolveOpencodeUrlPrefix } from "./session-urls";
 import { opencodeSessionProvider } from "./sessions";
 
@@ -26,6 +27,7 @@ export const opencodeAgent: AgentDefinition = {
       await opencodeSessionProvider.remove(executable, cwd, session.id).catch(() => undefined);
     }
   },
+  prepareApp: openServerRegistry,
   sessions: opencodeSessionProvider,
   prepareSpawn: prepareOpencodeSpawn,
   resolveUrlPrefix: resolveOpencodeUrlPrefix,

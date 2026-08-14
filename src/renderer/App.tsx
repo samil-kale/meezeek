@@ -191,6 +191,7 @@ export function App() {
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
       setTabs((current) => forget(current, projectId));
       setActiveTabs((current) => forget(current, projectId));
+      busyCursor.current = forget(busyCursor.current, projectId);
       // The xterm instances live outside React and outlive the pane that mounted them, so
       // this is where they are let go of — the one moment a project ends for good.
       disposeProjectTerminals(projectId);
@@ -280,6 +281,29 @@ export function App() {
     [tabs]
   );
 
+  /**
+   * The project row's spinner: the sessions that are working, one press at a time. Where the
+   * mark beside it works through its list by emptying it — a session seen stops being marked —
+   * watching a session does not stop it working, so this has to remember where it left off. A
+   * ref rather than state: it changes what the *next* press does, and nothing on screen.
+   */
+  const busyCursor = useRef<Record<string, string>>({});
+  const showBusy = useCallback(
+    (projectId: string) => {
+      const working = (tabs[projectId] ?? []).filter((tab) => tab.busy);
+      if (working.length === 0) {
+        return;
+      }
+      // Where the last press landed, or -1 when that tab has since stopped or gone — either way
+      // the next index is the one to show, and it wraps.
+      const at = working.findIndex((tab) => tab.tabId === busyCursor.current[projectId]);
+      const next = working[(at + 1) % working.length];
+      busyCursor.current[projectId] = next.tabId;
+      showTab(projectId, next.tabId);
+    },
+    [tabs, showTab]
+  );
+
   /** The project row's mark: the session that finished first, then the next one the time after. */
   const showFinished = useCallback(
     (projectId: string) => {
@@ -361,6 +385,7 @@ export function App() {
             onOpenTerminal={openTerminal}
             hasFinished={(projectId) => markedTabs(projectId).length > 0}
             hasBusy={hasBusyTab}
+            onShowBusy={showBusy}
             onShowFinished={showFinished}
           />
           <Sash

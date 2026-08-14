@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { app, BrowserWindow, Menu } from "electron";
+import { prepareAgents } from "../agents";
 import { AccountStore } from "../providers/accounts";
 import type { Project, TerminalOutput, TerminalStatus } from "../shared/types";
 import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
@@ -170,6 +171,9 @@ if (!app.requestSingleInstanceLock()) {
     // Up front rather than on the first repository: forking it costs a moment, and every
     // project that opens below is about to ask it something.
     startGitProcess();
+    // Before a project opens, since opening one is what asks an agent for its sessions: what
+    // a run that was killed left running is taken down here. See AgentDefinition.prepareApp.
+    prepareAgents(app.getPath("userData"));
     registerIpc({ store, settings, accounts, repositories, sessions, send, openProject, openWorkspace });
     createWindow();
 

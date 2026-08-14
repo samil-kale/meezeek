@@ -1,5 +1,5 @@
 import type { AgentId } from "../../shared/types";
-import { fitIcon, fitStroke } from "./icons";
+import { LARGER, fitIcon, fitStroke } from "./icons";
 
 /**
  * Which icon belongs to which agent. The one piece of agent-specific knowledge outside
@@ -16,10 +16,20 @@ interface AgentIconProps {
   className?: string;
 }
 
-/** Claude Code's own extension icon (sbc-claude-code/media/icon.svg). */
+/**
+ * Claude Code's own extension icon (sbc-claude-code/media/icon.svg). Drawn `LARGER` than the
+ * rest: dividing the measured extent tightens the crop, so the glyph grows inside a box that
+ * stays the shared one and nothing beside it moves.
+ */
 function ClaudeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="13" height="13" viewBox={fitIcon(22.15, 12, 12.14, 24)} aria-hidden="true">
+    <svg
+      className={className}
+      width="13"
+      height="13"
+      viewBox={fitIcon(22.15 / LARGER, 12, 12.14, 24)}
+      aria-hidden="true"
+    >
       <path
         fill="currentColor"
         fillRule="evenodd"
