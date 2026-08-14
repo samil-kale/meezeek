@@ -233,6 +233,14 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
+/* The 14px the tab strip's own icons are: this one stands beside a label rather than in a
+   button of its own, and the two say the same thing about the same repository. */
+.branch-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
 .branch-name {
   font-size: 12px;
 }
@@ -356,9 +364,9 @@ option {
   font-family: var(--vscode-editor-font-family);
 }
 
-/* The folder it runs in, where that is not the project root. Kept small and dimmed: it is
+/* What it runs with, or the folder it runs in — see extraOf. Kept small and dimmed: it is
    context for the command, not part of it. */
-.command-cwd {
+.command-extra {
   flex: none;
   max-width: 40%;
   overflow: hidden;

@@ -119,7 +119,7 @@ export function BranchBar({ project, state, busyLabel, run, onRefresh }: BranchB
             <span className="branch-path" title={project.path}>
               {project.path}
             </span>
-            <BranchIcon />
+            <BranchIcon className="branch-icon" />
             {/* While a branch command runs the bar says what it is doing instead of naming
                 HEAD — for those seconds the branch you are on is not the whole story. */}
             <span className={`branch-name${busyLabel === null ? "" : " busy"}`}>

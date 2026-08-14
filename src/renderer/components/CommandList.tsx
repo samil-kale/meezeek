@@ -12,6 +12,19 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  */
 const DRAG_TYPE = "application/x-meezeek-command";
 
+/**
+ * What the row shows beside the command itself. Both of these are optional extras, and there
+ * is room for one: the environment goes first, because a variable changes what the command
+ * *does* while the folder only says where it stands. The tooltip has both either way.
+ */
+function extraOf(command: ProjectCommand): string {
+  const variables = Object.entries(command.env ?? {});
+  if (variables.length > 0) {
+    return variables.map(([name, value]) => `${name}=${value}`).join(" ");
+  }
+  return command.cwd ?? "";
+}
+
 /** The whole command as a tooltip: the line, where it runs, and what it runs with. */
 function describe(command: ProjectCommand): string {
   const lines = [command.command];
@@ -241,9 +254,9 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
             }}
           >
             <span className="command-line">{command.command}</span>
-            {/* Where it runs, when that is not the project root — the command alone would
-                otherwise look like it belongs to a folder that has no such script. */}
-            {command.cwd && <span className="command-cwd">{command.cwd}</span>}
+            {/* What it runs with, or else where — the command alone would otherwise look like
+                it belongs to a folder that has no such script, or runs with nothing set. */}
+            {extraOf(command) && <span className="command-extra">{extraOf(command)}</span>}
             <button className="icon-button" title={`Run ${command.command} in a new tab`} onClick={() => run(command)}>
               <PlayIcon />
             </button>
