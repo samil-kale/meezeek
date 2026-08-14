@@ -31,20 +31,21 @@ export function buildXtermTheme(): ITheme {
   const theme: ITheme = {
     background: read("--vscode-terminal-background") ?? read("--vscode-editor-background"),
     foreground: read("--vscode-terminal-foreground") ?? read("--vscode-editor-foreground"),
-    // Everything xterm draws down the right-hand lane, made invisible. `#00000000` rather than
-    // the word: these go through xterm's own color parser before they reach CSS or a canvas.
+    // Everything xterm draws down the lane at the right edge, made invisible — a scrollbar has
+    // no business beside a TUI (see styles.css), and the ruler is only there to keep FitAddon
+    // from reserving room for one (see terminal-views.ts). Color rather than CSS is what does
+    // it: both are xterm's own elements, redrawn as the buffer grows, and this is the value
+    // they are painted with. Spelled `#00000000` and not `transparent`, since it goes through
+    // xterm's color parser on the way to a stylesheet and a canvas.
     //
-    // The scrollbar has no business beside a TUI (see styles.css), and hiding it in CSS does
-    // not settle it — the element is xterm's own and gets rebuilt as the buffer grows, and it
-    // carries this color. The theme layer's own scrollbar variables are deliberately not read
-    // here: they are for the app's lists, where a slider is exactly what you want.
+    // The theme layer's own scrollbar variables are deliberately not read here: they are for
+    // the app's lists, where a slider is exactly what you want.
     scrollbarSliderBackground: "#00000000",
     scrollbarSliderHoverBackground: "#00000000",
     scrollbarSliderActiveBackground: "#00000000",
-    // And the line the overview ruler paints down its left edge, unconditionally, whether or
-    // not anything ever put a mark in it (`_renderRulerOutline`). meeseek asks for that ruler
-    // only to stop FitAddon reserving 14px for it — see terminal-views.ts — so its outline is
-    // a white strip beside every terminal and nothing else.
+    // The ruler outlines itself on every frame whether or not a mark is in it, and this is the
+    // color it uses (`_renderRulerOutline`). Left unset, xterm's default is light: a white line
+    // down the right of every terminal.
     overviewRulerBorder: "#00000000"
   };
 

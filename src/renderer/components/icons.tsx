@@ -150,6 +150,22 @@ export function StashIcon(props: IconProps) {
   );
 }
 
+/**
+ * Throwing local changes away. A bin rather than VS Code's discard mark, which is the refresh
+ * arrow turned the other way and reads as one at a glance. It also says what actually happens:
+ * a file git does not track is moved to the system trash, not deleted. Next to the stash box
+ * beside it, the pair reads as "put away" and "throw away".
+ */
+export function DiscardIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 4h11" />
+      <path d="M6 4V2.5h4V4" />
+      <path d="M4 4.5l.6 8.6a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9L12 4.5" />
+    </Svg>
+  );
+}
+
 /** What is waiting to be pushed, and the button that pushes it. */
 export function ArrowUpIcon(props: IconProps) {
   return (

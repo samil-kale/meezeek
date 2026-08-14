@@ -29,17 +29,17 @@ export interface PromptOptions {
   confirmLabel: string;
   maxLength?: number;
   /**
-   * A second field, for a question that has one optional part — an action's folder next to
-   * its command. Empty is a valid answer for it; the first field is the one that must be
-   * filled in.
+   * Further fields, for a question whose optional parts sit next to its answer — an action's
+   * folder and environment next to its command. Empty is a valid answer for each of them; the
+   * first field is the one that must be filled in.
    */
-  extra?: { label: string; placeholder?: string; value?: string };
+  extras?: { label: string; placeholder?: string; value?: string }[];
 }
 
 export interface PromptAnswer {
   value: string;
-  /** The second field's value, "" when there was none or it was left blank. */
-  extra: string;
+  /** The extra fields' values in the order they were declared, "" where one was left blank. */
+  extras: string[];
 }
 
 type Pending =
@@ -167,7 +167,7 @@ function ConfirmDialog({ dialog }: { dialog: Extract<Pending, { kind: "confirm" 
 
 function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }> }) {
   const [value, setValue] = useState(dialog.value);
-  const [extra, setExtra] = useState(dialog.extra?.value ?? "");
+  const [extras, setExtras] = useState<string[]>(() => (dialog.extras ?? []).map((field) => field.value ?? ""));
   const field = useRef<HTMLInputElement>(null);
 
   // The focus has to land in the first field, not on a button: a rename is opened to type in.
@@ -182,7 +182,7 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
       title={dialog.title}
       confirmLabel={dialog.confirmLabel}
       disabled={value.trim().length === 0}
-      onSubmit={() => dialog.answer({ value: value.trim(), extra: extra.trim() })}
+      onSubmit={() => dialog.answer({ value: value.trim(), extras: extras.map((entry) => entry.trim()) })}
       onCancel={() => dialog.answer(null)}
     >
       <label className="dialog-field">
@@ -196,17 +196,19 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
         />
       </label>
       {/* Optional by construction: only the first field can hold the answer back. */}
-      {dialog.extra && (
-        <label className="dialog-field">
-          <span>{dialog.extra.label}</span>
+      {(dialog.extras ?? []).map((entry, index) => (
+        <label key={entry.label} className="dialog-field">
+          <span>{entry.label}</span>
           <input
             type="text"
-            value={extra}
-            placeholder={dialog.extra.placeholder}
-            onChange={(event) => setExtra(event.target.value)}
+            value={extras[index] ?? ""}
+            placeholder={entry.placeholder}
+            onChange={(event) =>
+              setExtras((current) => current.map((held, position) => (position === index ? event.target.value : held)))
+            }
           />
         </label>
-      )}
+      ))}
       {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
     </Frame>
   );

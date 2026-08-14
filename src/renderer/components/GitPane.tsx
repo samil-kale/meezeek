@@ -6,7 +6,7 @@ import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm } from "./Dialog";
 import { notify } from "./Notices";
 import { Sash } from "./Sash";
-import { StashIcon } from "./icons";
+import { DiscardIcon, StashIcon } from "./icons";
 
 interface GitPaneProps {
   project: Project;
@@ -178,18 +178,29 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
           <span>
             LOCAL CHANGES <span className="count">({state.changes.length})</span>
           </span>
-          {/* Puts the whole working tree away, untracked files and all. Popping it again is in
-              the stash's own menu, one section up. */}
-          <button
-            className="icon-button"
-            title="Stash all changes"
-            disabled={branch.busy || state.changes.length === 0}
-            onClick={() =>
-              branch.run("Stashing changes...", () => window.meeseek.repository.stashPush(project.id, ""))
-            }
-          >
-            <StashIcon />
-          </button>
+          {/* The two things that clear the whole list, in the order of what they cost: one puts
+              it away and can be popped again, the other throws it out. Anything narrower than
+              "all of it" is in the changes' own context menu. */}
+          <span className="sidebar-header-actions">
+            <button
+              className="icon-button"
+              title="Stash all changes"
+              disabled={branch.busy || acting || state.changes.length === 0}
+              onClick={() =>
+                branch.run("Stashing changes...", () => window.meeseek.repository.stashPush(project.id, ""))
+              }
+            >
+              <StashIcon />
+            </button>
+            <button
+              className="icon-button"
+              title="Discard all changes"
+              disabled={branch.busy || acting || state.changes.length === 0}
+              onClick={() => void confirmDiscard(state.changes.map((change) => change.path))}
+            >
+              <DiscardIcon />
+            </button>
+          </span>
         </div>
         <div className="changes-list">
           <input

@@ -805,21 +805,11 @@ input:focus {
 }
 
 /*
- * And the other scrollbar, which is not a scrollbar at all: since xterm 6 the rows sit in a
- * copy of VS Code's own scrollable element, whose bar is a plain <div class="slider"> drawn in
- * a 14px lane at the right. The rules above hide a *native* scrollbar and never touched it, so
- * it came back as a light strip beside every terminal with scrollback.
- *
- * This alone did not settle it — the element is xterm's own and it rebuilds it — so what
- * actually keeps it out of sight is the transparent slider colors in `theme.ts`. Both are kept:
- * this says what the pane is supposed to look like, that one makes it hold.
- *
- * The lane itself stays either way: xterm reserves it whatever CSS says, and it shows the
- * theme's own background, which is the one this pane is painted in anyway.
+ * The rules above only ever hid a *native* scrollbar. Since xterm 6 the rows sit in a copy of
+ * VS Code's scrollable element, whose bar is a plain <div class="slider"> that no rule here
+ * reaches reliably — it is xterm's own element and it rebuilds it. That one is made invisible
+ * by its color, in `theme.ts`, along with the overview ruler's outline beside it.
  */
-.xterm .xterm-scrollable-element > .scrollbar {
-  display: none;
-}
 
 /* Git pane -------------------------------------------------------------------------------- */
 

@@ -98,51 +98,6 @@ function toAction(entry: StoredAction): ProjectAction | undefined {
   return action;
 }
 
-/**
- * A saved command as the program and the arguments it is started with. Deliberately not a
- * shell: quotes group a word and are dropped, and everything else is literal — a backslash
- * included, because a Windows path is full of them and this file is read on every platform.
- * So the way to put a space in an argument is to quote it, and there is no way to smuggle a
- * pipe, a redirection or a variable in. A command that really needs one says `"shell": true`.
- */
-export function splitCommand(command: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  // Told apart from `current === ""` so that an empty quoted argument survives as one.
-  let started = false;
-  let quote: string | undefined;
-
-  for (const char of command) {
-    if (quote !== undefined) {
-      if (char === quote) {
-        quote = undefined;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      started = true;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (started) {
-        tokens.push(current);
-        current = "";
-        started = false;
-      }
-      continue;
-    }
-    current += char;
-    started = true;
-  }
-  // A quote nobody closed takes the rest of the line with it, which is what the user typed.
-  if (started) {
-    tokens.push(current);
-  }
-  return tokens;
-}
 
 export async function readActions(root: string): Promise<ProjectAction[] | null> {
   const content = await read(root);

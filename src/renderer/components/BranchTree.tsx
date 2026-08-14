@@ -103,11 +103,11 @@ export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
       detail: `The tag points at ${target}. A message makes it an annotated tag.`,
       value: "",
       confirmLabel: "Create tag",
-      extra: { label: "Message", placeholder: "Optional" }
+      extras: [{ label: "Message", placeholder: "Optional" }]
     });
     if (answer) {
       branch.run(`Creating tag ${answer.value}...`, () =>
-        repository.createTag(projectId, answer.value, target, answer.extra)
+        repository.createTag(projectId, answer.value, target, answer.extras[0])
       );
     }
   };

@@ -123,7 +123,8 @@ deleting one (the remote copy is that question's checkbox), merging a branch int
 rebasing HEAD onto one, "Update from <default>", aborting the merge or rebase git is
 half-way through, creating and pushing tags, checking one out, deleting it, and applying,
 popping or dropping a stash. The changes list takes a ctrl- and shift-click selection, discards
-it in one go and opens a file in whatever the OS opens its type with. Still missing, roughly in
+it in one go and opens a file in whatever the OS opens its type with; its header carries the two
+that clear the whole list — stash everything, discard everything. Still missing, roughly in
 order: clone, then GitHub and GitLab behind one `GitProvider` interface (authenticate, list
 repositories, resolve a clone URL) under `src/providers/`. Providers stay separate from the
 local git layer — once a repository is cloned, everything goes back through the CLI.
@@ -320,6 +321,14 @@ either. So it is a field, set on the process instead (`SpawnOptions.envOverride`
 variables outrank the ones inherited from the machine — every other environment meeseek passes
 a terminal is a *default* that the user's own wins over, and this is the one case where the
 opposite is right: the user wrote it next to the command.
+
+The `+` dialog asks for all three: the command, and optionally a folder and an environment. The
+environment is one field, written the way it would be typed — `PROFILE=DEVELOPMENT PORT=8080` —
+and read by `parseEnv`, which splits it with the very same `splitCommand` the command itself
+goes through, so `NAME="a b"` means there what it means everywhere else. That is why the two
+live in `src/shared/`: the renderer reads the field, the main process starts the process, and
+two spellings of "what counts as one word" would drift apart. `prompt` carries them as `extras`,
+a list of optional fields — only the first field of a dialog can hold its answer back.
 
 **Running one opens a terminal tab for it.** The tab's *process is the command*, in the
 action's own directory, ending when the command does. Nothing is buffered and nothing is
@@ -582,21 +591,17 @@ for the others.
   transparent over it: xterm.css hardcodes that viewport to black, which showed through as a
   black gutter and as a black strip under the last row while a pane was dragged taller. Ported
   from sbc-vsc-agents, which carries the same override for the same reason.
-- **The terminal has no scrollbar** — a TUI repaints its whole viewport, so one beside it would
-  only twitch, and the wheel is what scrolls. Since xterm 6 that takes two rules, not one: the
-  rows sit in a copy of VS Code's scrollable element whose bar is a plain `<div class="slider">`
-  in a 14px lane, and the older rules (`scrollbar-width`, `::-webkit-scrollbar`) only ever hid a
-  *native* one. It came back as a light strip beside every terminal with scrollback. Hiding
-  `.xterm-scrollable-element > .scrollbar` does not settle it — the element is xterm's own and
-  gets rebuilt — so what holds is the **transparent slider colors in `theme.ts`**: that is the
-  value xterm paints with wherever it puts the slider. The lane itself stays either way — xterm
-  reserves it whatever CSS says — and shows the theme background, which is this pane's own.
-- **Nothing may be left to an xterm default in that lane.** The terminal asks for an overview
-  ruler it has no use for (`overviewRuler: { width: 1 }`, the only way to stop FitAddon
-  reserving 14px), and xterm then paints the ruler's outline down its left edge on every frame,
-  in `overviewRulerBorder`, whether or not a single mark is in it. Unset, that default is light,
-  and it is a white line beside every terminal. `theme.ts` sets it — and the slider colors —
-  to `#00000000`, spelled as hex because they pass through xterm's own color parser.
+- **Nothing in the lane at the terminal's right edge may be left to an xterm default, and CSS
+  is not what settles it.** Two things are drawn there, both xterm's own elements and both
+  redrawn as the buffer grows, so what decides how they look is the **color they are given in
+  `theme.ts`** — `#00000000` for each, spelled as hex because it passes through xterm's color
+  parser. The scrollbar: a TUI repaints its whole viewport, so one beside it would only twitch,
+  and the wheel is what scrolls. Since xterm 6 it is not a native scrollbar at all but a copy of
+  VS Code's scrollable element with a `<div class="slider">`; the older rules in `styles.css`
+  (`scrollbar-width`, `::-webkit-scrollbar`) never touched it. And the overview ruler, which the
+  terminal asks for only to stop FitAddon reserving 14px for a scrollbar
+  (`overviewRuler: { width: 1 }`) — xterm then outlines it on every frame whether or not a mark
+  is in it, and unset that outline is light: a white line beside every terminal.
 - Resizing is two steps, and they are debounced differently. `refitTerminal` follows the
   container immediately: it is local to xterm and only does anything on a whole row or column,
   so a dragged sash never leaves a strip of empty pane behind. `fitTerminal` also tells the

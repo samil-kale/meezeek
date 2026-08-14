@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { parseEnv } from "../../shared/command";
 import type { ProjectAction } from "../../shared/types";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { confirm, prompt } from "./Dialog";
@@ -9,6 +10,12 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  * terminal must not end up pasted into it, and this list is no target for anything else.
  */
 const DRAG_TYPE = "application/x-meeseek-action";
+
+/** Sorted, so two identical environments written in a different order still match. */
+function sameEnv(one: ProjectAction, other: ProjectAction): boolean {
+  const key = (action: ProjectAction): string => JSON.stringify(Object.entries(action.env ?? {}).sort());
+  return key(one) === key(other);
+}
 
 /** The whole action as a tooltip: the command, where it runs, and what it runs with. */
 function describe(action: ProjectAction): string {
@@ -114,17 +121,35 @@ export function ActionList({ projectId, height, onOpenTab }: ActionListProps) {
     const answer = await prompt({
       title: "New action",
       label: "Command",
-      detail: "Saved to meeseek.json in the project.",
+      detail: "Saved to meeseek.json in the project. The command is started without a shell.",
       value: "",
       confirmLabel: "Save",
-      extra: { label: "Folder (optional)", placeholder: "relative to the project, e.g. web" }
+      extras: [
+        { label: "Folder (optional)", placeholder: "relative to the project, e.g. web" },
+        { label: "Environment (optional)", placeholder: "PROFILE=DEVELOPMENT PORT=8080" }
+      ]
     });
     if (answer === null) {
       return;
     }
-    const action: ProjectAction = answer.extra ? { command: answer.value, cwd: answer.extra } : { command: answer.value };
+    const [cwd, env] = answer.extras;
+    // Only what was filled in: a folder or an environment written into every entry would put
+    // the long form in meeseek.json for commands that have nothing to say beyond themselves.
+    const action: ProjectAction = { command: answer.value };
+    if (cwd) {
+      action.cwd = cwd;
+    }
+    const variables = parseEnv(env);
+    if (variables) {
+      action.env = variables;
+    }
     const current = latest.current;
-    if (!current.some((entry) => entry.command === action.command && entry.cwd === action.cwd)) {
+    // The same command in the same place with the same variables is the one already there;
+    // run differently, it is an entry of its own — same rule as the wand's merge.
+    const duplicate = current.some(
+      (entry) => entry.command === action.command && entry.cwd === action.cwd && sameEnv(entry, action)
+    );
+    if (!duplicate) {
       save([...current, action]);
     }
   };
