@@ -7,7 +7,7 @@ import type {
   RemoteRepository
 } from "../../shared/types";
 import { confirm } from "./Dialog";
-import { CloseIcon, PlusIcon, SpinnerIcon } from "./icons";
+import { ChevronIcon, CloseIcon, PlusIcon, SpinnerIcon } from "./icons";
 import { notify } from "./Notices";
 
 /**
@@ -383,15 +383,20 @@ function RemoteTab({ onClone }: RemoteTabProps) {
             {/* Only once there is something to narrow down to: an account whose repositories
                 all sit in one place would get a dropdown with a single entry. */}
             {groups.length > 1 && (
-              <select value={active} onChange={(event) => pickNamespace(event.target.value)}>
-                <option value="">All repositories ({list?.length ?? 0})</option>
-                {groups.map((group) => (
-                  <option key={group.path} value={group.path}>
-                    {/* Non-breaking, since a leading plain space in an option is collapsed. */}
-                    {`${"\u00a0\u00a0".repeat(group.depth)}${group.path} (${group.count})`}
-                  </option>
-                ))}
-              </select>
+              <div className="select-field">
+                <select value={active} onChange={(event) => pickNamespace(event.target.value)}>
+                  <option value="">All repositories ({list?.length ?? 0})</option>
+                  {groups.map((group) => (
+                    <option key={group.path} value={group.path}>
+                      {/* Non-breaking, since a leading plain space in an option is collapsed. */}
+                      {`${"\u00a0\u00a0".repeat(group.depth)}${group.path} (${group.count})`}
+                    </option>
+                  ))}
+                </select>
+                {/* The list opens downwards, so the chevron points the way the tree's does when
+                    what it heads is open. Chrome's own arrow is off; see `select` in the CSS. */}
+                <ChevronIcon expanded className="select-arrow" />
+              </div>
             )}
             <div className="remote-repos">
               {loading && (

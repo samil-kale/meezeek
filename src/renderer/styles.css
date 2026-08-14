@@ -26,38 +26,64 @@ button {
   cursor: pointer;
 }
 
-input {
+/* One box for both, so a field and a dropdown standing next to each other are the same height.
+   Neither may set the font, the border or the padding on its own — the height is what they add
+   up to, and two of them drifting apart is what makes a row of fields look crooked. */
+input,
+select {
   font: inherit;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border);
   border-radius: 2px;
   outline: none;
   padding: 3px 6px;
+}
+
+input {
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
 }
 
 input::placeholder {
   color: var(--vscode-input-placeholderForeground);
 }
 
-input:focus {
-  border-color: var(--vscode-focusBorder);
-}
-
-/* The same shape as an input, in the colors VS Code keeps for a dropdown — they are all but
-   the input's, except for the popup's own background, which the option below needs. */
+/* The colors VS Code keeps for a dropdown — all but the input's, except for the popup's own
+   background, which the option below needs. */
 select {
-  font: inherit;
   color: var(--vscode-dropdown-foreground);
   background: var(--vscode-dropdown-background);
   border: 1px solid var(--vscode-dropdown-border);
-  border-radius: 2px;
-  outline: none;
-  padding: 3px 6px;
+  /* Chrome draws its own arrow hard against the right border however much padding it is given,
+     so the control is left unstyled and `.select-arrow` is drawn over it instead. This is the
+     room that arrow needs; without it the longest option runs underneath it. */
+  appearance: none;
+  padding-right: 26px;
 }
 
+input:focus,
 select:focus {
   border-color: var(--vscode-focusBorder);
+}
+
+/* Holds the arrow over the select's right edge. The icon takes no clicks, so the whole field
+   still opens the list when it is hit. */
+.select-field {
+  position: relative;
+  display: flex;
+}
+
+.select-field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.select-arrow {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--vscode-dropdown-foreground);
 }
 
 /* Without this the list Chrome opens is the platform's own white one under a dark field. */
@@ -1306,8 +1332,10 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
+/* Taller than a list's filter field, and only taller: the text stays at the 6px it sits at
+   everywhere else. */
 .dialog-field input {
-  padding: 5px 8px;
+  padding: 5px 6px;
 }
 
 .button:disabled {
@@ -1402,7 +1430,7 @@ option {
 .remote-accounts {
   display: flex;
   flex-direction: column;
-  width: 180px;
+  width: 220px;
   flex: none;
   overflow-y: auto;
   border-right: 1px solid var(--vscode-panel-border);
