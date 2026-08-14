@@ -12,7 +12,7 @@ import { createModifierGatedLinkProvider } from "./link-provider";
 // (1.0.0) out, since their final dot-segment is all digits.
 //
 // This intentionally accepts some false positives (e.g. "Node.js" in prose) —
-// the host-side existence check (see main.ts) is the real safety net, a bogus
+// the host-side existence check (see ipc.ts) is the real safety net, a bogus
 // match just fails to open with a notice.
 const FILE_PATH_REGEX =
   /(?:(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/])(?:[\w@.+-]+[\\/])*|(?:[\w@.+-]+[\\/])+)[\w@+-][\w@.+-]*\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,10}|[\w@+-]{2,}[\w@.+-]*\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,10}/;

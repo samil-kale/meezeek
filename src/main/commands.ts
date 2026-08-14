@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { isSameCommand } from "../shared/command";
 import type { ProjectCommand } from "../shared/types";
 import { resolveCommand } from "./pty";
 
@@ -237,13 +238,7 @@ function tool(command: string): string {
 export function mergeCommands(existing: ProjectCommand[], found: ProjectCommand[]): ProjectCommand[] {
   const merged = [...existing];
   for (const command of found) {
-    // Same command line, same place, same variables is the same command; the same line run
-    // differently — another folder, another profile — is one of its own.
-    // Sorted, so two identical environments written in a different order still match.
-    const envKey = (entry: ProjectCommand): string => JSON.stringify(Object.entries(entry.env ?? {}).sort());
-    const same = (entry: ProjectCommand): boolean =>
-      entry.command === command.command && entry.cwd === command.cwd && envKey(entry) === envKey(command);
-    if (merged.some(same)) {
+    if (merged.some((entry) => isSameCommand(entry, command))) {
       continue;
     }
     let last = -1;

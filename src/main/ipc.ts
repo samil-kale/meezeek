@@ -1,0 +1,352 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { clipboard, dialog, ipcMain, shell } from "electron";
+import { AGENTS, findAskableAgent, listAgents } from "../agents";
+import { EMPTY_REPOSITORY_STATE } from "../shared/types";
+import type {
+  AgentId,
+  CheckoutTarget,
+  DiffOptions,
+  FileDiff,
+  GitActionResult,
+  Project,
+  ProjectCommand,
+  RepositoryState,
+  StashCommand,
+  TerminalDescriptor
+} from "../shared/types";
+import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
+import { countActivity } from "./event-loop-monitor";
+import { git } from "./git-client";
+import type { ProjectStore } from "./projects";
+import type { Repository, RepositoryManager } from "./repository";
+import type { SessionManagerRegistry } from "./session-manager";
+
+/**
+ * Everything the renderer can ask the main process for, in one place — main.ts is the
+ * bootstrap that builds these singletons and the window, and this is the surface between the
+ * two processes. A new capability (the providers, say) is a new block here, not a longer
+ * main.ts.
+ */
+export interface IpcDeps {
+  store: ProjectStore;
+  repositories: RepositoryManager;
+  sessions: SessionManagerRegistry;
+  /** Posts to the window, or nowhere while none is open. */
+  send: (channel: string, payload: unknown) => void;
+  /** Brings a project's repository and terminals up; shared with the bootstrap's restore. */
+  openProject: (project: Project) => void;
+}
+
+const MISSING_REPOSITORY: RepositoryState = { ...EMPTY_REPOSITORY_STATE, error: "Project not found" };
+
+/** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
+function writeTempFile(name: string, data: Buffer): string {
+  const file = path.join(os.tmpdir(), `meeseek-${Date.now()}-${path.basename(name)}`);
+  fs.writeFileSync(file, data);
+  return file;
+}
+
+export function registerIpc({ store, repositories, sessions, send, openProject }: IpcDeps): void {
+  ipcMain.handle("projects:list", (): Project[] => store.list());
+
+  ipcMain.handle("projects:add", async (): Promise<Project | null> => {
+    const result = await dialog.showOpenDialog({
+      title: "Add repository",
+      properties: ["openDirectory"]
+    });
+    const directory = result.filePaths[0];
+    if (result.canceled || !directory) {
+      return null;
+    }
+    // Picking a subdirectory of a repository opens the repository itself: git reports every
+    // path relative to the root, and the root is what branches and status describe.
+    const project = store.add((await git.resolveRoot(directory).catch(() => undefined)) ?? directory);
+    openProject(project);
+    return project;
+  });
+
+  ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));
+
+  ipcMain.handle("projects:remove", (_event, projectId: string): void => {
+    sessions.close(projectId);
+    repositories.close(projectId);
+    store.remove(projectId);
+  });
+
+  ipcMain.handle("repo:state", (_event, projectId: string): RepositoryState => {
+    return repositories.get(projectId)?.getState() ?? MISSING_REPOSITORY;
+  });
+
+  ipcMain.handle("repo:refresh", async (_event, projectId: string): Promise<RepositoryState> => {
+    return (await repositories.get(projectId)?.refresh()) ?? MISSING_REPOSITORY;
+  });
+
+  /**
+   * Every command a repository can be asked to run: they all answer a GitActionResult, and
+   * they all have nothing to act on when the project is not open.
+   */
+  const onRepository = <A extends unknown[]>(
+    channel: string,
+    run: (repository: Repository, ...args: A) => Promise<GitActionResult>
+  ): void => {
+    ipcMain.handle(channel, async (_event, projectId: string, ...args: A): Promise<GitActionResult> => {
+      const repository = repositories.get(projectId);
+      return repository ? run(repository, ...args) : { ok: false, error: MISSING_REPOSITORY.error };
+    });
+  };
+
+  onRepository("repo:checkout", (repository, target: CheckoutTarget) => repository.checkout(target));
+  onRepository("repo:fetch", (repository) => repository.fetch());
+  onRepository("repo:pull", (repository) => repository.pull());
+  onRepository("repo:push", (repository) => repository.push());
+  onRepository("repo:force-push", (repository) => repository.forcePush());
+  onRepository("repo:pull-rebase", (repository) => repository.pullRebase());
+  onRepository("repo:set-remote-url", (repository, remote: string, url: string) =>
+    repository.setRemoteUrl(remote, url)
+  );
+  onRepository("repo:create-branch", (repository, name: string, startPoint: string) =>
+    repository.createBranch(name, startPoint)
+  );
+  onRepository("repo:rename-branch", (repository, from: string, to: string) => repository.renameBranch(from, to));
+  onRepository("repo:delete-branch", (repository, name: string, onRemote: boolean) =>
+    repository.deleteBranch(name, onRemote)
+  );
+  onRepository("repo:merge", (repository, ref: string) => repository.merge(ref));
+  onRepository("repo:rebase", (repository, ref: string) => repository.rebase(ref));
+  onRepository("repo:abort", (repository) => repository.abort());
+  onRepository("repo:create-tag", (repository, name: string, target: string, message: string) =>
+    repository.createTag(name, target, message)
+  );
+  onRepository("repo:push-tag", (repository, name: string) => repository.pushTag(name));
+  onRepository("repo:delete-tag", (repository, name: string, onRemote: boolean) =>
+    repository.deleteTag(name, onRemote)
+  );
+  onRepository("repo:checkout-tag", (repository, name: string) => repository.checkoutTag(name));
+  onRepository("repo:stash-push", (repository, message: string) => repository.stashPush(message));
+  onRepository("repo:stash", (repository, command: StashCommand, ref: string) => repository.stash(command, ref));
+  onRepository("repo:discard", async (repository, paths: string[]) =>
+    paths.length > 0 ? repository.discard(paths) : { ok: true }
+  );
+  onRepository("repo:ignore", (repository, filePath: string, scope: "file" | "extension") =>
+    repository.ignore(filePath, scope)
+  );
+
+  ipcMain.handle(
+    "repo:diff",
+    async (_event, projectId: string, filePath: string, options: DiffOptions): Promise<FileDiff> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { path: filePath, lines: [], binary: false, truncated: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.diff(filePath, options);
+    }
+  );
+
+  ipcMain.handle(
+    "repo:file-lines",
+    async (_event, projectId: string, filePath: string, from: number, to: number): Promise<string[]> => {
+      return (await repositories.get(projectId)?.fileLines(filePath, from, to)) ?? [];
+    }
+  );
+
+  ipcMain.handle("commands:list", async (_event, projectId: string): Promise<ProjectCommand[] | null> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    return project ? readCommands(project.path) : [];
+  });
+
+  ipcMain.handle("commands:save", async (_event, projectId: string, commands: ProjectCommand[]): Promise<void> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    if (!project) {
+      return;
+    }
+    try {
+      await writeCommands(project.path, commands);
+    } catch (error) {
+      send("app:notice", { severity: "error", message: `Could not save commands: ${String(error)}` });
+    }
+  });
+
+  /**
+   * Running one is opening a tab for it: the command is the tab's process, so its output
+   * arrives while it works and is still there afterwards.
+   */
+  ipcMain.handle(
+    "commands:run",
+    (_event, projectId: string, command: ProjectCommand): TerminalDescriptor | null => {
+      return sessions.get(projectId)?.createCommandTab(command) ?? null;
+    }
+  );
+
+  /**
+   * The wand: asks whichever agent is installed what this project can run, and adds what it
+   * names to the list. Whatever it gets wrong is one right-click away from being deleted,
+   * which is why its answer goes straight in rather than through a review step.
+   */
+  ipcMain.handle("commands:suggest", async (_event, projectId: string): Promise<ProjectCommand[]> => {
+    const project = store.list().find((candidate) => candidate.id === projectId);
+    if (!project) {
+      return [];
+    }
+    const askable = await findAskableAgent(project.path);
+    if (!askable) {
+      // Named from the agents themselves rather than spelled out here: which of them can be
+      // asked a question is theirs to say, and a third one must not need this line edited.
+      const candidates = AGENTS.filter((agent) => agent.askArgs)
+        .map((agent) => agent.displayName)
+        .join(" or ");
+      send("app:notice", {
+        severity: "warning",
+        message: `${candidates} not found — install one to have it find the commands for you.`
+      });
+      return [];
+    }
+    const { executable, agent } = askable;
+    try {
+      const found = await suggestCommands(project.path, executable, agent.askArgs!(suggestQuestion()));
+      const existing = (await readCommands(project.path)) ?? [];
+      const merged = mergeCommands(existing, found);
+      const added = merged.length - existing.length;
+      if (added > 0) {
+        await writeCommands(project.path, merged);
+      }
+      send("app:notice", {
+        severity: "info",
+        message: added > 0 ? `Added ${added} commands` : "No new commands found"
+      });
+      return merged;
+    } catch (error) {
+      send("app:notice", { severity: "error", message: `Could not read the project: ${String(error)}` });
+      return [];
+    } finally {
+      // Whether it answered or not, it may have persisted a session on the way — and one
+      // nobody opened has no business showing up as a tab after the next restart.
+      await agent.cleanupAsk?.(executable, project.path).catch(() => undefined);
+    }
+  });
+
+  ipcMain.handle("terminal:list", (_event, projectId: string): TerminalDescriptor[] => {
+    return sessions.get(projectId)?.snapshot() ?? [];
+  });
+
+  ipcMain.handle("terminal:create", (_event, projectId: string, agentId: AgentId): TerminalDescriptor => {
+    const manager = sessions.get(projectId);
+    if (!manager) {
+      throw new Error(`Unknown project: ${projectId}`);
+    }
+    return manager.createTab(agentId);
+  });
+
+  ipcMain.handle("terminal:close", async (_event, projectId: string, tabIds: string[]): Promise<void> => {
+    await sessions.get(projectId)?.closeTabs(tabIds);
+  });
+
+  ipcMain.handle("terminal:rename", async (_event, projectId: string, tabId: string, title: string): Promise<void> => {
+    await sessions.get(projectId)?.renameTab(tabId, title);
+  });
+
+  ipcMain.on("terminal:input", (_event, projectId: string, tabId: string, data: string) => {
+    countActivity("input");
+    sessions.get(projectId)?.write(tabId, data);
+  });
+
+  ipcMain.on("terminal:resize", (_event, projectId: string, tabId: string, cols: number, rows: number) => {
+    sessions.get(projectId)?.handleResize(tabId, cols, rows);
+  });
+
+  ipcMain.handle("terminal:starting", (_event, projectId: string): boolean => {
+    return sessions.get(projectId)?.isStarting() ?? false;
+  });
+
+  ipcMain.handle("terminal:resolve-url", async (_event, projectId: string, tabId: string, fragment: string) => {
+    return (await sessions.get(projectId)?.resolveUrlPrefix(tabId, fragment)) ?? null;
+  });
+
+  ipcMain.handle("agents:list", () => listAgents());
+
+  ipcMain.handle("shell:open-url", async (_event, url: string): Promise<void> => {
+    try {
+      await shell.openExternal(url);
+    } catch (error) {
+      send("app:notice", { severity: "error", message: `Could not open URL: ${url} (${String(error)})` });
+    }
+  });
+
+  /**
+   * A path the user ctrl-clicked in a terminal. A file with local changes is answered with
+   * its repository-relative path, which the renderer shows in the git tab; anything else is
+   * handed to the OS here, where the filesystem actually is.
+   */
+  ipcMain.handle("shell:open-file", async (_event, projectId: string, rawPath: string): Promise<string | null> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return null;
+    }
+    const expanded =
+      rawPath === "~" || rawPath.startsWith("~/") || rawPath.startsWith("~\\")
+        ? path.join(os.homedir(), rawPath.slice(1))
+        : rawPath;
+    const root = repository.project.path;
+    const resolved = path.isAbsolute(expanded) ? expanded : path.join(root, expanded);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      send("app:notice", { severity: "error", message: `Could not find file: ${rawPath}` });
+      return null;
+    }
+    // git reports every path relative to the root with forward slashes, so match in that shape.
+    const relative = path.relative(root, resolved).replace(/\\/g, "/");
+    if (repository.getState().changes.some((change) => change.path === relative)) {
+      return relative;
+    }
+    const error = await shell.openPath(resolved);
+    if (error) {
+      send("app:notice", { severity: "error", message: `Could not open file: ${rawPath} (${error})` });
+    }
+    return null;
+  });
+
+  /** A changed file shown in the OS file manager — the git tab's context menu. */
+  ipcMain.handle("shell:reveal-file", (_event, projectId: string, filePath: string): void => {
+    const repository = repositories.get(projectId);
+    if (repository) {
+      shell.showItemInFolder(path.join(repository.project.path, filePath));
+    }
+  });
+
+  /**
+   * The changed-file menu's "Open in external editor". meeseek has no editor setting, so the
+   * file goes to whatever the OS opens its type with — which on a developer's machine is the
+   * editor GitHub Desktop would have asked about.
+   */
+  ipcMain.handle("shell:open-file-externally", async (_event, projectId: string, filePath: string): Promise<void> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return;
+    }
+    const error = await shell.openPath(path.join(repository.project.path, filePath));
+    if (error) {
+      send("app:notice", { severity: "error", message: `Could not open file: ${filePath} (${error})` });
+    }
+  });
+
+  ipcMain.handle("shell:open-project", async (_event, projectId: string): Promise<void> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return;
+    }
+    const error = await shell.openPath(repository.project.path);
+    if (error) {
+      send("app:notice", { severity: "error", message: `Could not open folder: ${repository.project.path} (${error})` });
+    }
+  });
+
+  ipcMain.handle("files:write-temp", (_event, name: string, dataBase64: string): string => {
+    return writeTempFile(name, Buffer.from(dataBase64, "base64"));
+  });
+
+  /** The clipboard's image as a file on disk, so its path can be typed into a CLI. */
+  ipcMain.handle("clipboard:image-file", (): string | null => {
+    const image = clipboard.readImage();
+    return image.isEmpty() ? null : writeTempFile(`pasted-image-${Date.now()}.png`, image.toPNG());
+  });
+}

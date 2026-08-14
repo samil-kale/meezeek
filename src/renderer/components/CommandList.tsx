@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
-import { parseEnv } from "../../shared/command";
+import { useEffect, useRef, useState } from "react";
+import { isSameCommand, parseEnv } from "../../shared/command";
 import type { ProjectCommand } from "../../shared/types";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { confirm, prompt } from "./Dialog";
+import { reorder, useDragReorder } from "./drag-reorder";
 import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
 
 /**
@@ -10,12 +11,6 @@ import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
  * terminal must not end up pasted into it, and this list is no target for anything else.
  */
 const DRAG_TYPE = "application/x-meeseek-command";
-
-/** Sorted, so two identical environments written in a different order still match. */
-function sameEnv(one: ProjectCommand, other: ProjectCommand): boolean {
-  const key = (command: ProjectCommand): string => JSON.stringify(Object.entries(command.env ?? {}).sort());
-  return key(one) === key(other);
-}
 
 /** The whole command as a tooltip: the line, where it runs, and what it runs with. */
 function describe(command: ProjectCommand): string {
@@ -63,9 +58,17 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
   const shown = useRef(projectId);
   /** The list as it stands now, for callbacks that were made before the last change to it. */
   const latest = useRef<ProjectCommand[]>([]);
-  const [dragged, setDragged] = useState<number | null>(null);
-  /** Where the dragged command would land: the index it would take among the others. */
-  const [dropAt, setDropAt] = useState<number | null>(null);
+
+  const { rowProps, listProps, rowClasses } = useDragReorder({
+    dragType: DRAG_TYPE,
+    count: commands.length,
+    // The row's position, not its command: the same command can be in the list twice, once
+    // per folder it runs in, and the rows hold no state of their own that reordering could
+    // carry to the wrong one.
+    payloadOf: String,
+    indexOf: Number,
+    onMove: (from, to) => save(reorder(commands, from, to))
+  });
 
   const suggesting = projectId !== null && suggestingIn.includes(projectId);
 
@@ -144,12 +147,7 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
       command.env = variables;
     }
     const current = latest.current;
-    // The same command in the same place with the same variables is the one already there;
-    // run differently, it is an entry of its own — same rule as the wand's merge.
-    const duplicate = current.some(
-      (entry) => entry.command === command.command && entry.cwd === command.cwd && sameEnv(entry, command)
-    );
-    if (!duplicate) {
+    if (!current.some((entry) => isSameCommand(entry, command))) {
       save([...current, command]);
     }
   };
@@ -202,87 +200,6 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
     });
   };
 
-  /**
-   * Reordering, the same way the project list does it — see ProjectList for why the drag type
-   * is one of our own and why the insertion index is read off the event rather than off the
-   * state the last dragover left behind.
-   */
-  const insertionIndex = (event: DragEvent<HTMLDivElement>, index: number): number => {
-    const box = event.currentTarget.getBoundingClientRect();
-    return event.clientY < box.top + box.height / 2 ? index : index + 1;
-  };
-
-  // The row's position, not its command: the same command can be in the list twice, once per
-  // folder it runs in.
-  const begin = (event: DragEvent<HTMLDivElement>, index: number): void => {
-    event.dataTransfer.setData(DRAG_TYPE, String(index));
-    event.dataTransfer.effectAllowed = "move";
-    setDragged(index);
-  };
-
-  const over = (event: DragEvent<HTMLDivElement>, index: number): void => {
-    if (!event.dataTransfer.types.includes(DRAG_TYPE)) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDropAt(insertionIndex(event, index));
-  };
-
-  const move = (from: number, to: number): void => {
-    setDragged(null);
-    setDropAt(null);
-    const command = commands[from];
-    if (!command) {
-      return;
-    }
-    const reordered = commands.filter((_, position) => position !== from);
-    // Everything behind it moves up once it is out of the list, so a target past it is one
-    // index closer than it looked.
-    reordered.splice(to > from ? to - 1 : to, 0, command);
-    save(reordered);
-  };
-
-  const drop = (event: DragEvent<HTMLDivElement>, index: number): void => {
-    event.preventDefault();
-    move(Number(event.dataTransfer.getData(DRAG_TYPE)), insertionIndex(event, index));
-  };
-
-  /** The empty space below the last command, which stands for the end of the list. */
-  const isBelowList = (event: DragEvent<HTMLDivElement>): boolean => event.target === event.currentTarget;
-
-  const overEnd = (event: DragEvent<HTMLDivElement>): void => {
-    if (!isBelowList(event) || !event.dataTransfer.types.includes(DRAG_TYPE)) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDropAt(commands.length);
-  };
-
-  const dropAtEnd = (event: DragEvent<HTMLDivElement>): void => {
-    if (!isBelowList(event)) {
-      return;
-    }
-    event.preventDefault();
-    move(Number(event.dataTransfer.getData(DRAG_TYPE)), commands.length);
-  };
-
-  const itemClass = (index: number): string => {
-    const classes = ["command-item"];
-    if (index === dragged) {
-      classes.push("dragging");
-    }
-    if (dropAt === index) {
-      classes.push("drop-above");
-    }
-    // The last row carries the line for the position behind it; there is no row after it.
-    if (dropAt === commands.length && index === commands.length - 1) {
-      classes.push("drop-below");
-    }
-    return classes.join(" ");
-  };
-
   const menuEntries = (command: ProjectCommand): ContextMenuEntry[] => [
     { label: "Run", run: () => run(command) },
     { label: "Delete...", run: () => void askRemove(command) }
@@ -310,23 +227,14 @@ export function CommandList({ projectId, height, onOpenTab }: CommandListProps) 
           </button>
         </span>
       </div>
-      <div className="command-items" onDragOver={overEnd} onDrop={dropAtEnd}>
+      <div className="command-items" {...listProps}>
         {commands.map((command, index) => (
           <div
-            // The position, not the command: the same command can be in the list more than
-            // once — another folder, another set of variables — and the rows hold no state
-            // of their own that reordering could carry to the wrong one.
+            // The position, not the command — see the hook's payload above.
             key={index}
-            className={itemClass(index)}
+            className={["command-item", ...rowClasses(index)].join(" ")}
             title={describe(command)}
-            draggable
-            onDragStart={(event) => begin(event, index)}
-            onDragOver={(event) => over(event, index)}
-            onDrop={(event) => drop(event, index)}
-            onDragEnd={() => {
-              setDragged(null);
-              setDropAt(null);
-            }}
+            {...rowProps(index)}
             onContextMenu={(event) => {
               event.preventDefault();
               setMenu({ x: event.clientX, y: event.clientY, command });

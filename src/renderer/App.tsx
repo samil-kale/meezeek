@@ -1,28 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type { GitActionResult, Project, RepositoryState } from "../shared/types";
+import { BranchBar } from "./components/BranchBar";
 import { CommandList } from "./components/CommandList";
 import type { BranchActions } from "./components/BranchTree";
-import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./components/ContextMenu";
 import { DiffDialog } from "./components/DiffDialog";
-import { Dialogs, confirm } from "./components/Dialog";
+import { Dialogs } from "./components/Dialog";
 import { GitPane } from "./components/GitPane";
 import { Notices, notify } from "./components/Notices";
 import { ProjectList } from "./components/ProjectList";
 import { Sash, usePaneSize, usePaneToggle } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
-import { ArrowDownIcon, ArrowUpIcon, BranchIcon, PlusIcon, RefreshIcon, SyncIcon } from "./components/icons";
-
-const EMPTY_STATE: RepositoryState = {
-  head: "",
-  detached: false,
-  ahead: 0,
-  behind: 0,
-  localBranches: [],
-  remotes: [],
-  tags: [],
-  stashes: [],
-  changes: []
-};
+import { disposeProjectTerminals } from "./terminal-views";
+import { PlusIcon } from "./components/icons";
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -52,8 +42,6 @@ export function App() {
   const [gitBusy, setGitBusy] = useState(false);
   /** The file whose diff is open over everything, if any. */
   const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
-  /** The sync button's own menu: the variants of what it does, for when its pick is not the one. */
-  const [syncMenu, setSyncMenu] = useState<{ x: number; y: number } | null>(null);
   /**
    * A tab that was just opened from outside its own pane — a shell asked for from a project's
    * row, or the terminal a saved command runs in. The pane brings it to the front once it
@@ -97,6 +85,9 @@ export function App() {
       const remaining = projects.filter((project) => project.id !== projectId);
       setProjects(remaining);
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
+      // The xterm instances live outside React and outlive the pane that mounted them, so
+      // this is where they are let go of — the one moment a project ends for good.
+      disposeProjectTerminals(projectId);
     },
     [projects]
   );
@@ -166,89 +157,7 @@ export function App() {
 
   const busyLabel = branchAction?.projectId === activeProjectId ? branchAction.label : null;
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
-  const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_STATE;
-
-  /**
-   * The one button GitHub Desktop puts here, and the same rules for what it does: publish a
-   * branch the remote has never seen, then pull what came in, then push what went out, and
-   * fetch when the two agree. One thing to press, whatever the state of the branch is.
-   */
-  const sync = ((): { label: string; title: string; icon: React.ReactNode; run: () => void } | null => {
-    const remote = activeState.remotes[0]?.name;
-    if (!activeProjectId || !remote || activeState.detached) {
-      return null;
-    }
-    const start = (label: string, call: (projectId: string) => Promise<GitActionResult>) => () =>
-      void runBranchAction(activeProjectId, `${label}...`, () => call(activeProjectId));
-    if (activeState.upstream === undefined) {
-      return {
-        label: "Publish branch",
-        title: `Push ${activeState.head} to ${remote} and track it`,
-        icon: <ArrowUpIcon />,
-        run: start("Publishing", window.meeseek.repository.push)
-      };
-    }
-    if (activeState.behind > 0) {
-      return {
-        label: `Pull ${remote}`,
-        title: `Pull ${activeState.behind} commits from ${activeState.upstream}`,
-        icon: <ArrowDownIcon />,
-        run: start("Pulling", window.meeseek.repository.pull)
-      };
-    }
-    if (activeState.ahead > 0) {
-      return {
-        label: `Push ${remote}`,
-        title: `Push ${activeState.ahead} commits to ${activeState.upstream}`,
-        icon: <ArrowUpIcon />,
-        run: start("Pushing", window.meeseek.repository.push)
-      };
-    }
-    return {
-      label: `Fetch ${remote}`,
-      title: `Fetch from ${remote}`,
-      icon: <SyncIcon />,
-      run: start("Fetching", window.meeseek.repository.fetch)
-    };
-  })();
-
-  /** Rewrites what the remote holds, which is why it is the one entry that asks first. */
-  const askForcePush = async (projectId: string): Promise<void> => {
-    const answer = await confirm({
-      title: "Force push",
-      message: `Are you sure you want to force push ${activeState.head} to ${activeState.upstream}?`,
-      detail:
-        "Commits the remote has and this branch does not are overwritten. The push is refused if the remote moved since the last fetch.",
-      confirmLabel: "Force push"
-    });
-    if (answer.confirmed) {
-      void runBranchAction(projectId, "Force pushing...", () => window.meeseek.repository.forcePush(projectId));
-    }
-  };
-
-  /**
-   * The other things that one button could have done. GitHub Desktop keeps them in its
-   * Repository menu; meeseek has no menu bar, so they sit on the button itself.
-   */
-  const syncEntries = (projectId: string): ContextMenuEntry[] => {
-    const start = (label: string, call: (projectId: string) => Promise<GitActionResult>) => () =>
-      void runBranchAction(projectId, `${label}...`, () => call(projectId));
-    // Without an upstream there is nothing to pull from and nothing to rewrite; publishing it
-    // is what the button itself offers then.
-    const tracked = activeState.upstream !== undefined;
-    return [
-      { label: "Fetch", run: start("Fetching", window.meeseek.repository.fetch) },
-      SEPARATOR,
-      { label: "Pull", run: tracked ? start("Pulling", window.meeseek.repository.pull) : undefined },
-      {
-        label: "Pull with rebase",
-        run: tracked ? start("Pulling", window.meeseek.repository.pullRebase) : undefined
-      },
-      SEPARATOR,
-      { label: "Push", run: start("Pushing", window.meeseek.repository.push) },
-      { label: "Force push...", run: tracked ? () => void askForcePush(projectId) : undefined }
-    ];
-  };
+  const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_REPOSITORY_STATE;
 
   return (
     <div className="app">
@@ -352,65 +261,17 @@ export function App() {
       <Notices />
       <Dialogs />
 
-      <div className="branch-bar">
-        {/* A repository that could not be read says so as a notice like everything else; the
-            bar then simply has no branch to name. */}
-        {activeProject && (
-          <>
-            {/* Left, where a status bar puts what you are looking at; everything that acts on
-                it stays on the right. */}
-            <span className="branch-path" title={activeProject.path}>
-              {activeProject.path}
-            </span>
-            <BranchIcon />
-            {/* While a branch command runs the bar says what it is doing instead of naming
-                HEAD — for those seconds the branch you are on is not the whole story. */}
-            <span className={`branch-name${busyLabel === null ? "" : " busy"}`}>
-              {busyLabel ?? (activeState.head || "...")}
-            </span>
-            {/* How far HEAD and its upstream have drifted apart, only where they have. */}
-            {activeState.ahead > 0 && (
-              <span className="branch-count" title={`${activeState.ahead} commits to push`}>
-                <ArrowUpIcon />
-                {activeState.ahead}
-              </span>
-            )}
-            {activeState.behind > 0 && (
-              <span className="branch-count" title={`${activeState.behind} commits to pull`}>
-                <ArrowDownIcon />
-                {activeState.behind}
-              </span>
-            )}
-            {sync && (
-              <button
-                className="branch-sync"
-                title={`${sync.title}\nRight-click for the other network commands`}
-                disabled={busyLabel !== null}
-                onClick={sync.run}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setSyncMenu({ x: event.clientX, y: event.clientY });
-                }}
-              >
-                {sync.icon}
-                <span>{sync.label}</span>
-              </button>
-            )}
-            <button className="icon-button" title="Refresh repository" onClick={refresh}>
-              <RefreshIcon />
-            </button>
-          </>
-        )}
-      </div>
-
-      {syncMenu && activeProjectId && (
-        <ContextMenu
-          x={syncMenu.x}
-          y={syncMenu.y}
-          entries={syncEntries(activeProjectId)}
-          onClose={() => setSyncMenu(null)}
-        />
-      )}
+      <BranchBar
+        project={activeProject}
+        state={activeState}
+        busyLabel={busyLabel}
+        run={(label, action) => {
+          if (activeProjectId) {
+            void runBranchAction(activeProjectId, label, action);
+          }
+        }}
+        onRefresh={refresh}
+      />
     </div>
   );
 }

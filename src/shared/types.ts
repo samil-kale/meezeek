@@ -110,6 +110,24 @@ export interface RepositoryState {
 }
 
 /**
+ * A repository nothing has been read from — the state before the first refresh, behind an
+ * error, or of a project that is not open. One constant rather than a literal per caller:
+ * four copies of it drifted around the code, and each had to name every field. Never mutated,
+ * only spread from.
+ */
+export const EMPTY_REPOSITORY_STATE: RepositoryState = {
+  head: "",
+  detached: false,
+  ahead: 0,
+  behind: 0,
+  localBranches: [],
+  remotes: [],
+  tags: [],
+  stashes: [],
+  changes: []
+};
+
+/**
  * How loudly a notice asks to be read. Only "info" goes away on its own; the other two wait
  * to be dismissed, because nobody should have to catch a failure as it passes by.
  */

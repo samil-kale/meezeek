@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
   CheckoutTarget,
   ChangeStatus,
@@ -208,8 +209,14 @@ function toChangeStatus(code: string): ChangeStatus {
 
 /** The changed files and, from the `--branch` header, what HEAD is — in one git process. */
 async function readStatus(cwd: string): Promise<HeadState & { changes: FileChange[] }> {
+  // --no-optional-locks: without it `git status` takes the index lock to write its refreshed
+  // stat cache back, and the working-tree watcher reports that write as a change — which
+  // schedules the refresh that runs this again, forever. Measured: 50 filesystem events per
+  // run without the flag, 0 with it, at the same runtime. What it costs is that a stale index
+  // is re-stated by every status instead of being read from the cache once.
   // core.quotePath=false keeps non-ASCII paths readable instead of octal-escaped.
   const result = await git(cwd, [
+    "--no-optional-locks",
     "-c",
     "core.quotePath=false",
     "status",
@@ -292,18 +299,6 @@ async function readOperation(cwd: string): Promise<GitOperation | undefined> {
 }
 
 export async function readState(cwd: string): Promise<RepositoryState> {
-  const empty: RepositoryState = {
-    head: "",
-    detached: false,
-    ahead: 0,
-    behind: 0,
-    localBranches: [],
-    remotes: [],
-    tags: [],
-    stashes: [],
-    changes: []
-  };
-
   try {
     // No `isRepository` check here: a folder does not stop being a repository, so Repository
     // asks that once when it opens. On a machine where starting git is slow, dropping it took
@@ -320,7 +315,7 @@ export async function readState(cwd: string): Promise<RepositoryState> {
     ]);
     return { ...status, ...refs, stashes, operation };
   } catch (error) {
-    return { ...empty, error: error instanceof Error ? error.message : String(error) };
+    return { ...EMPTY_REPOSITORY_STATE, error: error instanceof Error ? error.message : String(error) };
   }
 }
 

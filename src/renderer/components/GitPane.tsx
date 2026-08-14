@@ -47,7 +47,12 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
   const query = filter.trim().toLowerCase();
   const visible = state.changes.filter((change) => change.path.toLowerCase().includes(query));
 
-  useEffect(() => onBusy(acting), [acting, onBusy]);
+  // Taken back when the pane goes: it can be closed while a discard is still running, and a
+  // "busy" nobody is left to clear would keep the one progress bar running for good.
+  useEffect(() => {
+    onBusy(acting);
+    return () => onBusy(false);
+  }, [acting, onBusy]);
 
   // A file that stopped being changed — committed in a terminal, or discarded here — is gone
   // from the list, and holding on to it would let a later change reappear pre-selected.

@@ -129,7 +129,13 @@ export function DiffView({
     };
   }, [shown]);
 
-  useEffect(() => onBusy(loading || highlighting), [loading, highlighting, onBusy]);
+  // Taken back when this view goes: the dialog can be closed while the diff is still being
+  // read or coloured, and a "busy" nobody is left to clear would keep the one progress bar
+  // running for the rest of the session.
+  useEffect(() => {
+    onBusy(loading || highlighting);
+    return () => onBusy(false);
+  }, [loading, highlighting, onBusy]);
 
   /**
    * Fills the gap in front of a hunk header with the file's own lines. Context lines are the

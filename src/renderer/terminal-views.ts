@@ -77,6 +77,27 @@ const resolvedUrls = new Map<string, string | null>();
 const negativeAnswers = new Map<string, number>();
 const pendingUrlRequests = new Set<string>();
 
+/**
+ * Forgets every url answer belonging to a terminal that is gone — one tab's, or a whole
+ * project's. Keys start with the view they were asked for, so the prefix is all it takes.
+ * Nothing can look them up again afterwards: only a mounted terminal's link provider ever
+ * reads them, and its links went with it.
+ */
+function forgetUrls(prefix: string): void {
+  const caches: { keys(): Iterable<string>; delete(key: string): unknown }[] = [
+    resolvedUrls,
+    negativeAnswers,
+    pendingUrlRequests
+  ];
+  for (const cache of caches) {
+    for (const key of [...cache.keys()]) {
+      if (key.startsWith(prefix)) {
+        cache.delete(key);
+      }
+    }
+  }
+}
+
 function createWrappedUrlResolver(projectId: string, tabId: string): WrappedUrlResolver {
   const cacheKey = (fragment: string): string => `${viewKey(projectId, tabId)} ${fragment}`;
   return {
@@ -98,7 +119,11 @@ function createWrappedUrlResolver(projectId: string, tabId: string): WrappedUrlR
       }
       pendingUrlRequests.add(key);
       void window.meeseek.terminals.resolveUrl(projectId, tabId, fragment).then((url) => {
-        pendingUrlRequests.delete(key);
+        // Gone while this was in flight means the terminal it was asked for was closed
+        // (see forgetUrls) — the answer belongs to nothing and must not put an entry back.
+        if (!pendingUrlRequests.delete(key)) {
+          return;
+        }
         resolvedUrls.set(key, url);
         if (url === null) {
           negativeAnswers.set(key, Date.now());
@@ -301,4 +326,33 @@ export function disposeTerminal(projectId: string, tabId: string): void {
   }
   views.delete(key);
   view.term.dispose();
+  forgetUrls(`${key} `);
+}
+
+/**
+ * Every terminal of a project that was closed. Without this they would sit here for the rest
+ * of the session: the pane that mounted them is gone, and the per-tab disposal above only ever
+ * runs for a tab that disappeared from a list the host still reports.
+ *
+ * Called from the close path rather than from a pane's unmount, deliberately. Today that
+ * unmount happens in exactly one place — `App` renders one pane per project, unconditionally
+ * and keyed by project id, so only closing one takes a pane down — but a lifecycle hook would
+ * also fire for a remount that means nothing (a changed key, an error boundary, StrictMode's
+ * double-invoke), and each of those would throw away the scrollback of terminals that are
+ * still running. "This project is gone" cannot be triggered by accident.
+ *
+ * The ptys are already dead by the time this runs: removing a project disposes its session
+ * manager in the host. What is dropped here is only what the renderer still holds — the
+ * buffers and the DOM xterm built for them.
+ */
+export function disposeProjectTerminals(projectId: string): void {
+  // Project ids are uuids, so nothing else can start with one followed by the separator.
+  const prefix = viewKey(projectId, "");
+  for (const [key, view] of [...views]) {
+    if (key.startsWith(prefix)) {
+      views.delete(key);
+      view.term.dispose();
+    }
+  }
+  forgetUrls(prefix);
 }

@@ -131,8 +131,11 @@ local git layer — once a repository is cloned, everything goes back through th
 
 Every one of those commands goes through `Repository.runAction`, which runs one at a time per
 repository and refreshes after it: two of them race for the same index lock, and a fetch on top
-of a checkout is no better than two checkouts. The renderer holds the matching half in `App`'s
-`branchAction` — one project's tree stops offering them while one runs, and the branch bar says
+of a checkout is no better than two checkouts. Discarding and ignoring go through it too, even
+though neither is started from the branch tree — a discard is offered from a context menu that
+does not know a fetch is running, and `git restore` wants the same lock. The renderer holds the
+matching half in `App`'s `branchAction` — one project's tree stops offering them while one runs,
+and the branch bar (`BranchBar`, App's bottom strip) says
 what is happening instead of naming HEAD. `BranchActions.run` is the one way into it: a view
 puts its own question first (it is what knows the remote, the current branch, the file count),
 then hands over a label and the call.
@@ -264,13 +267,17 @@ back one command at a time.
 
 `src/main/event-loop-monitor.ts` is what measured all of this and is still wired up: it samples
 the loop and writes stalls to `event-loop.log` in the app's `userData`, with a tally of what
-ran. It stays silent while nothing blocks.
+ran. It is off unless `NODE_DEBUG` names it — `NODE_DEBUG=meeseek-perf npm start` — since a
+sample every 20ms for the lifetime of the window is not worth paying while nothing is being
+investigated. `countActivity` stays at its call sites either way, so the tally is right again
+the moment it is switched back on.
 
-### the watcher feeds itself — measured, not yet fixed
+### the watcher fed itself — measured, and fixed with `--no-optional-locks`
 
-Every open repository refreshes at the floor of `REFRESH_MIN_INTERVAL_MS` for as long as the
-window is open, whether or not anything changed. The monitor shows it: `git` sits at a steady
-100+ per minute with three projects open, in runs where the user is doing nothing at all.
+Every open repository used to refresh at the floor of `REFRESH_MIN_INTERVAL_MS` for as long as
+the window was open, whether or not anything changed. The monitor showed it: `git` sat at a
+steady 100+ per minute with three projects open, in runs where the user was doing nothing at
+all.
 
 Where the events come from was measured with a standalone watcher on the same paths, running
 the same `isIgnoredEvent`, for 60s: two repositories meeseek had open reported ~107 events
@@ -281,13 +288,14 @@ They arrive in pairs, `.git\index.lock` and a bare `.git`. `git status` takes th
 write the refreshed stat cache back, and Windows reports both the file and the *directory* it
 sits in. The filter catches the first (`endsWith(".lock")`) and misses the second: every rule
 in `isIgnoredEvent` matches a `.git/<child>` path, and the bare `.git` matches none of them. So
-it schedules a refresh, whose `git status` writes the lock again. The throttle is the only
-thing bounding that loop; it slows it down but does not end it. Nothing of this is visible,
-because the state comes back identical and the `JSON.stringify` comparison drops it — it costs
+it scheduled a refresh, whose `git status` wrote the lock again. The throttle was the only
+thing bounding that loop; it slowed it down but did not end it. None of it was visible,
+because the state came back identical and the `JSON.stringify` comparison dropped it — it cost
 only the three git processes per refresh, per repository, forever.
 
-The fix is not another entry in the filter. `git --no-optional-locks status` skips the lock,
-which is what the flag exists for — VS Code and GitHub Desktop both poll status with it.
+The fix was not another entry in the filter. `readStatus` now runs
+`git --no-optional-locks status`, which skips the lock — what the flag exists for, and what VS
+Code and GitHub Desktop both poll status with.
 Measured over 5 runs in a repository meeseek did not have open: 50 filesystem events without
 it, **0** with it, at 75ms and 77ms per run. Only `readStatus` takes a lock; `for-each-ref` and
 `stash list` never did, and the commands that write (checkout, fetch, pull, push) need theirs.
@@ -402,7 +410,9 @@ per project per session, guarded by a ref.
 
 The order of the array in `meeseek.json` is the order on screen — there is no field for it,
 because two records of the same thing drift apart. Rows are reordered by dragging, the way the
-project list is. What the wand adds is slotted in behind the last command that runs the same
+project list is — both through `useDragReorder` (`src/renderer/components/drag-reorder.ts`),
+which is also where the reasons behind the drag details live (own MIME type per list, the
+insertion index read off the event, the strip below the last row). What the wand adds is slotted in behind the last command that runs the same
 tool (`mergeCommands`), so the maven ones end up together and the npm ones together without
 disturbing anything already there; a drag outranks that, since it only decides where something
 *new* lands.

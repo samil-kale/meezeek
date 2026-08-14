@@ -1,7 +1,7 @@
 {
   "commands": [
-    "npm start",
     "npm run compile",
+    "npm start",
     "npm run watch",
     "npm run typecheck",
     "npm run lint"

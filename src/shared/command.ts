@@ -1,3 +1,5 @@
+import type { ProjectCommand } from "./types";
+
 /**
  * A saved command as the program and the arguments it is started with. Deliberately not a
  * shell: quotes group a word and are dropped, and everything else is literal — a backslash
@@ -46,6 +48,19 @@ export function splitCommand(command: string): string[] {
     tokens.push(current);
   }
   return tokens;
+}
+
+/**
+ * Whether two saved commands are the same one: the same line, in the same folder, with the
+ * same variables — while the same line run differently (another folder, another profile) is
+ * a command of its own. The one rule for both places that deduplicate, the `+` dialog and
+ * the wand's merge; two spellings of it would drift apart the way two of `splitCommand`
+ * would. The environments are compared sorted, so the same variables written in a different
+ * order still match.
+ */
+export function isSameCommand(one: ProjectCommand, other: ProjectCommand): boolean {
+  const envKey = (entry: ProjectCommand): string => JSON.stringify(Object.entries(entry.env ?? {}).sort());
+  return one.command === other.command && one.cwd === other.cwd && envKey(one) === envKey(other);
 }
 
 /**

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { shell } from "electron";
+import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
   CheckoutTarget,
   DiffOptions,
@@ -30,18 +31,6 @@ const REFRESH_MIN_INTERVAL_MS = 2000;
  */
 const AUTO_FETCH_INTERVAL_MS = 10 * 60_000;
 
-const LOADING_STATE: RepositoryState = {
-  head: "",
-  detached: false,
-  ahead: 0,
-  behind: 0,
-  localBranches: [],
-  remotes: [],
-  tags: [],
-  stashes: [],
-  changes: []
-};
-
 /**
  * Paths whose changes never affect what the UI shows, but which change constantly —
  * watching them would mean running `git status` for every object git writes.
@@ -66,7 +55,7 @@ function isIgnoredEvent(relativePath: string): boolean {
  * agent switches in a terminal shows up in the UI on its own.
  */
 export class Repository {
-  private state: RepositoryState = LOADING_STATE;
+  private state: RepositoryState = EMPTY_REPOSITORY_STATE;
   private watcher: fs.FSWatcher | undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshing = false;
@@ -109,7 +98,7 @@ export class Repository {
   async start(): Promise<void> {
     this.isGit = await git.isRepository(this.project.path).catch(() => false);
     if (!this.isGit) {
-      const next = { ...LOADING_STATE, error: "Not a git repository" };
+      const next = { ...EMPTY_REPOSITORY_STATE, error: "Not a git repository" };
       this.reportError(next);
       this.state = next;
       this.onState(next);
@@ -158,7 +147,7 @@ export class Repository {
       // readState answers with an error rather than throwing; what can still reject is the
       // git process having gone away underneath it, and that is worth saying out loud.
       const read = await git.readState(this.project.path).catch((error: Error) => ({
-        ...LOADING_STATE,
+        ...EMPTY_REPOSITORY_STATE,
         error: error.message
       }));
       // The urls are this side's; the refresh does not spend a process on them.
@@ -371,44 +360,46 @@ export class Repository {
    * Throws away the local changes to these files. What HEAD does not hold goes to the trash
    * instead of being deleted, so "discard" stays recoverable the way GitHub Desktop's is.
    */
-  async discard(paths: string[]): Promise<GitActionResult> {
-    const targets: DiscardTargets = { restore: [], drop: [] };
-    for (const filePath of paths) {
-      const change = this.state.changes.find((candidate) => candidate.path === filePath);
-      if (!change) {
-        continue;
-      }
-      if (change.status === "untracked" || change.status === "added") {
-        targets.drop.push(filePath);
-        // Staged and then deleted again on disk still reads as "added" — there is nothing
-        // left to move, and asking the trash to take it would only fail.
-        const absolute = path.join(this.project.path, filePath);
-        if (fs.existsSync(absolute)) {
-          try {
-            await shell.trashItem(absolute);
-          } catch (error) {
-            return { ok: false, error: error instanceof Error ? error.message : String(error) };
-          }
+  discard(paths: string[]): Promise<GitActionResult> {
+    // Through runAction like every other command: `git restore` takes the index lock, so a
+    // discard started from the changes' context menu while a fetch or a checkout is still
+    // running would fail on the lock — and the trash it moves untracked files to has already
+    // happened by then.
+    return this.runAction(async () => {
+      const targets: DiscardTargets = { restore: [], drop: [] };
+      for (const filePath of paths) {
+        const change = this.state.changes.find((candidate) => candidate.path === filePath);
+        if (!change) {
+          continue;
         }
-        continue;
+        if (change.status === "untracked" || change.status === "added") {
+          targets.drop.push(filePath);
+          // Staged and then deleted again on disk still reads as "added" — there is nothing
+          // left to move, and asking the trash to take it would only fail.
+          const absolute = path.join(this.project.path, filePath);
+          if (fs.existsSync(absolute)) {
+            try {
+              await shell.trashItem(absolute);
+            } catch (error) {
+              return { ok: false, error: error instanceof Error ? error.message : String(error) };
+            }
+          }
+          continue;
+        }
+        targets.restore.push(filePath);
+        // A rename is one entry over two paths, and only the old one is in HEAD.
+        if (change.origPath) {
+          targets.restore.push(change.origPath);
+        }
       }
-      targets.restore.push(filePath);
-      // A rename is one entry over two paths, and only the old one is in HEAD.
-      if (change.origPath) {
-        targets.restore.push(change.origPath);
-      }
-    }
 
-    const result = await git.discard(this.project.path, targets);
-    await this.refresh();
-    return result;
+      return git.discard(this.project.path, targets);
+    });
   }
 
   /** Adds the file, or everything with its extension, to the repository's .gitignore. */
-  async ignore(filePath: string, scope: "file" | "extension"): Promise<GitActionResult> {
-    const result = await git.ignorePath(this.project.path, filePath, scope);
-    await this.refresh();
-    return result;
+  ignore(filePath: string, scope: "file" | "extension"): Promise<GitActionResult> {
+    return this.runAction(() => git.ignorePath(this.project.path, filePath, scope));
   }
 
   async diff(filePath: string, options: DiffOptions): Promise<FileDiff> {

@@ -1,3 +1,4 @@
+import { checkAgentInstalled } from "../main/terminal-session";
 import type { AgentId, AgentInfo } from "../shared/types";
 import type { AgentDefinition } from "./agent";
 import { claudeAgent } from "./claude";
@@ -6,6 +7,26 @@ import { shellAgent } from "./shell";
 
 /** Registration order; also the order of the "new terminal" menu. */
 export const AGENTS: AgentDefinition[] = [claudeAgent, opencodeAgent, shellAgent];
+
+/**
+ * The first installed agent that can be asked a question without a terminal, in registration
+ * order. The shell has no `askArgs` and is skipped by that alone. Which agent that is, is this
+ * registry's knowledge — a caller only wants *someone* to put a question to.
+ */
+export async function findAskableAgent(
+  cwd: string
+): Promise<{ executable: string; agent: AgentDefinition } | undefined> {
+  for (const agent of AGENTS) {
+    if (!agent.askArgs || !agent.versionArgs) {
+      continue;
+    }
+    const executable = agent.executable();
+    if (await checkAgentInstalled(executable, agent.versionArgs, cwd)) {
+      return { executable, agent };
+    }
+  }
+  return undefined;
+}
 
 export function getAgent(id: AgentId): AgentDefinition {
   const agent = AGENTS.find((candidate) => candidate.id === id);
