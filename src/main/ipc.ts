@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { clipboard, dialog, ipcMain, shell } from "electron";
+import { app, clipboard, dialog, ipcMain, shell } from "electron";
 import { AGENTS, findAskableAgent, listAgents } from "../agents";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
@@ -18,6 +18,7 @@ import type {
   ProviderId,
   ProjectCommand,
   RepositoryState,
+  Requirements,
   StashCommand,
   TerminalDescriptor
 } from "../shared/types";
@@ -28,6 +29,7 @@ import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { ProjectStore } from "./projects";
 import type { Repository, RepositoryManager } from "./repository";
+import { checkRequirements } from "./requirements";
 import type { SessionManagerRegistry } from "./session-manager";
 
 /**
@@ -45,6 +47,8 @@ export interface IpcDeps {
   send: (channel: string, payload: unknown) => void;
   /** Brings a project's repository and terminals up; shared with the bootstrap's restore. */
   openProject: (project: Project) => void;
+  /** Opens the stored projects, once and only once the requirements are met. */
+  openWorkspace: () => void;
 }
 
 const MISSING_REPOSITORY: RepositoryState = { ...EMPTY_REPOSITORY_STATE, error: "Project not found" };
@@ -56,7 +60,30 @@ function writeTempFile(name: string, data: Buffer): string {
   return file;
 }
 
-export function registerIpc({ store, accounts, repositories, sessions, send, openProject }: IpcDeps): void {
+export function registerIpc({
+  store,
+  accounts,
+  repositories,
+  sessions,
+  send,
+  openProject,
+  openWorkspace
+}: IpcDeps): void {
+  /**
+   * The gate the window opens with: nothing is restored until git and an agent are there, so a
+   * machine that is missing one never gets as far as a repository or a terminal. The renderer
+   * asks again after every re-check, and passing is what starts the app.
+   */
+  ipcMain.handle("startup:check", async (): Promise<Requirements> => {
+    const requirements = await checkRequirements();
+    if (requirements.met) {
+      openWorkspace();
+    }
+    return requirements;
+  });
+
+  ipcMain.on("startup:quit", () => app.quit());
+
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
   ipcMain.handle("projects:pick-directory", async (_event, title: string): Promise<string | null> => {

@@ -8,6 +8,10 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscr
 }
 
 const api: MeezeekApi = {
+  startup: {
+    check: () => ipcRenderer.invoke("startup:check"),
+    quit: () => ipcRenderer.send("startup:quit")
+  },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     pickDirectory: (title) => ipcRenderer.invoke("projects:pick-directory", title),

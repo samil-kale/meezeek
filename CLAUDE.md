@@ -83,6 +83,31 @@ diagrams. Its scope limits, on the other hand, still hold.
 Further references, none of them adopted yet: **Monaco** for a richer diff view, **Octokit**
 and **GitBeaker** for the GitHub and GitLab providers.
 
+## Nothing starts without git and an agent
+
+The git side is the local git CLI and the terminals are agent CLIs, so `src/main/requirements.ts`
+looks for both before anything opens: git through `git.isAvailable()` and every agent that has
+`versionArgs` — the shell has none, which is what keeps it out. Git *and* one of the agents is
+the bar.
+
+The renderer is what asks (`startup:check`), and passing is what starts the app. `main.ts` no
+longer opens the stored projects when the app is ready; `openWorkspace` does, from that handler.
+A machine that is missing something therefore watches no repository and spawns no terminal —
+`Startup` puts `RequirementsDialog` up instead of mounting `App` at all, which is the difference
+between a warning and a gate.
+
+That dialog is a wall rather than a question, which is why it is not in `Dialog.tsx` and why no
+Escape takes it away. It says what is missing, links to where each one comes from, and offers a
+re-check and a way out. **It installs nothing**, and that is deliberate: there is no command that
+works on all three platforms — winget, brew and a handful of Linux package managers, most of them
+wanting an elevation prompt or a shell to answer in — and a program installed while the dialog
+stands may still be missing from the PATH this process was started with. The dialog says so
+instead, since only a restart picks that up.
+
+On a machine that has everything the dialog is unreachable, so `--simulate` names the commands
+to report missing anyway — `npm start -- --simulate=git,claude`, npm's `--` handing the flag
+past the script to electron. It is the only way to look at it at all.
+
 ## Git
 
 Git is never reimplemented. `src/main/git.ts` wraps the local CLI: `git()` resolves for *any*

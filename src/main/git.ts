@@ -51,6 +51,20 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promi
   });
 }
 
+/**
+ * Whether the git CLI can be started at all. Everything else in here takes that for granted,
+ * which is why the startup check asks it before a single repository is opened. Run from the
+ * temp directory: it is the one folder that exists everywhere and is no repository's business.
+ */
+export async function isAvailable(): Promise<boolean> {
+  try {
+    const result = await git(os.tmpdir(), ["--version"]);
+    return result.code === 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function isRepository(cwd: string): Promise<boolean> {
   try {
     const result = await git(cwd, ["rev-parse", "--git-dir"]);

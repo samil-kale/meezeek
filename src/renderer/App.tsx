@@ -22,6 +22,9 @@ import { TerminalsPane } from "./components/TerminalsPane";
 import { disposeProjectTerminals } from "./terminal-views";
 import { PlusIcon } from "./components/icons";
 
+/** A little over `.git-pane-host.sliding`'s 0.15s, so the class outlives the transition. */
+const GIT_SLIDE_MS = 180;
+
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -61,21 +64,36 @@ export function App() {
    */
   const [gitMounted, setGitMounted] = useState(gitOpen);
   const [gitExpanded, setGitExpanded] = useState(gitOpen);
+  /**
+   * Whether that slide is running right now, which is what `.git-pane-host.sliding` transitions
+   * on. The transition may not stay on the pane: the sash sets the very same width, and an
+   * animated one lags the pointer by its whole duration.
+   */
+  const [gitSliding, setGitSliding] = useState(false);
   useEffect(() => {
+    setGitSliding(true);
+    let stop: ReturnType<typeof setTimeout> | undefined;
     if (gitOpen) {
       setGitMounted(true);
       let inner = 0;
       const outer = requestAnimationFrame(() => {
-        inner = requestAnimationFrame(() => setGitExpanded(true));
+        inner = requestAnimationFrame(() => {
+          setGitExpanded(true);
+          stop = setTimeout(() => setGitSliding(false), GIT_SLIDE_MS);
+        });
       });
       return () => {
         cancelAnimationFrame(outer);
         cancelAnimationFrame(inner);
+        clearTimeout(stop);
       };
     }
     setGitExpanded(false);
-    const timer = setTimeout(() => setGitMounted(false), 180);
-    return () => clearTimeout(timer);
+    stop = setTimeout(() => {
+      setGitMounted(false);
+      setGitSliding(false);
+    }, GIT_SLIDE_MS);
+    return () => clearTimeout(stop);
   }, [gitOpen]);
   /** The git pane or an open diff is working; the active project's bar reports it. */
   const [gitBusy, setGitBusy] = useState(false);
@@ -242,7 +260,10 @@ export function App() {
             lose by being switched away from. */}
         {gitMounted && activeProject && (
           <>
-            <div className="git-pane-host" style={{ width: gitExpanded ? gitPanelsWidth : 0 }}>
+            <div
+              className={`git-pane-host${gitSliding ? " sliding" : ""}`}
+              style={{ width: gitExpanded ? gitPanelsWidth : 0 }}
+            >
               <GitPane
                 project={activeProject}
                 state={activeState}

@@ -12,6 +12,7 @@ export const opencodeAgent: AgentDefinition = {
   displayName: "OpenCode",
   executable: () => "opencode",
   versionArgs: ["--version"],
+  installUrl: "https://opencode.ai/docs/",
   /*
    * Its own non-interactive mode: prints the reply and exits. It has no way to skip persisting
    * the session, so the run is titled and `cleanupAsk` deletes it again by that title — the

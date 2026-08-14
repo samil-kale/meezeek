@@ -14,6 +14,7 @@ import type {
   ProviderAccount,
   ProviderId,
   RepositoryState,
+  Requirements,
   StashCommand,
   TerminalDescriptor,
   TerminalOutput,
@@ -24,6 +25,13 @@ import type {
 export type Unsubscribe = () => void;
 
 export interface MeezeekApi {
+  /** The programs meezeek cannot run without; the window shows the app only once they are there. */
+  startup: {
+    /** Runs the check and, when it passes, brings the stored projects up. */
+    check(): Promise<Requirements>;
+    /** Leaves, for the user who would rather install first. */
+    quit(): void;
+  };
   projects: {
     list(): Promise<Project[]>;
     /** Opens a native folder picker; resolves null when it was cancelled. */

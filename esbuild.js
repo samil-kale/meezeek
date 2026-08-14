@@ -61,7 +61,7 @@ const rendererConfig = {
 
 function copyStaticAssets() {
   fs.mkdirSync(dist, { recursive: true });
-  for (const file of ["index.html", "icon.png"]) {
+  for (const file of ["index.html", "icon.png", "icon.ico"]) {
     fs.copyFileSync(path.join(__dirname, "src", "renderer", file), path.join(dist, file));
   }
 }

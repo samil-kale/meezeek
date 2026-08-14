@@ -100,8 +100,8 @@ input:focus {
   -webkit-app-region: drag;
 }
 
-/* The app's own mark, ahead of its name. The same file the window and taskbar use, scaled
-   down here — it is drawn at 1254px so the taskbar has something to work with. */
+/* The app's own mark, ahead of its name, scaled down here from the full-size icon.png. The
+   taskbar is served by icon.ico instead, which carries a frame per size it is drawn at. */
 .titlebar-icon {
   width: 18px;
   height: 18px;
@@ -833,6 +833,11 @@ input:focus {
   overflow: hidden;
   background: var(--vscode-sideBar-background);
   border-right: 1px solid var(--vscode-panel-border);
+}
+
+/* Only while it slides in or out. A transition left on for good animates the width the sash
+   sets as well, so the pane trails the pointer by the whole duration of it. */
+.git-pane-host.sliding {
   transition: width 0.15s ease;
 }
 
@@ -1305,6 +1310,50 @@ input:focus {
 .dialog-buttons .button {
   min-width: 76px;
   justify-content: center;
+}
+
+/* Startup requirements ------------------------------------------------------------------- */
+
+.requirements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.requirement {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.requirement-name {
+  min-width: 80px;
+}
+
+/* What to try in a terminal to see the same thing the check saw. */
+.requirement-command {
+  flex: 1;
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The word says what the check found; the color is what carries it at a glance. */
+.requirement-state {
+  color: var(--vscode-errorForeground);
+}
+
+.requirement-state.found {
+  color: var(--vscode-descriptionForeground);
+}
+
+.requirement-link {
+  padding: 0;
+  color: var(--vscode-textLink-foreground);
+}
+
+.requirement-link:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
 }
 
 /* Add repository ------------------------------------------------------------------------- */

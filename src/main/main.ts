@@ -63,6 +63,24 @@ function openProject(project: Project): void {
   sessions.open(project);
 }
 
+let workspaceOpen = false;
+
+/**
+ * The stored projects, brought up once. Not at startup any more: the renderer's requirements
+ * check is what calls this, and only when it passed — without git or an agent there is nothing
+ * a restored repository or terminal could do. Idempotent, since the check runs again on every
+ * window and after every re-check the user asks for.
+ */
+function openWorkspace(): void {
+  if (workspaceOpen) {
+    return;
+  }
+  workspaceOpen = true;
+  for (const project of store.list()) {
+    openProject(project);
+  }
+}
+
 function createWindow(): void {
   window = new BrowserWindow({
     width: 1400,
@@ -75,9 +93,12 @@ function createWindow(): void {
     minHeight: 340,
     backgroundColor: "#1f1f1f",
     show: false,
-    // What the taskbar and the window itself show. The same file the title bar draws, so
-    // there is one icon to replace rather than two that can drift apart.
-    icon: path.join(__dirname, "icon.png"),
+    // What the taskbar and the window itself show. Windows takes the .ico, whose frames are
+    // each rendered at the size they are drawn at rather than resampled from one large image
+    // on the spot, which is what made the mark look soft beside every other icon down there.
+    // Linux wants a plain image, and macOS ignores this outright — its dock reads the app
+    // bundle. Both files are the same drawing; icon.ico is generated from icon.png.
+    icon: path.join(__dirname, process.platform === "win32" ? "icon.ico" : "icon.png"),
     // The project tabs live in the title bar, as in the reference views; the platform's
     // own window controls stay in place through the overlay.
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
@@ -117,10 +138,7 @@ app.whenReady().then(() => {
   // Up front rather than on the first repository: forking it costs a moment, and every
   // project that opens below is about to ask it something.
   startGitProcess();
-  registerIpc({ store, accounts, repositories, sessions, send, openProject });
-  for (const project of store.list()) {
-    openProject(project);
-  }
+  registerIpc({ store, accounts, repositories, sessions, send, openProject, openWorkspace });
   createWindow();
 
   app.on("activate", () => {

@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import "./vscode-theme.css";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
-import { App } from "./App";
+import { Startup } from "./Startup";
 
 /**
  * A file dropped anywhere but on a terminal would otherwise be handled by the browser, and in
@@ -24,4 +24,4 @@ if (!container) {
   throw new Error("Root container not found");
 }
 
-createRoot(container).render(<App />);
+createRoot(container).render(<Startup />);

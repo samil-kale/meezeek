@@ -102,6 +102,12 @@ export interface AgentDefinition {
    */
   versionArgs?: string[];
   /**
+   * Where this agent is installed from, for the startup check's dialog — meezeek needs one of
+   * them and installs none of them itself. Goes with `versionArgs`: an agent that is always
+   * there has neither.
+   */
+  installUrl?: string;
+  /**
    * Args that put one question to the agent without a terminal, answered on stdout and then
    * over. Omitted for an agent that cannot be asked anything (the shell), which is also what
    * marks it as no candidate for the jobs that use this.

@@ -14,6 +14,28 @@ export interface AgentInfo {
   hasSessions: boolean;
 }
 
+/** One program meezeek needs on the machine, and whether the startup check found it. */
+export interface Requirement {
+  /** What it is called where it is downloaded — "Git", "Claude". */
+  name: string;
+  /** The executable that was looked for, so the user can try it in their own terminal. */
+  command: string;
+  installed: boolean;
+  /** Where to get it; the dialog links there, since meezeek installs nothing itself. */
+  url: string;
+}
+
+/**
+ * What the startup check found. `met` is git *and* at least one agent — anything less and the
+ * app does not open: git is the whole git side, and an agent is what the terminals are for.
+ */
+export interface Requirements {
+  met: boolean;
+  git: Requirement;
+  /** The agents that have to be installed; one of them is enough. */
+  agents: Requirement[];
+}
+
 export interface Project {
   id: string;
   /** Absolute path of the repository working directory. */
