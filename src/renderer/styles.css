@@ -1444,47 +1444,33 @@ option {
   overflow-y: auto;
 }
 
-/* The Info tab's values, shrunk to the widest row and centred in the pane rather than stretched
-   across it: five short versions held apart by the dialog's full width read as two lists rather
-   than as one, and the tab has nothing else in it to align to. */
+/* The Info tab's values, laid out the same way the Shortcuts tab's rows are. */
 .settings-info {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  align-self: center;
-  margin: auto 0;
 }
 
-/* What it is called in the description colour, over a column wide enough for the longest of
-   them, so the values themselves still line up. */
-.settings-info-row {
-  display: flex;
-  gap: 12px;
-}
-
-.settings-info-row span:first-child {
-  width: 80px;
-  flex: none;
-  color: var(--vscode-descriptionForeground);
-}
-
-/* The Shortcuts tab's rows: the key combo in a fixed-width column, the way the Info tab's
-   labels are, wide enough for "Ctrl+Shift+" plus a letter. */
-.settings-shortcuts {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+/* The Shortcuts tab's rows: the key combo in a fixed-width column, wide enough for
+   "Ctrl+Shift+" plus a letter — the Info tab's labels share the same column, so the two tabs'
+   rows line up under each other. */
+.settings-info-row,
 .settings-shortcut-row {
   display: flex;
   gap: 12px;
 }
 
+.settings-info-row span:first-child,
 .settings-shortcut-row span:first-child {
   width: 110px;
   flex: none;
   color: var(--vscode-descriptionForeground);
+}
+
+.settings-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 /* The field a name is typed into, with its label above it. */
