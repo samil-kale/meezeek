@@ -58,6 +58,8 @@ export interface MeezeekApi {
      * an account, its token authenticates the clone — the remote tab's rows pass one.
      */
     clone(url: string, directory: string, name: string, accountId?: string): Promise<AddRepositoryResult>;
+    /** `git init` of a new folder `name` inside `directory`, which becomes a project. */
+    create(directory: string, name: string): Promise<AddRepositoryResult>;
     remove(projectId: string): Promise<void>;
     /** Persists the order the user dragged them into, as the full list of ids. */
     reorder(projectIds: string[]): Promise<void>;

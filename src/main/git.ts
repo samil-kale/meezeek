@@ -431,6 +431,11 @@ export function clone(url: string, directory: string): Promise<GitActionResult> 
   return runNetwork(os.homedir(), ["clone", "--", url, directory]);
 }
 
+/** `git init`, which creates the folder — leading folders included — like clone does. */
+export function init(directory: string): Promise<GitActionResult> {
+  return run(os.homedir(), ["init", "--", directory]);
+}
+
 /**
  * A GIT_ASKPASS script answering with what two environment variables hold — VS Code's
  * askpass.sh pattern, and like there the same sh script on every platform: Git for Windows
