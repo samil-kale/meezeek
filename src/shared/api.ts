@@ -194,7 +194,7 @@ export interface MeezeekApi {
     openUrl(url: string): Promise<void>;
     /**
      * Opens a path the user activated in a terminal. Resolves to the repository-relative
-     * path when the file has local changes — the caller then shows it in the git tab —
+     * path when the file has local changes — the caller then opens its diff —
      * and to null when it was handed to the OS instead (or could not be opened).
      */
     openFile(projectId: string, path: string): Promise<string | null>;
@@ -208,7 +208,6 @@ export interface MeezeekApi {
     /** Opens the project's own folder in the OS file manager. */
     openProject(projectId: string): Promise<void>;
   };
-  /** Failures the user should see (a session that could not be renamed or deleted). */
   /** Anything transient the main process wants said — see Notice. */
   onNotice(listener: (payload: Notice) => void): Unsubscribe;
 }

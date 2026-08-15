@@ -70,6 +70,11 @@ when the app is ready, `openWorkspace` does, from that handler. A machine missin
 therefore watches no repository and spawns no terminal — `Startup` puts `RequirementsDialog` up
 instead of mounting `App` at all.
 
+The `--version` answer that check gets is remembered (`isAgentInstalled`): whether a CLI is
+installed is a fact about the machine, and each project's runtime would otherwise spawn every
+agent's check again as it opens — on win32 through `cmd.exe`, two processes each. Only the
+dialog's own re-check always spawns.
+
 That dialog is a wall rather than a question, so no Escape takes it away, and **it installs
 nothing**: no command works on all three platforms, most want an elevation prompt or a shell to
 answer in, and a program installed while the dialog stands is still missing from the PATH this
@@ -474,6 +479,10 @@ ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` 
   `{type, properties}` envelope it publishes with. A question is `permission.asked` /
   `question.asked` on the same stream; `session.error` shares their toast but deliberately not the
   mark, since an error is something that happened rather than a question left standing.
+  Those, and `session.*` for the listing's watch, are the only types anything reads, so a frame
+  naming none of them is dropped on a string test before it is parsed (`CONSUMED_EVENT_TYPE`):
+  the bulk of the stream is a streaming answer's `message.part.updated`, each carrying the answer
+  so far, and parsing every one of them was main-process CPU spent while the ptys wait.
 - Claude Code's hooks are processes of their own that cannot call back into meezeek, so each point
   `touch`es an empty file named after the session id — `UserPromptSubmit` into `<agentDir>/busy/`,
   `Stop` into `<agentDir>/finished/`, and `Notification`
@@ -654,6 +663,19 @@ the others.
   Avoid shell builtins and nested quoting; invoke a plain exe, e.g.
   `powershell -NoProfile -ExecutionPolicy Bypass -File "<script>.ps1"`.
 
+## The keyboard belongs to the terminal
+
+A terminal tab holds a foreign program that owns every key while it has focus, and meezeek's
+handler runs *before* xterm encodes anything (`attachCustomKeyEventHandler` in
+`terminal-views.ts`) — so the window can take any combination, and whether it can is never the
+question. **It takes nothing an agent could have received**, which is measured in a Claude, an
+opencode and a shell tab rather than read off xterm's encoding table. That rules out `Alt+1…9`
+(`ESC 1` is readline's digit argument) and `Ctrl+Shift+<letter>` (xterm drops the shift, so it is
+the agent's own `Ctrl+G`); `Ctrl+Tab` has no encoding at all and stays open, while plain Shift+Tab
+does have one and is Claude Code's mode toggle. There are none yet: Shift+Enter and Ctrl+V are
+handled *for* the terminal, not taken from it. And none will close a tab — behind that key is a
+live agent session that does not come back.
+
 ## The renderer
 
 - Terminal output goes straight to xterm, never through React state. The instances live in
@@ -661,6 +683,20 @@ the others.
   unique within their project — so they survive tab and project switches untouched. It arrives
   batched: one message per 8ms flush carrying every terminal that produced something, rather than
   one per tab, so the message count stops growing with the number of open ones.
+- An xterm is built the first time its tab is in front of the user (`TerminalHost` attaches on
+  `active && visible`), not when the tab mounts: every tab of every project mounts at startup,
+  and a theme read, a DOM and a character measurement for each of them was most of the window's
+  start. Nothing is lost by waiting — a tab's process is only started by its first fit, which
+  needs the view — and once attached a view stays attached.
+- **The views under `App` are memoized, and `App` hands them stable props.** `App` re-renders on
+  every tab and repository push from any project, and without `React.memo` on `TerminalsPane`,
+  `ProjectList`, `CommandList`, `GitPane`, `BranchTree`, `BranchBar` and `DiffDialog` every one
+  of them — the branch tree with all its refs, a 5000-line diff — rendered again for a spinner
+  starting somewhere else. Which only holds while the props are stable: a callback is a
+  `useCallback`, an object a `useMemo`, an empty list a shared constant (`NO_TABS`, `NO_IDS`),
+  and the per-project mark lists keep their identity while their ids are the same (`marks`). An
+  inline arrow on one of these views silently switches its memo off — the way `usePaneSize`'s
+  setter did before it was a `useCallback`.
 - A terminal that is merely hidden must keep its layout (`visibility`, not `display`) — xterm needs
   a laid-out element to measure itself. A whole pane may use `display: none`, but has to be refit
   when it comes back.
@@ -697,6 +733,9 @@ the others.
   it is local to xterm and only does anything on a whole row or column, so a dragged sash never
   leaves a strip of empty pane behind. `fitTerminal` also tells the pty, which makes the CLI
   repaint in full, and that one waits for the dragging to settle.
+  The sash itself reports one size per animation frame, not per pointer event — a mouse sends
+  hundreds a second, and each was a render of everything the size reaches — and stores it a
+  moment after the last one rather than on every move.
 - `provideLinks` runs on **every render** while the pointer is over the terminal, and an agent TUI
   repaints constantly. Nothing expensive, and no logging, in that path.
 - A terminal's xterm theme is built **per terminal**, not once for the window, because of one
@@ -706,10 +745,9 @@ the others.
   It only does anything because of the `"theme": "system"` in `tui-config.ts`.
 - Measurements are shared, not invented per view. A bar along an edge is 35px, the tab strip's
   height — the title bar, both sidebar headers (`.sidebar-header`) and the diff dialog's bar all
-  use it. Same for the 22px action button, the 1px `--vscode-panel-border` between panes, and a
-  pane sized in percent stating its floor in percent as well. When something looks like it needs a
-  size of its own, check what the neighbouring view uses first.
-- **An icon is one size everywhere, and it takes two numbers.** The box is `--icon-size`, 15px,
+  use it. Same for the 22px action button and the 1px `--vscode-panel-border` between panes. When
+  something looks like it needs a size of its own, check what the neighbouring view uses first.
+- **An icon is one size everywhere, and it takes two numbers.** The box is `--icon-size`, 13px,
   everywhere — the one knob that resizes every icon in the window. The other number is how much of
   its grid a *path* covers, which ranged from 59% (the chevron) to 100% (Claude's mark): every icon
   declares the `extent` it was **measured** at, and `Svg` crops the viewBox so all of them cover

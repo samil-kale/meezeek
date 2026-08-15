@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AppInfo, AppSettings, NotificationSettings } from "../../shared/types";
+import { useEscape } from "./use-escape";
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -49,19 +50,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     void window.meezeek.app.info().then(setInfo);
   }, []);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        // Capture phase and swallowed here, so closing this can't double as an ESC keystroke
-        // for the terminal that had focus before it opened.
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
+  useEscape(onClose);
 
   const flip = (key: keyof NotificationSettings, value: boolean): void => {
     if (!settings) {

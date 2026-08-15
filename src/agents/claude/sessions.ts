@@ -21,18 +21,18 @@ export const claudeSessionProvider: SessionProvider = {
         files.map(async (file) => {
           const id = file.slice(0, -".jsonl".length);
           const filePath = path.join(projectDir, file);
-          const [tail, mtime, createdAt] = await Promise.all([
+          const [tail, stat, createdAt] = await Promise.all([
             scanTail(filePath, id),
-            fs.promises.stat(filePath).then((stat) => stat.mtimeMs),
+            fs.promises.stat(filePath),
             extractCreatedAt(filePath)
           ]);
-          const { title, provisional } = await extractTitle(filePath, tail);
+          const { title, provisional } = await extractTitle(filePath, stat.size, tail);
           return {
             id,
             title,
-            updatedAt: mtime,
+            updatedAt: stat.mtimeMs,
             provisionalTitle: provisional,
-            createdAt: createdAt ?? mtime,
+            createdAt: createdAt ?? stat.mtimeMs,
             turnEndedAt: tail.turnEndedAt
           };
         })
@@ -54,7 +54,11 @@ export const claudeSessionProvider: SessionProvider = {
     if (!projectDir) {
       throw new Error("Claude project directory not found");
     }
-    await fs.promises.rm(path.join(projectDir, `${sessionId}.jsonl`));
+    const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+    await fs.promises.rm(filePath);
+    scanCache.delete(filePath);
+    headCache.delete(filePath);
+    createdAtCache.delete(filePath);
   },
 
   /**
@@ -189,19 +193,57 @@ interface ResolvedTitle {
  * Don't change this scanning logic casually: a regression here silently shows the wrong
  * tab title with nothing to catch it.
  */
-async function extractTitle(filePath: string, tail: TranscriptTail): Promise<ResolvedTitle> {
+async function extractTitle(filePath: string, size: number, tail: TranscriptTail): Promise<ResolvedTitle> {
   if (tail.customTitle) {
     return { title: truncateTitle(tail.customTitle), provisional: false };
   }
+  const head = await scanHead(filePath, size);
+  // The tail scan's are the last in the whole file and outrank what this window holds:
+  // Claude appends a fresh ai-title on a resume, and a long session's is past the window.
+  const assigned = tail.agentName ?? head.agentName ?? tail.aiTitle ?? head.aiTitle ?? head.summary;
+  const title = assigned ?? head.firstPrompt;
+  return { title: title ? truncateTitle(title) : "", provisional: assigned === undefined };
+}
 
+/** What the head window of a transcript holds of the entries a title is derived from. */
+interface TranscriptHead {
+  agentName?: string;
+  aiTitle?: string;
+  summary?: string;
+  firstPrompt?: string;
+}
+
+/**
+ * The last head scan of each transcript, by path, for the same reason `scanCache` below
+ * exists: a listing runs for every session on every change to any of them. Keyed by how much of
+ * the window the file fills rather than by its size — the stream only ever reads the first
+ * TITLE_SCAN_BYTE_LIMIT bytes, and a transcript is append-only, so once it has grown past that
+ * the window never changes again, however much the session being worked in keeps growing.
+ */
+const headCache = new Map<string, { size: number; head: TranscriptHead }>();
+
+/** Only a line naming one of the entry types is worth parsing — most of a transcript is not. */
+const HEAD_ENTRY_TYPES = ['"agent-name"', '"ai-title"', '"summary"'];
+
+async function scanHead(filePath: string, fileSize: number): Promise<TranscriptHead> {
+  const size = Math.min(fileSize, TITLE_SCAN_BYTE_LIMIT);
+  const cached = headCache.get(filePath);
+  if (cached?.size === size) {
+    return cached.head;
+  }
   const stream = fs.createReadStream(filePath, { encoding: "utf8", end: TITLE_SCAN_BYTE_LIMIT });
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
-  let agentName: string | undefined;
-  let aiTitle: string | undefined;
-  let summary: string | undefined;
-  let firstPrompt: string | undefined;
+  const head: TranscriptHead = {};
   try {
     for await (const line of lines) {
+      // The prompt is wanted from the first `user` entry only; after that, `user` lines — the
+      // bulk of a transcript, tool results included — are skipped unparsed like the rest.
+      const wanted =
+        HEAD_ENTRY_TYPES.some((type) => line.includes(type)) ||
+        (head.firstPrompt === undefined && line.includes('"user"'));
+      if (!wanted) {
+        continue;
+      }
       let entry: Record<string, unknown>;
       try {
         entry = JSON.parse(line) as Record<string, unknown>;
@@ -212,27 +254,29 @@ async function extractTitle(filePath: string, tail: TranscriptTail): Promise<Res
       // one), summary and the first prompt the first — an empty value never displaces
       // what's already there either way.
       if (entry.type === "agent-name") {
-        agentName = nonEmptyString(entry.agentName) ?? agentName;
+        head.agentName = nonEmptyString(entry.agentName) ?? head.agentName;
       } else if (entry.type === "ai-title") {
-        aiTitle = nonEmptyString(entry.aiTitle) ?? aiTitle;
+        head.aiTitle = nonEmptyString(entry.aiTitle) ?? head.aiTitle;
       } else if (entry.type === "summary") {
-        summary ??= nonEmptyString(entry.summary);
-      } else if (firstPrompt === undefined && entry.type === "user") {
-        firstPrompt = typedPromptText(entry);
+        head.summary ??= nonEmptyString(entry.summary);
+      } else if (head.firstPrompt === undefined && entry.type === "user") {
+        // Truncated on the way in: a pasted prompt can be long, and only its start is kept.
+        const prompt = typedPromptText(entry);
+        head.firstPrompt = prompt === undefined ? undefined : truncateTitle(prompt);
       }
     }
+    headCache.set(filePath, { size, head });
   } catch (error) {
     console.error("[meezeek] claude title extraction failed:", error);
   } finally {
     lines.close();
     stream.destroy();
   }
-  // The tail scan's are the last in the whole file and outrank what this window holds:
-  // Claude appends a fresh ai-title on a resume, and a long session's is past the window.
-  const assigned = tail.agentName ?? agentName ?? tail.aiTitle ?? aiTitle ?? summary;
-  const title = assigned ?? firstPrompt;
-  return { title: title ? truncateTitle(title) : "", provisional: assigned === undefined };
+  return head;
 }
+
+/** A transcript's first timestamp never changes once it has one, so it is read once per path. */
+const createdAtCache = new Map<string, number>();
 
 /**
  * A transcript's own first timestamped entry is a far more stable "created" signal than the
@@ -241,6 +285,10 @@ async function extractTitle(filePath: string, tail: TranscriptTail): Promise<Res
  * head-scan — reusing it here would leave every renamed session without a createdAt.
  */
 async function extractCreatedAt(filePath: string): Promise<number | undefined> {
+  const cached = createdAtCache.get(filePath);
+  if (cached !== undefined) {
+    return cached;
+  }
   const stream = fs.createReadStream(filePath, { encoding: "utf8", end: TITLE_SCAN_BYTE_LIMIT });
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
   try {
@@ -255,6 +303,7 @@ async function extractCreatedAt(filePath: string): Promise<number | undefined> {
       if (timestamp) {
         const ms = Date.parse(timestamp);
         if (!Number.isNaN(ms)) {
+          createdAtCache.set(filePath, ms);
           return ms;
         }
       }

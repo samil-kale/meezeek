@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useCallback, useRef, useState, type PointerEvent } from "react";
 
 /**
  * Where a dragged pane size is kept. Layout describes the window rather than any one
@@ -6,6 +6,8 @@ import { useRef, useState, type PointerEvent } from "react";
  * every project sees the same one.
  */
 const STORAGE_PREFIX = "meezeek.layout.";
+/** How long after the last resize a pane size is written to storage. */
+const PERSIST_MS = 300;
 
 /**
  * The floor every pane shares, per direction. A pane here is either a column beside the
@@ -30,13 +32,16 @@ export function usePaneToggle(key: string, initial: boolean): [boolean, (open: b
     const stored = localStorage.getItem(STORAGE_PREFIX + key);
     return stored === null ? initial : stored === "true";
   });
-  return [
-    open,
+  // Stable, like a setState: it is passed down as a prop, and a fresh function per render
+  // would re-render every memoized view that takes it.
+  const set = useCallback(
     (next: boolean) => {
       setOpen(next);
       localStorage.setItem(STORAGE_PREFIX + key, String(next));
-    }
-  ];
+    },
+    [key]
+  );
+  return [open, set];
 }
 
 /**
@@ -49,13 +54,19 @@ export function usePaneSize(key: string, initial: number, min: number): [number,
     const stored = Number(localStorage.getItem(STORAGE_PREFIX + key));
     return Math.max(min, Number.isFinite(stored) && stored > 0 ? stored : initial);
   });
-  return [
-    size,
+  // Stored once the drag has settled rather than per pointer move: the write is synchronous,
+  // and a drag delivers a size per move — sixty and more a second. Stable for the same reason
+  // as the toggle's setter above.
+  const persist = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const set = useCallback(
     (next: number) => {
       setSize(next);
-      localStorage.setItem(STORAGE_PREFIX + key, String(next));
-    }
-  ];
+      clearTimeout(persist.current);
+      persist.current = setTimeout(() => localStorage.setItem(STORAGE_PREFIX + key, String(next)), PERSIST_MS);
+    },
+    [key]
+  );
+  return [size, set];
 }
 
 interface SashProps {
@@ -65,11 +76,6 @@ interface SashProps {
   size: number;
   /** How small that pane may be dragged, in pixels. */
   min: number;
-  /**
-   * The same bound as a share of the container, which is what a pane sized in percent needs —
-   * a pixel floor would mean something different in every window size. Wins over `min`.
-   */
-  minFraction?: number;
   /** How much of the container has to be left over for the pane on the other side. */
   minOther: number;
   /**
@@ -85,10 +91,13 @@ interface SashProps {
  * and lets the rest of the container absorb the difference, so of the two sides only one ever
  * carries a size of its own.
  */
-export function Sash({ orientation, size, min, minFraction, minOther, reverse, onResize }: SashProps) {
+export function Sash({ orientation, size, min, minOther, reverse, onResize }: SashProps) {
   const vertical = orientation === "vertical";
   const drag = useRef<{ origin: number; size: number; total: number } | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
+  /** The size the next frame will report, and that frame's handle while one is scheduled. */
+  const pending = useRef<number | undefined>(undefined);
+  const frame = useRef<number | undefined>(undefined);
 
   const begin = (event: PointerEvent<HTMLDivElement>): void => {
     const container = event.currentTarget.parentElement;
@@ -117,12 +126,28 @@ export function Sash({ orientation, size, min, minFraction, minOther, reverse, o
     // once instead of first working off an overshoot the user never saw.
     const moved = (vertical ? event.clientX : event.clientY) - start.origin;
     const next = reverse ? start.size - moved : start.size + moved;
-    const floor = minFraction === undefined ? min : start.total * minFraction;
-    onResize(Math.round(Math.max(floor, Math.min(next, start.total - minOther))));
+    pending.current = Math.round(Math.max(min, Math.min(next, start.total - minOther)));
+    // One resize per frame, not per pointer event: a mouse reports several hundred moves a
+    // second, each of which was a render of everything the size reaches, and nothing between
+    // two paints can be seen anyway. The last position always wins — the frame reads it when
+    // it comes, and `end` flushes what a frame has not yet taken.
+    frame.current ??= requestAnimationFrame(flush);
+  };
+
+  const flush = (): void => {
+    frame.current = undefined;
+    if (pending.current !== undefined) {
+      onResize(pending.current);
+      pending.current = undefined;
+    }
   };
 
   const end = (): void => {
     drag.current = undefined;
+    if (frame.current !== undefined) {
+      cancelAnimationFrame(frame.current);
+    }
+    flush();
     setDragging(false);
   };
 

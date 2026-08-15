@@ -1,4 +1,4 @@
-import { checkAgentInstalled } from "../main/terminal-session";
+import { isAgentInstalled } from "../main/terminal-session";
 import type { AgentId, AgentInfo } from "../shared/types";
 import type { AgentDefinition } from "./agent";
 import { claudeAgent } from "./claude";
@@ -31,7 +31,7 @@ export async function findAskableAgent(
       continue;
     }
     const executable = agent.executable();
-    if (await checkAgentInstalled(executable, agent.versionArgs, cwd)) {
+    if (await isAgentInstalled(executable, agent.versionArgs, cwd)) {
       return { executable, agent };
     }
   }

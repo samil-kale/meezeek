@@ -18,12 +18,12 @@ import * as path from "node:path";
  * per repository would make every new project pay the cost again; one shared dir pays it
  * once per machine.
  */
-export function opencodePluginsDir(storageRoot: string): string {
+function opencodePluginsDir(storageRoot: string): string {
   return path.join(storageRoot, "opencode-plugins");
 }
 
 /** Set on the server so the generated plugin can tell whose repository it is serving. */
-export const PROJECT_ROOT_ENV = "MEEZEEK_PROJECT_ROOT";
+const PROJECT_ROOT_ENV = "MEEZEEK_PROJECT_ROOT";
 
 /**
  * Writes this repository's context plugin into the shared plugins directory and returns the

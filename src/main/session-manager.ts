@@ -15,7 +15,7 @@ import type {
 import { countActivity } from "./event-loop-monitor";
 import type { SettingsStore } from "./settings";
 import { ShellContext } from "./shell-context";
-import { checkAgentInstalled, TerminalSession } from "./terminal-session";
+import { isAgentInstalled, TerminalSession } from "./terminal-session";
 
 const RECONCILE_DEBOUNCE_MS = 5000;
 // A tab's CLI can persist a title (a generated summary) well after its output went idle, so
@@ -314,7 +314,7 @@ export class ProjectSessionManager {
     const cwd = this.project.path;
 
     if (agent.versionArgs) {
-      runtime.installed = await checkAgentInstalled(executable, agent.versionArgs, cwd);
+      runtime.installed = await isAgentInstalled(executable, agent.versionArgs, cwd);
     }
     if (!runtime.installed || !agent.sessions) {
       return;
@@ -543,7 +543,6 @@ export class ProjectSessionManager {
     // Called fresh per session, so each one's predicate starts counting from zero rather
     // than carrying over a previous session's already-passed state.
     let isSessionReady = agent.createIsSessionReady?.();
-    const startedAt = Date.now();
     if (isSessionReady) {
       this.acquireIndicator();
     }
@@ -574,7 +573,7 @@ export class ProjectSessionManager {
           if (!agent.sessions) {
             this.shellContext.append(data);
           }
-          if (isSessionReady?.(data, Date.now() - startedAt)) {
+          if (isSessionReady?.(data)) {
             hideIndicator();
           }
           // A CLI persists or updates its session shortly after producing output, so

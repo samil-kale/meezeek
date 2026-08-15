@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { CheckoutTarget, GitActionResult, RepositoryState, StashEntry } from "../../shared/types";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm, prompt } from "./Dialog";
@@ -29,7 +29,7 @@ type MenuTarget =
 
 type BranchMenu = MenuTarget & { x: number; y: number };
 
-export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
+export const BranchTree = memo(function BranchTree({ projectId, state, branch }: BranchTreeProps) {
   const [filter, setFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<BranchMenu | null>(null);
@@ -365,4 +365,4 @@ export function BranchTree({ projectId, state, branch }: BranchTreeProps) {
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
     </div>
   );
-}
+});

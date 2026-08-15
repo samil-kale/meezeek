@@ -21,8 +21,8 @@ interface TerminalView {
 const views = new Map<string, TerminalView>();
 
 /**
- * Per project, what to do when a ctrl-clicked file turns out to have local changes: the
- * pane shows it in its git tab. Registered by the pane itself, which owns that selection.
+ * Per project, what to do when a ctrl-clicked file turns out to have local changes: the diff
+ * dialog opens on it. Registered by the pane, which is what has the callback for that.
  */
 const revealHandlers = new Map<string, (path: string) => void>();
 

@@ -9,6 +9,7 @@ import type {
 import { confirm } from "./Dialog";
 import { ChevronIcon, CloseIcon, PlusIcon, SpinnerIcon } from "./icons";
 import { notify } from "./Notices";
+import { useEscape } from "./use-escape";
 
 /**
  * The four ways a repository comes in: picked off an account's list, cloned from a url, added
@@ -548,19 +549,7 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
     firstField.current?.focus();
   }, [mode]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        // Capture phase and swallowed here, so closing this can't double as an ESC keystroke
-        // for the terminal that had focus before it opened.
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
+  useEscape(onClose);
 
   const folderName = name ?? cloneFolder(url);
   // With no account for this host there is nothing to switch to, so the token is what applies

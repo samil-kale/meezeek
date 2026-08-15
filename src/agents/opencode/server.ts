@@ -151,6 +151,9 @@ export class OpencodeServer {
         }
         const decoder = new TextDecoder();
         let buffer = "";
+        // Where the last search for a frame boundary stopped: a large event arriving over many
+        // reads would otherwise be rescanned from its start on every one of them.
+        let searchFrom = 0;
         for (;;) {
           const { done, value } = await reader.read();
           if (done) {
@@ -160,9 +163,10 @@ export class OpencodeServer {
           // Server-sent events are separated by a blank line; only the "data:" line of
           // each carries the payload.
           let boundary: number;
-          while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+          while ((boundary = buffer.indexOf("\n\n", searchFrom)) >= 0) {
             const frame = buffer.slice(0, boundary);
             buffer = buffer.slice(boundary + 2);
+            searchFrom = 0;
             countActivity("sse");
             const data = frame.split("\n").find((line) => line.startsWith("data: "));
             const event = data === undefined ? undefined : parseEvent(data.slice("data: ".length));
@@ -172,6 +176,8 @@ export class OpencodeServer {
               }
             }
           }
+          // One back, in case the buffer ends in the first "\n" of a boundary.
+          searchFrom = Math.max(0, buffer.length - 1);
         }
       } catch {
         // Stream dropped (server restart, transient error) — retried below. An abort
@@ -311,11 +317,27 @@ export async function prepareOpencodeSpawn(
 }
 
 /**
+ * The types anything here listens for: `session.*` (both ends of a turn, the listing's watch,
+ * `session.error`'s toast) and the two questions.
+ */
+const CONSUMED_EVENT_TYPE = new RegExp(
+  `"type"\\s*:\\s*"(?:session\\.|${SESSION_WAITING_EVENTS.map((type) => type.replace(".", "\\.")).join("|")})`
+);
+
+/**
  * An event carries what it is about under `properties`, in opencode's own spelling
  * (`sessionID`). Read defensively like every field that crosses from another program: one
  * without it is still an event, just not about a session.
  */
 function parseEvent(payload: string): OpencodeEvent | undefined {
+  // Only a few event types are ever acted on (see the subscribers), and the rest — every
+  // `message.part.updated` of a streaming answer, carrying the answer's text — is the bulk of
+  // the stream. A payload that names none of them nowhere is not parsed at all: JSON.parse of
+  // every frame was main-process CPU spent while the ptys wait. Tolerant of whitespace around
+  // the colon; a nested match only costs the parse it would have had anyway.
+  if (!CONSUMED_EVENT_TYPE.test(payload)) {
+    return undefined;
+  }
   try {
     const event = JSON.parse(payload) as {
       type?: unknown;

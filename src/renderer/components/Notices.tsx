@@ -41,7 +41,7 @@ export function notify(severity: NoticeSeverity, message: string): void {
   }
 }
 
-export function dismissNotice(id: number): void {
+function dismissNotice(id: number): void {
   publish(shown.filter((notice) => notice.id !== id));
 }
 

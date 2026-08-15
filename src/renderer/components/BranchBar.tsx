@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { GitActionResult, Project, RepositoryState } from "../../shared/types";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm } from "./Dialog";
@@ -20,7 +20,7 @@ interface BranchBarProps {
  * tree is one — the force-push question belongs with the button that asks it, which is what
  * knows the branch and the upstream it would overwrite.
  */
-export function BranchBar({ project, state, busyLabel, run }: BranchBarProps) {
+export const BranchBar = memo(function BranchBar({ project, state, busyLabel, run }: BranchBarProps) {
   /** The sync button's own menu: the variants of what it does, for when its pick is not the one. */
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -161,4 +161,4 @@ export function BranchBar({ project, state, busyLabel, run }: BranchBarProps) {
       )}
     </>
   );
-}
+});

@@ -210,5 +210,5 @@ export interface AgentDefinition {
    * best-effort guess at undocumented output behaviour — which is why the tuning lives per
    * agent. Omitted for agents that are up as soon as they are spawned (the shell).
    */
-  createIsSessionReady?: () => (chunk: string, elapsedMs: number) => boolean;
+  createIsSessionReady?: () => (chunk: string) => boolean;
 }

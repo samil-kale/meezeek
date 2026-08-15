@@ -57,9 +57,11 @@ export interface IpcDeps {
 const MISSING_REPOSITORY: RepositoryState = { ...EMPTY_REPOSITORY_STATE, error: "Project not found" };
 
 /** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
-function writeTempFile(name: string, data: Buffer): string {
+async function writeTempFile(name: string, data: Buffer): Promise<string> {
   const file = path.join(os.tmpdir(), `meezeek-${Date.now()}-${path.basename(name)}`);
-  fs.writeFileSync(file, data);
+  // Asynchronously: a pasted screenshot is megabytes, and a synchronous write would hold the
+  // ptys' output and the keystrokes on their way to them for as long as the disk takes.
+  await fs.promises.writeFile(file, data);
   return file;
 }
 
@@ -292,12 +294,12 @@ export function registerIpc({
   );
 
   ipcMain.handle("commands:list", async (_event, projectId: string): Promise<ProjectCommand[] | null> => {
-    const project = store.list().find((candidate) => candidate.id === projectId);
+    const project = store.get(projectId);
     return project ? readCommands(project.path) : [];
   });
 
   ipcMain.handle("commands:save", async (_event, projectId: string, commands: ProjectCommand[]): Promise<void> => {
-    const project = store.list().find((candidate) => candidate.id === projectId);
+    const project = store.get(projectId);
     if (!project) {
       return;
     }
@@ -324,7 +326,7 @@ export function registerIpc({
    * whatever it gets wrong is one right-click away from being deleted.
    */
   ipcMain.handle("commands:suggest", async (_event, projectId: string): Promise<ProjectCommand[]> => {
-    const project = store.list().find((candidate) => candidate.id === projectId);
+    const project = store.get(projectId);
     if (!project) {
       return [];
     }
@@ -422,7 +424,7 @@ export function registerIpc({
 
   /**
    * A path the user ctrl-clicked in a terminal. A file with local changes is answered with
-   * its repository-relative path, which the renderer shows in the git tab; anything else is
+   * its repository-relative path, which the renderer opens the diff of; anything else is
    * handed to the OS here, where the filesystem actually is.
    */
   ipcMain.handle("shell:open-file", async (_event, projectId: string, rawPath: string): Promise<string | null> => {
@@ -436,7 +438,11 @@ export function registerIpc({
         : rawPath;
     const root = repository.project.path;
     const resolved = path.isAbsolute(expanded) ? expanded : path.join(root, expanded);
-    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    const isFile = await fs.promises
+      .stat(resolved)
+      .then((stat) => stat.isFile())
+      .catch(() => false);
+    if (!isFile) {
       send("app:notice", { severity: "error", message: `Could not find file: ${rawPath}` });
       return null;
     }
@@ -452,7 +458,7 @@ export function registerIpc({
     return null;
   });
 
-  /** A changed file shown in the OS file manager — the git tab's context menu. */
+  /** A changed file shown in the OS file manager — the git pane's context menu. */
   ipcMain.handle("shell:reveal-file", (_event, projectId: string, filePath: string): void => {
     const repository = repositories.get(projectId);
     if (repository) {
@@ -487,12 +493,12 @@ export function registerIpc({
     }
   });
 
-  ipcMain.handle("files:write-temp", (_event, name: string, dataBase64: string): string => {
+  ipcMain.handle("files:write-temp", (_event, name: string, dataBase64: string): Promise<string> => {
     return writeTempFile(name, Buffer.from(dataBase64, "base64"));
   });
 
   /** The clipboard's image as a file on disk, so its path can be typed into a CLI. */
-  ipcMain.handle("clipboard:image-file", (): string | null => {
+  ipcMain.handle("clipboard:image-file", (): Promise<string> | null => {
     const image = clipboard.readImage();
     return image.isEmpty() ? null : writeTempFile(`pasted-image-${Date.now()}.png`, image.toPNG());
   });

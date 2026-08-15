@@ -66,6 +66,8 @@ function isIgnoredEvent(relativePath: string): boolean {
  */
 export class Repository {
   private state: RepositoryState = EMPTY_REPOSITORY_STATE;
+  /** `state` serialized, kept so a refresh compares against it rather than serializing both sides. */
+  private stateJson = JSON.stringify(EMPTY_REPOSITORY_STATE);
   private watcher: fs.FSWatcher | undefined;
   private watchRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private watchRetryDelay = WATCH_RETRY_MS;
@@ -113,6 +115,7 @@ export class Repository {
       const next = { ...EMPTY_REPOSITORY_STATE, error: "Not a git repository" };
       this.reportError(next);
       this.state = next;
+      this.stateJson = JSON.stringify(next);
       this.onState(next);
       return;
     }
@@ -175,8 +178,10 @@ export class Repository {
       // Only emit on an actual change: the watcher fires for plenty of edits that leave the
       // state identical, and every emit re-renders the views. And not at all once the project
       // is closed — this call was already in flight when it went.
-      if (!this.disposed && JSON.stringify(next) !== JSON.stringify(this.state)) {
+      const nextJson = JSON.stringify(next);
+      if (!this.disposed && nextJson !== this.stateJson) {
         this.state = next;
+        this.stateJson = nextJson;
         this.onState(next);
       }
       return next;
@@ -241,7 +246,7 @@ export class Repository {
    */
   push(): Promise<GitActionResult> {
     return this.runAction(() => {
-      const remote = this.state.remotes[0]?.name;
+      const remote = this.remote;
       if (!remote) {
         return Promise.resolve({ ok: false, error: "This repository has no remote to push to" });
       }

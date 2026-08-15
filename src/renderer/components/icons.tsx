@@ -139,15 +139,6 @@ export function SeverityIcon({ severity, ...props }: IconProps & { severity: Not
   );
 }
 
-export function RefreshIcon(props: IconProps) {
-  return (
-    <Svg {...props} extent={11.62} cy={7.73}>
-      <path d="M13 8a5 5 0 1 1-1.6-3.7" />
-      <path d="M13 2.5V5h-2.5" />
-    </Svg>
-  );
-}
-
 export function BranchIcon(props: IconProps) {
   return (
     <Svg {...props} extent={12.54}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type { GitActionResult, Project, RepositoryState, TerminalDescriptor } from "../shared/types";
 import { AddRepositoryDialog } from "./components/AddRepositoryDialog";
@@ -38,6 +38,29 @@ function forget<T>(record: Record<string, T>, projectId: string): Record<string,
   return rest;
 }
 
+/** What an open diff has to be re-read for: HEAD, and the status of the file it shows. */
+function diffVersion(state: RepositoryState | undefined, filePath: string): string {
+  return `${state?.head}:${state?.changes.find((change) => change.path === filePath)?.status}`;
+}
+
+/** The tabs of a project that has none — one instance, so the pane's props stay identical. */
+const NO_TABS: TerminalDescriptor[] = [];
+const NO_IDS: string[] = [];
+
+/** The sessions of one project that are marked, by tab id: finished out of sight, and waiting. */
+interface ProjectMarks {
+  finished: string[];
+  waiting: string[];
+}
+
+/** `next` unless `previous` already holds the same ids — then that one, identity and all. */
+function sameIds(previous: string[] | undefined, next: string[]): string[] {
+  if (next.length === 0) {
+    return NO_IDS;
+  }
+  return previous && previous.length === next.length && previous.every((id, i) => id === next[i]) ? previous : next;
+}
+
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -57,7 +80,7 @@ export function App() {
   const [branchAction, setBranchAction] = useState<{ projectId: string; label: string } | null>(null);
   /** The same, read synchronously: a second double-click can land before a re-render does. */
   const branchActionRef = useRef<{ projectId: string; label: string } | null>(null);
-  // Defaults and limits of the draggable panes. Every project's git tab shares the two below,
+  // Defaults and limits of the draggable panes. The one git pane shares the two below,
   // so they are held here rather than in each of them.
   const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240, MIN_PANE_WIDTH);
   const [gitPanelsWidth, setGitPanelsWidth] = usePaneSize("git-panels", 300, MIN_PANE_WIDTH);
@@ -114,8 +137,13 @@ export function App() {
     }, GIT_SLIDE_MS);
     return () => clearTimeout(stop);
   }, [gitOpen]);
-  /** The git pane or an open diff is working; the active project's bar reports it. */
+  /**
+   * The git pane or an open diff is working; the active project's bar reports either. Two
+   * flags rather than one, because each writer clears its own on unmount — a diff closed while
+   * a discard still runs must not take the discard's "busy" down with it.
+   */
   const [gitBusy, setGitBusy] = useState(false);
+  const [diffBusy, setDiffBusy] = useState(false);
   /** The file whose diff is open over everything, if any. */
   const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
   /** Whether the add-repository dialog (clone, add, create) is up. */
@@ -189,6 +217,7 @@ export function App() {
       const remaining = projects.filter((project) => project.id !== projectId);
       setProjects(remaining);
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
+      setStates((current) => forget(current, projectId));
       setTabs((current) => forget(current, projectId));
       setActiveTabs((current) => forget(current, projectId));
       busyCursor.current = forget(busyCursor.current, projectId);
@@ -230,15 +259,6 @@ export function App() {
       }
     },
     []
-  );
-
-  /** What the git pane may start, in the shape its views take it. */
-  const branchActions = useCallback(
-    (projectId: string): BranchActions => ({
-      busy: branchAction?.projectId === projectId,
-      run: (label, action) => void runBranchAction(projectId, label, action)
-    }),
-    [branchAction, runBranchAction]
   );
 
   /** Shows a tab something outside the terminals pane opened: its project, then the tab. */
@@ -286,6 +306,27 @@ export function App() {
     },
     [tabs, activeTabs, activeProjectId]
   );
+
+  /**
+   * Both of the above as tab ids, once per render for every project, and by identity only
+   * where the answer changed: a pane and a project row take these as props, and a fresh array
+   * for an unchanged answer would re-render every memoized view on every push from any project.
+   */
+  const marksRef = useRef<Record<string, ProjectMarks>>({});
+  const marks = useMemo(() => {
+    const next: Record<string, ProjectMarks> = {};
+    for (const projectId of Object.keys(tabs)) {
+      const previous = marksRef.current[projectId];
+      const finished = markedTabs(projectId).map((tab) => tab.tabId);
+      const waiting = waitingTabs(projectId).map((tab) => tab.tabId);
+      next[projectId] = {
+        finished: sameIds(previous?.finished, finished),
+        waiting: sameIds(previous?.waiting, waiting)
+      };
+    }
+    marksRef.current = next;
+    return next;
+  }, [tabs, markedTabs, waitingTabs]);
 
   /**
    * Whether any session of this project is working on a turn. Unlike the mark above, the tab in
@@ -388,6 +429,42 @@ export function App() {
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_REPOSITORY_STATE;
 
+  // Stable handles for what the views below take, so a memoized view re-renders for a change in
+  // what it shows and not for a fresh arrow function.
+  const closeProjectSync = useCallback((projectId: string) => void closeProject(projectId), [closeProject]);
+  const openAdd = useCallback(() => setAddOpen(true), []);
+  const closeAdd = useCallback(() => setAddOpen(false), []);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closeDiff = useCallback(() => setDiffFile(null), []);
+  const remoteOf = useCallback((projectId: string) => states[projectId]?.remotes[0], [states]);
+  const headOf = useCallback((projectId: string) => states[projectId]?.head, [states]);
+  const hasFinished = useCallback((projectId: string) => (marks[projectId]?.finished.length ?? 0) > 0, [marks]);
+  const hasWaiting = useCallback((projectId: string) => (marks[projectId]?.waiting.length ?? 0) > 0, [marks]);
+  const toggleGit = useCallback(() => setGitOpen(!gitOpen), [gitOpen, setGitOpen]);
+  const openDiff = useCallback((projectId: string, path: string) => setDiffFile({ projectId, path }), []);
+  const openActiveDiff = useCallback(
+    (path: string) => {
+      if (activeProjectId) {
+        setDiffFile({ projectId: activeProjectId, path });
+      }
+    },
+    [activeProjectId]
+  );
+  const runActiveBranchAction = useCallback(
+    (label: string, action: () => Promise<GitActionResult>) => {
+      if (activeProjectId) {
+        void runBranchAction(activeProjectId, label, action);
+      }
+    },
+    [activeProjectId, runBranchAction]
+  );
+  /** What the git pane may start, in the shape its views take it — for the project on screen. */
+  const activeBranch = useMemo<BranchActions>(
+    () => ({ busy: branchAction?.projectId === activeProjectId, run: runActiveBranchAction }),
+    [branchAction, activeProjectId, runActiveBranchAction]
+  );
+
   return (
     <div className="app">
       {/* The app name and the one button that belongs to the window rather than to a project;
@@ -395,7 +472,7 @@ export function App() {
       <div className="titlebar">
         <img className="titlebar-icon" src="icon.png" alt="" />
         <span className="titlebar-name">MEEZEEK</span>
-        <button className="titlebar-button" title="Settings" onClick={() => setSettingsOpen(true)}>
+        <button className="titlebar-button" title="Settings" onClick={openSettings}>
           <GearIcon />
         </button>
       </div>
@@ -407,15 +484,15 @@ export function App() {
             projects={projects}
             activeProjectId={activeProjectId}
             onSelect={setActiveProjectId}
-            onClose={(projectId) => void closeProject(projectId)}
+            onClose={closeProjectSync}
             onReorder={reorderProjects}
-            onAdd={() => setAddOpen(true)}
-            remoteOf={(projectId) => states[projectId]?.remotes[0]}
-            headOf={(projectId) => states[projectId]?.head}
+            onAdd={openAdd}
+            remoteOf={remoteOf}
+            headOf={headOf}
             onOpenTerminal={openTerminal}
-            hasFinished={(projectId) => markedTabs(projectId).length > 0}
+            hasFinished={hasFinished}
             hasBusy={hasBusyTab}
-            hasWaiting={(projectId) => waitingTabs(projectId).length > 0}
+            hasWaiting={hasWaiting}
             onShowBusy={showBusy}
             onShowFinished={showFinished}
             onShowWaiting={showWaiting}
@@ -450,10 +527,10 @@ export function App() {
               <GitPane
                 project={activeProject}
                 state={activeState}
-                branch={branchActions(activeProject.id)}
+                branch={activeBranch}
                 treeHeight={branchTreeHeight}
                 onTreeHeight={setBranchTreeHeight}
-                onOpenDiff={(path) => setDiffFile({ projectId: activeProject.id, path })}
+                onOpenDiff={openActiveDiff}
                 onBusy={setGitBusy}
               />
             </div>
@@ -476,22 +553,24 @@ export function App() {
             <TerminalsPane
               key={project.id}
               project={project}
-              tabs={tabs[project.id] ?? []}
+              tabs={tabs[project.id] ?? NO_TABS}
               visible={project.id === activeProjectId}
               gitOpen={gitOpen}
-              onToggleGit={() => setGitOpen(!gitOpen)}
-              externalBusy={branchAction?.projectId === project.id || (project.id === activeProjectId && gitBusy)}
-              onOpenDiff={(path) => setDiffFile({ projectId: project.id, path })}
+              onToggleGit={toggleGit}
+              externalBusy={
+                branchAction?.projectId === project.id || (project.id === activeProjectId && (gitBusy || diffBusy))
+              }
+              onOpenDiff={openDiff}
               openedTab={openedTab?.projectId === project.id ? openedTab : null}
               onActiveTab={setActiveTab}
-              markedTabIds={markedTabs(project.id).map((tab) => tab.tabId)}
-              waitingTabIds={waitingTabs(project.id).map((tab) => tab.tabId)}
+              markedTabIds={marks[project.id]?.finished ?? NO_IDS}
+              waitingTabIds={marks[project.id]?.waiting ?? NO_IDS}
             />
           ))}
           {!activeProject && (
             <div className="empty-workspace">
               <p>No repository open.</p>
-              <button className="button" onClick={() => setAddOpen(true)}>
+              <button className="button" onClick={openAdd}>
                 <PlusIcon />
                 <span>Add repository</span>
               </button>
@@ -501,20 +580,22 @@ export function App() {
       </div>
 
       {/* Over everything, and only ever one: a diff is looked at and then left again. It
-          reloads with the repository state, so an agent editing the file updates it. */}
+          reloads when what it shows can have changed — HEAD, or this file's own status — and
+          not with every other file an agent touches: a reload reads the diff again and colours
+          all of it again, hundreds of milliseconds on the renderer for a long file. */}
       {diffFile && (
         <DiffDialog
           projectId={diffFile.projectId}
           path={diffFile.path}
-          version={states[diffFile.projectId]?.changes}
-          onClose={() => setDiffFile(null)}
-          onBusy={setGitBusy}
+          version={diffVersion(states[diffFile.projectId], diffFile.path)}
+          onClose={closeDiff}
+          onBusy={setDiffBusy}
         />
       )}
 
-      {addOpen && <AddRepositoryDialog onAdded={projectAdded} onClose={() => setAddOpen(false)} />}
+      {addOpen && <AddRepositoryDialog onAdded={projectAdded} onClose={closeAdd} />}
 
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog onClose={closeSettings} />}
 
       <Notices />
       <Dialogs />
@@ -523,11 +604,7 @@ export function App() {
         project={activeProject}
         state={activeState}
         busyLabel={busyLabel}
-        run={(label, action) => {
-          if (activeProjectId) {
-            void runBranchAction(activeProjectId, label, action);
-          }
-        }}
+        run={runActiveBranchAction}
       />
     </div>
   );

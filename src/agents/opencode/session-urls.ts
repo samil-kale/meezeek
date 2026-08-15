@@ -20,13 +20,16 @@ export async function resolveOpencodeUrlPrefix(
   sessionId: string,
   prefix: string
 ): Promise<string | undefined> {
-  const found = longestStartingWith(await sessionUrls(executable, cwd, sessionId), prefix);
-  if (found !== undefined) {
-    return found;
+  const cached = cache.get(sessionId);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    const found = longestStartingWith(cached.urls, prefix);
+    if (found !== undefined) {
+      return found;
+    }
+    // Nothing found — but the cached answer may just predate the message the url is in, and
+    // the caller remembers a "no" for a while. Worth one fresh look before saying it.
   }
-  // Nothing found — but the answer may just predate the message the url is in, and the
-  // caller remembers a "no" for a while. Worth one fresh look before saying it.
-  return longestStartingWith(await sessionUrls(executable, cwd, sessionId, true), prefix);
+  return longestStartingWith(await fetchSessionUrls(executable, cwd, sessionId), prefix);
 }
 
 /** Every string value in a parsed json response, at any depth. */
@@ -54,11 +57,7 @@ function longestStartingWith(urls: string[], prefix: string): string | undefined
   return best;
 }
 
-async function sessionUrls(executable: string, cwd: string, sessionId: string, refresh = false): Promise<string[]> {
-  const cached = cache.get(sessionId);
-  if (!refresh && cached && Date.now() - cached.at < CACHE_TTL_MS) {
-    return cached.urls;
-  }
+async function fetchSessionUrls(executable: string, cwd: string, sessionId: string): Promise<string[]> {
   const server = await runningServer(executable, cwd);
   if (!server) {
     return [];

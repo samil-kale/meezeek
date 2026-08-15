@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { FileDiff } from "../../shared/types";
 import { DiffView } from "./DiffView";
-import { CloseIcon } from "./icons";
+import { CloseIcon, WhitespaceIcon } from "./icons";
 import { notify } from "./Notices";
+import { useEscape } from "./use-escape";
 
 interface DiffDialogProps {
   projectId: string;
   /** Repository-relative path of the file being looked at. */
   path: string;
-  /** The repository state, so an agent editing this file while it is open reloads the diff. */
-  version: unknown;
+  /** What the diff depends on besides the file — a change to it reloads while the dialog is open. */
+  version: string;
   onClose: () => void;
   /** Reading and colouring the diff, reported into the one progress bar like everything else. */
   onBusy: (busy: boolean) => void;
@@ -23,7 +24,7 @@ interface DiffDialogProps {
  * Not part of Dialog.tsx: that file puts *questions* (confirm, prompt) and is built around a
  * form with two buttons. This asks nothing.
  */
-export function DiffDialog({ projectId, path, version, onClose, onBusy }: DiffDialogProps) {
+export const DiffDialog = memo(function DiffDialog({ projectId, path, version, onClose, onBusy }: DiffDialogProps) {
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
@@ -47,25 +48,22 @@ export function DiffDialog({ projectId, path, version, onClose, onBusy }: DiffDi
     };
   }, [projectId, path, version, ignoreWhitespace]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        // Capture phase and swallowed here, so closing this can't double as an ESC keystroke
-        // for the terminal that had focus before it opened.
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
+  useEscape(onClose);
 
   return (
     <div className="diff-overlay">
       <div className="diff-dialog">
         <div className="diff-dialog-bar">
           <span className="diff-dialog-path">{path}</span>
+          {diff && !diff.binary && (
+            <button
+              className={`icon-button${ignoreWhitespace ? " active" : ""}`}
+              title={ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
+              onClick={() => setIgnoreWhitespace(!ignoreWhitespace)}
+            >
+              <WhitespaceIcon />
+            </button>
+          )}
           <button className="icon-button" title="Close" onClick={onClose}>
             <CloseIcon />
           </button>
@@ -76,9 +74,8 @@ export function DiffDialog({ projectId, path, version, onClose, onBusy }: DiffDi
           loading={loading}
           onBusy={onBusy}
           ignoreWhitespace={ignoreWhitespace}
-          onIgnoreWhitespace={setIgnoreWhitespace}
         />
       </div>
     </div>
   );
-}
+});

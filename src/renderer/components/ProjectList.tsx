@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { Project, RemoteInfo } from "../../shared/types";
 import { revealLabel } from "../platform";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
@@ -71,7 +71,7 @@ function hostName(url: string): string {
   return known ?? hostname;
 }
 
-export function ProjectList({
+export const ProjectList = memo(function ProjectList({
   projects,
   activeProjectId,
   onSelect,
@@ -173,12 +173,14 @@ export function ProjectList({
               setMenu({ x: event.clientX, y: event.clientY, project });
             }}
           >
-            <span className="project-item-label">{project.name}</span>
-            {/* Where the repository stands, next to what a command runs with in the list below
-                and drawn the same way: context for the row, not part of its name. The branch bar
-                says it for the project on screen only, and an agent switching a branch in a
-                terminal is exactly what one wants to see on a project that is not. */}
-            {headOf(project.id) && <span className="project-extra">{headOf(project.id)}</span>}
+            <span className="project-item-main">
+              <span className="project-item-label">{project.name}</span>
+              {/* Where the repository stands, next to what a command runs with in the list below
+                  and drawn the same way: context for the row, not part of its name. The branch bar
+                  says it for the project on screen only, and an agent switching a branch in a
+                  terminal is exactly what one wants to see on a project that is not. */}
+              {headOf(project.id) && <span className="project-extra">({headOf(project.id)})</span>}
+            </span>
             {/* All three states of a project's sessions, and they can hold at once — one tab
                 stopped on a question, another working, a third waiting to be read. Each is a
                 button and each goes to a session. Unlike on a tab there is no ranking here:
@@ -241,4 +243,4 @@ export function ProjectList({
       )}
     </div>
   );
-}
+});

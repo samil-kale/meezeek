@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { ChangeStatus, FileChange, GitActionResult, Project, RepositoryState } from "../../shared/types";
 import { isWindows, revealLabel } from "../platform";
 import { BranchTree, type BranchActions } from "./BranchTree";
@@ -35,7 +35,7 @@ const STATUS_LETTER: Record<ChangeStatus, string> = {
  * files, and nothing else. The diff is not here — double-clicking a file shows it over the
  * whole window, so this pane stays narrow enough to leave open next to a terminal.
  */
-export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOpenDiff, onBusy }: GitPaneProps) {
+export const GitPane = memo(function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOpenDiff, onBusy }: GitPaneProps) {
   const [filter, setFilter] = useState("");
   /** Ctrl- and shift-click extend it, so one discard can cover several files. */
   const [selected, setSelected] = useState<string[]>([]);
@@ -45,7 +45,10 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
   const [menu, setMenu] = useState<{ x: number; y: number; change: FileChange } | null>(null);
 
   const query = filter.trim().toLowerCase();
-  const visible = state.changes.filter((change) => change.path.toLowerCase().includes(query));
+  const visible = useMemo(
+    () => state.changes.filter((change) => change.path.toLowerCase().includes(query)),
+    [state.changes, query]
+  );
 
   // Taken back when the pane goes: it can be closed while a discard is still running, and a
   // "busy" nobody is left to clear would keep the one progress bar running for good.
@@ -252,4 +255,4 @@ export function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOp
       )}
     </div>
   );
-}
+});

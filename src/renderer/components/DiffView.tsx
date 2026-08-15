@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ThemedToken } from "shiki/core";
 import type { DiffLine, FileDiff, ImageDiff } from "../../shared/types";
 import { highlightDiff } from "../diff-highlight";
-import { UnfoldIcon, WhitespaceIcon } from "./icons";
+import { UnfoldIcon } from "./icons";
 
 interface DiffViewProps {
   /** Whose diff this is; the view reads the file itself when a gap is opened. */
@@ -15,11 +15,24 @@ interface DiffViewProps {
    */
   onBusy: (busy: boolean) => void;
   ignoreWhitespace: boolean;
-  onIgnoreWhitespace: (ignore: boolean) => void;
 }
 
 /** Context lines a gap was filled with, keyed by the index of the hunk header it sits above. */
 type OpenedGaps = Record<number, DiffLine[]>;
+
+/**
+ * One style object per colour, shared by every token drawn in it: a diff holds tens of
+ * thousands of tokens and a fresh `{ color }` per token per build is what made a rebuild cost.
+ */
+const colorStyles = new Map<string | undefined, React.CSSProperties>();
+function colorStyle(color: string | undefined): React.CSSProperties {
+  let style = colorStyles.get(color);
+  if (!style) {
+    style = { color };
+    colorStyles.set(color, style);
+  }
+  return style;
+}
 
 /** Where the lines missing in front of a hunk header start and end, in the new file. */
 function gapBefore(lines: readonly DiffLine[], index: number): { from: number; to: number } | undefined {
@@ -71,8 +84,7 @@ export function DiffView({
   diff,
   loading,
   onBusy,
-  ignoreWhitespace,
-  onIgnoreWhitespace
+  ignoreWhitespace
 }: DiffViewProps) {
   /** One token list per line of the diff, once the grammar has been loaded and run. */
   const [colored, setColored] = useState<(ThemedToken[] | undefined)[]>([]);
@@ -142,36 +154,83 @@ export function DiffView({
    * same in both versions, so the working tree holds all of them; the offset between the two
    * line numbers is whatever it is at the hunk that follows.
    */
-  const openGap = async (index: number, from: number, to: number): Promise<void> => {
-    if (!diff) {
-      return;
+  const openGap = useCallback(
+    async (index: number, from: number, to: number): Promise<void> => {
+      if (!diff) {
+        return;
+      }
+      const header = diff.lines[index];
+      const offset = (header.oldLine ?? 1) - (header.newLine ?? 1);
+      const texts = await window.meezeek.repository.fileLines(projectId, diff.path, from, to);
+      // Reading them took a moment, and in it the file on screen may have become another one —
+      // or the same one reloaded. `index` then points into a diff these lines are not from.
+      if (texts.length === 0 || current.current !== diff) {
+        return;
+      }
+      setOpened((current) => ({
+        ...current,
+        [index]: texts.map((text, line) => ({
+          type: "context" as const,
+          oldLine: from + line + offset,
+          newLine: from + line,
+          text
+        }))
+      }));
+    },
+    [diff, projectId]
+  );
+
+  // Built once per diff, colouring or opened gap, not per render: the dialog sits in `App`,
+  // which re-renders on every tab or repository push, and up to 5000 lines of a few spans each
+  // — one per token — are far too many to rebuild for a status change in another project.
+  // Elements handed back unchanged are ones React does not reconcile again.
+  const rows = useMemo(() => {
+    if (!diff || !shown) {
+      return null;
     }
-    const header = diff.lines[index];
-    const offset = (header.oldLine ?? 1) - (header.newLine ?? 1);
-    const texts = await window.meezeek.repository.fileLines(projectId, diff.path, from, to);
-    // Reading them took a moment, and in it the file on screen may have become another one —
-    // or the same one reloaded. `index` then points into a diff these lines are not from.
-    if (texts.length === 0 || current.current !== diff) {
-      return;
-    }
-    setOpened((current) => ({
-      ...current,
-      [index]: texts.map((text, line) => ({
-        type: "context" as const,
-        oldLine: from + line + offset,
-        newLine: from + line,
-        text
-      }))
-    }));
-  };
+    // Hunk headers come in the same order in both lists, so counting them off is all it takes
+    // to know which line of the original diff a rendered header is.
+    let hunk = 0;
+    let source = -1;
+    return shown.lines.map((line, index) => {
+      if (line.type === "hunk") {
+        source = hunkIndices[hunk++];
+      }
+      // Copied per line: `source` is one binding shared by every closure below, and the click
+      // comes long after the loop has moved it on to the last hunk.
+      const at = source;
+      const gap = line.type === "hunk" && !opened[at] ? gapBefore(diff.lines, at) : undefined;
+      return (
+        <div key={index} className={`diff-line ${line.type}`}>
+          {gap ? (
+            <button
+              className="diff-unfold"
+              title={`Show lines ${gap.from} to ${gap.to}`}
+              onClick={() => void openGap(at, gap.from, gap.to)}
+            >
+              <UnfoldIcon />
+            </button>
+          ) : (
+            <span className="diff-gutter">{line.type === "hunk" ? "" : (line.oldLine ?? "")}</span>
+          )}
+          <span className="diff-gutter">{line.type === "hunk" ? "" : (line.newLine ?? "")}</span>
+          <span className="diff-marker">{line.type === "add" ? "+" : line.type === "del" ? "-" : ""}</span>
+          <span className="diff-text">
+            {colored[index]?.map((token, position) => (
+              <span key={position} style={colorStyle(token.color)}>
+                {token.content}
+              </span>
+            )) ?? line.text}
+          </span>
+        </div>
+      );
+    });
+  }, [diff, shown, opened, colored, hunkIndices, openGap]);
 
   // Empty while one is being read, and nothing that says so: the one progress bar under the
   // tab strip is what reports that.
-  if (loading) {
+  if (loading || !diff || !shown || !rows) {
     return null;
-  }
-  if (!diff || !shown) {
-    return <div className="placeholder">Select a file to see its diff.</div>;
   }
 
   const body = (): React.ReactNode => {
@@ -193,43 +252,9 @@ export function DiffView({
         </div>
       );
     }
-
-    // Hunk headers come in the same order in both lists, so counting them off is all it takes
-    // to know which line of the original diff a rendered header is.
-    let hunk = 0;
-    let source = -1;
     return (
       <div className="diff-body">
-        {shown.lines.map((line, index) => {
-          if (line.type === "hunk") {
-            source = hunkIndices[hunk++];
-          }
-          const gap = line.type === "hunk" && !opened[source] ? gapBefore(diff.lines, source) : undefined;
-          return (
-            <div key={index} className={`diff-line ${line.type}`}>
-              {gap ? (
-                <button
-                  className="diff-unfold"
-                  title={`Show lines ${gap.from} to ${gap.to}`}
-                  onClick={() => void openGap(source, gap.from, gap.to)}
-                >
-                  <UnfoldIcon />
-                </button>
-              ) : (
-                <span className="diff-gutter">{line.type === "hunk" ? "" : (line.oldLine ?? "")}</span>
-              )}
-              <span className="diff-gutter">{line.type === "hunk" ? "" : (line.newLine ?? "")}</span>
-              <span className="diff-marker">{line.type === "add" ? "+" : line.type === "del" ? "-" : ""}</span>
-              <span className="diff-text">
-                {colored[index]?.map((token, position) => (
-                  <span key={position} style={{ color: token.color }}>
-                    {token.content}
-                  </span>
-                )) ?? line.text}
-              </span>
-            </div>
-          );
-        })}
+        {rows}
         {diff.truncated && (
           <div className="placeholder">Diff truncated — open the file in your editor to see the rest.</div>
         )}
@@ -237,21 +262,5 @@ export function DiffView({
     );
   };
 
-  return (
-    <div className="diff">
-      <div className="diff-header">
-        <span className="diff-path">{diff.path}</span>
-        {!diff.binary && (
-          <button
-            className={`icon-button${ignoreWhitespace ? " active" : ""}`}
-            title={ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
-            onClick={() => onIgnoreWhitespace(!ignoreWhitespace)}
-          >
-            <WhitespaceIcon />
-          </button>
-        )}
-      </div>
-      {body()}
-    </div>
-  );
+  return <div className="diff">{body()}</div>;
 }

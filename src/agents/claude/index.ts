@@ -32,8 +32,8 @@ export const claudeAgent: AgentDefinition = {
     }
     return Promise.resolve({ args, dispose: () => watchers.forEach((stop) => stop()) });
   },
-  // Tuned empirically: Claude Code doesn't draw an early splash before its real UI, so no
-  // grace period is needed — 500 sits comfortably above its startup handshake (well under
+  // Tuned empirically: Claude Code doesn't draw an early splash before its real UI, so a plain
+  // byte count does — 500 sits comfortably above its startup handshake (well under
   // 150 bytes) and below its main UI redraw, which arrives as a single ~850-byte chunk. A
   // few tiny trailing chunks can still follow a second later, but a fresh session's total
   // doesn't reliably clear a threshold set to catch those too — better to reveal right as

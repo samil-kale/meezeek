@@ -8,10 +8,19 @@ export interface SessionCallbacks {
   onStatusChange: (status: TerminalStatus) => void;
 }
 
+/**
+ * The last answer per executable. Whether a CLI is installed is a fact about the machine, not
+ * about a project, and a program installed while the app runs is not on this process's PATH
+ * anyway — so every project opened after the first takes the answer already given, instead of
+ * spawning `--version` for every agent again (on win32 through cmd.exe, two processes each).
+ */
+const installedChecks = new Map<string, Promise<boolean>>();
+
+/** Always spawns the check — what the requirements dialog's re-check needs — and remembers the answer. */
 export function checkAgentInstalled(executable: string, versionArgs: string[], cwd: string): Promise<boolean> {
-  return new Promise((resolve) => {
+  const check = new Promise<boolean>((resolve) => {
     const { command, args } = resolveCommand(executable, versionArgs);
-    const check = spawn(command, args, { cwd, windowsHide: true });
+    const process = spawn(command, args, { cwd, windowsHide: true });
     let resolved = false;
     const finish = (installed: boolean) => {
       if (!resolved) {
@@ -19,9 +28,16 @@ export function checkAgentInstalled(executable: string, versionArgs: string[], c
         resolve(installed);
       }
     };
-    check.on("error", () => finish(false));
-    check.on("exit", (code) => finish(code === 0));
+    process.on("error", () => finish(false));
+    process.on("exit", (code) => finish(code === 0));
   });
+  installedChecks.set(`${executable}\0${versionArgs.join("\0")}`, check);
+  return check;
+}
+
+/** The remembered answer where there is one, otherwise the check. */
+export function isAgentInstalled(executable: string, versionArgs: string[], cwd: string): Promise<boolean> {
+  return installedChecks.get(`${executable}\0${versionArgs.join("\0")}`) ?? checkAgentInstalled(executable, versionArgs, cwd);
 }
 
 /** One agent process behind one tab: spawned lazily, at the size the view actually has. */
@@ -41,10 +57,6 @@ export class TerminalSession {
     /** A saved command's own variables, which outrank the ones inherited from the machine. */
     private readonly envOverride?: Record<string, string>
   ) {}
-
-  getStatus(): TerminalStatus {
-    return this.status;
-  }
 
   private setStatus(status: TerminalStatus): void {
     this.status = status;

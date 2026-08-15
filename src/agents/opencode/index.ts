@@ -41,9 +41,8 @@ export const opencodeAgent: AgentDefinition = {
   sessions: opencodeSessionProvider,
   prepareSpawn: prepareOpencodeSpawn,
   resolveUrlPrefix: resolveOpencodeUrlPrefix,
-  // No grace period: `attach` has no splash — it opens with a 4-byte and a 19-byte frame —
-  // so a grace window would throw away every byte the session ever produces and leave the
-  // bar up forever. What is left is the byte count: the frames before the first real redraw
-  // total ~530 bytes, the redraw itself is one chunk of 0.6 KB to 7.4 KB. 800 sits between.
+  // `attach` has no splash — it opens with a 4-byte and a 19-byte frame — so a plain byte
+  // count is what tells the first real redraw: the frames before it total ~530 bytes, the
+  // redraw itself is one chunk of 0.6 KB to 7.4 KB. 800 sits between.
   createIsSessionReady: () => createByteThresholdCheck(800)
 };

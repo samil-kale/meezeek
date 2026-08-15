@@ -34,7 +34,7 @@ export interface GitResult {
  * Runs the local git CLI. Resolves for any exit code (callers decide what a non-zero one
  * means) and rejects only when git itself could not be started.
  */
-export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitResult> {
+function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
@@ -392,8 +392,8 @@ async function runNetwork(cwd: string, args: string[], env?: NodeJS.ProcessEnv):
 }
 
 /** `--prune`, like GitHub Desktop: a branch deleted on the remote goes from the tree too. */
-export function fetch(cwd: string, remote?: string): Promise<GitActionResult> {
-  return runNetwork(cwd, remote ? ["fetch", "--prune", remote] : ["fetch", "--prune"]);
+export function fetch(cwd: string): Promise<GitActionResult> {
+  return runNetwork(cwd, ["fetch", "--prune"]);
 }
 
 /** Plain `git pull`, so whatever the user configured — merge or rebase — is what happens. */
@@ -506,8 +506,8 @@ export function setRemoteUrl(cwd: string, remote: string, url: string): Promise<
 }
 
 /** Creates the branch and switches to it, which is what GitHub Desktop's dialog does too. */
-export function createBranch(cwd: string, name: string, startPoint?: string): Promise<GitActionResult> {
-  return run(cwd, ["switch", "--create", name, ...(startPoint ? [startPoint] : [])]);
+export function createBranch(cwd: string, name: string, startPoint: string): Promise<GitActionResult> {
+  return run(cwd, ["switch", "--create", name, startPoint]);
 }
 
 export function renameBranch(cwd: string, from: string, to: string): Promise<GitActionResult> {
@@ -654,7 +654,7 @@ export async function ignorePath(cwd: string, filePath: string, scope: "file" | 
   if (scope === "extension" && !extension) {
     return { ok: false, error: `${filePath} has no extension to ignore` };
   }
-  const rules = [scope === "file" ? escapeIgnorePattern(filePath) : `*${escapeIgnorePattern(extension)}`];
+  const rule = scope === "file" ? escapeIgnorePattern(filePath) : `*${escapeIgnorePattern(extension)}`;
 
   const file = path.join(cwd, ".gitignore");
   try {
@@ -664,15 +664,13 @@ export async function ignorePath(cwd: string, filePath: string, scope: "file" | 
       }
       throw error;
     });
-    const held = new Set(existing.split(/\r?\n/).map((line) => line.trim()));
-    const missing = rules.filter((rule) => !held.has(rule));
-    if (missing.length === 0) {
+    if (existing.split(/\r?\n/).some((line) => line.trim() === rule)) {
       return { ok: true };
     }
     // Match the file's own line ending, and start on a line of its own.
     const newline = existing.includes("\r\n") ? "\r\n" : "\n";
     const separator = existing.length === 0 || existing.endsWith("\n") ? "" : newline;
-    await fs.appendFile(file, `${separator}${missing.join(newline)}${newline}`, "utf8");
+    await fs.appendFile(file, `${separator}${rule}${newline}`, "utf8");
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

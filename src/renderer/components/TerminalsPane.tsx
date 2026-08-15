@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentId, AgentInfo, Project, TerminalDescriptor } from "../../shared/types";
 import { disposeTerminal, fitTerminal, focusTerminal, refitTerminal, setRevealHandler } from "../terminal-views";
 import { AgentIcon } from "./agent-icons";
@@ -33,7 +33,7 @@ interface TerminalsPaneProps {
   /** Anything slow outside this pane — a branch command, a diff being read — for the one bar. */
   externalBusy: boolean;
   /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
-  onOpenDiff: (path: string) => void;
+  onOpenDiff: (projectId: string, path: string) => void;
   /**
    * A tab opened from outside this pane — a shell from the project's row, a saved command's own
    * terminal, a session the project row's mark points at — to be brought to the front once the
@@ -48,7 +48,7 @@ interface TerminalsPaneProps {
   waitingTabIds: string[];
 }
 
-export function TerminalsPane({
+export const TerminalsPane = memo(function TerminalsPane({
   project,
   tabs,
   visible,
@@ -215,7 +215,7 @@ export function TerminalsPane({
   const closeTabMenu = useCallback(() => setTabMenu(null), []);
 
   // Ctrl+clicking a changed file in a terminal opens that file's diff over everything.
-  useEffect(() => setRevealHandler(project.id, onOpenDiff), [project.id, onOpenDiff]);
+  useEffect(() => setRevealHandler(project.id, (path) => onOpenDiff(project.id, path)), [project.id, onOpenDiff]);
 
   const askRename = useCallback(
     async (tab: TerminalDescriptor) => {
@@ -400,6 +400,7 @@ export function TerminalsPane({
             tabId={tab.tabId}
             agentId={tab.agentId}
             active={tab.tabId === activeId}
+            visible={visible}
           />
         ))}
         {tabs.length === 0 && <div className="placeholder">No sessions open.</div>}
@@ -410,4 +411,4 @@ export function TerminalsPane({
       )}
     </div>
   );
-}
+});

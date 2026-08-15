@@ -31,6 +31,13 @@ button {
   cursor: pointer;
 }
 
+/* Keyboard focus only (:focus-visible), never a mouse click — VS Code's own rule. 1px in
+   --vscode-focusBorder, like every other line that points at something. */
+button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
 /* One box for both, so a field and a dropdown standing next to each other are the same height.
    Neither may set the font, the border or the padding on its own — the height is what they add
    up to, and two of them drifting apart is what makes a row of fields look crooked. */
@@ -210,15 +217,15 @@ option {
   -webkit-app-region: no-drag;
 }
 
-/* Every other icon in the window is rendered at 18. Its neighbours here are the platform's
-   caption glyphs, which are hairlines around 10px, so at 18 the gear would be the heaviest
-   thing in the bar by some way. At 14 the gear's own silhouette (2.2-13.8 of its 16 grid)
-   spans just over 10px, which is that extent.
+/* Every other icon in the window is rendered at --icon-size. Its neighbours here are the
+   platform's caption glyphs, which are hairlines around 10px, so at that size the gear would be
+   the heaviest thing in the bar by some way. At 14 the gear's own silhouette (2.2-13.8 of its
+   16 grid) spans just over 10px, which is that extent.
    The weight is the other half of it, and CSS is where it is settled: the shared <Svg> sets
-   stroke-width as an attribute for icons drawn at 18, and a rule here overrides it. 1.15 of a
-   16 grid rendered at 14 lands on 1px on screen — Segoe Fluent's caption glyphs are hairlines,
-   and a gear is a busier shape than a line or a cross to begin with, so matching their size
-   without matching their weight is what made it the darkest thing in the bar. */
+   stroke-width as an attribute for icons drawn at --icon-size, and a rule here overrides it.
+   1.15 of a 16 grid rendered at 14 lands on 1px on screen — Segoe Fluent's caption glyphs are
+   hairlines, and a gear is a busier shape than a line or a cross to begin with, so matching
+   their size without matching their weight is what made it the darkest thing in the bar. */
 .titlebar-button svg {
   width: 14px;
   height: 14px;
@@ -246,19 +253,16 @@ option {
      icon standing in a plain span, which is what made two identical spinners look like two
      different sizes. Measured in the browser against this stylesheet, not guessed. */
   padding: 0;
+  border-radius: 3px;
+  color: inherit;
+  /* Barely dimmed rather than at 0.75: these are line drawings on a dark ground, and every step
+     down costs contrast the shapes need to stay readable. */
+  opacity: 0.9;
 }
 
 .icon-button svg {
   width: var(--icon-size);
   height: var(--icon-size);
-}
-
-/* Barely dimmed rather than at 0.75: these are line drawings on a dark ground, and every step
-   down costs contrast the shapes need to stay readable. */
-.icon-button {
-  border-radius: 3px;
-  color: inherit;
-  opacity: 0.9;
 }
 
 /* Never the list's own hover colour: on a row that is already hovered it would be invisible,
@@ -318,10 +322,10 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
-/* The 14px the tab strip's own icons are. Every icon in this bar stands beside a label rather
-   than in a button of its own — the branch icon says the same thing as the strip's about the
-   same repository, and the arrows and the sync icon are read together with the 11px and 12px
-   text beside them. They are drawn at 18 like every other one, so the bar states its own. */
+/* Every icon in this bar stands beside a label rather than in a button of its own — the branch
+   icon says the same thing as the strip's about the same repository, and the arrows and the
+   sync icon are read together with the 11px and 12px text beside them — so the bar states
+   their size itself. */
 .branch-icon,
 .branch-count svg,
 .branch-sync svg {
@@ -395,7 +399,7 @@ option {
 /* Project list --------------------------------------------------------------------------- */
 
 /* Width comes from the sash beside it — the default and the limits it can be dragged to live
-   with the state, in App. Same for the two panels of the git tab below. */
+   with the state, in App. Same for the two panels of the git pane below. */
 /* The whole left column: projects on top, the selected one's commands below. */
 .sidebar {
   display: flex;
@@ -442,9 +446,8 @@ option {
   background: var(--vscode-list-hoverBackground);
 }
 
-/* Takes the leftover width, which is what holds the run button at the row's right edge. */
 .command-line {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -537,9 +540,20 @@ option {
 }
 
 /* Takes the leftover width, so the close button stays at the row's right edge instead of
-   following the label. */
-.project-item-label {
+   following the label — and holds the label and its extra together at the row's left, rather
+   than letting the label alone claim the space and push the extra out to the right edge. */
+.command-item-main,
+.project-item-main {
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-item-label {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -550,16 +564,15 @@ option {
    above so the two lists cannot drift apart. */
 .command-extra,
 .project-extra {
-  flex: none;
-  max-width: 40%;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--vscode-descriptionForeground);
 }
 
-/* Git tab -------------------------------------------------------------------------------- */
+/* Branch tree ----------------------------------------------------------------------------- */
 
 .branch-tree {
   display: flex;
@@ -606,18 +619,6 @@ option {
 
 .tree-section + .tree-section {
   margin-top: 6px;
-}
-
-/* Holds the section's own action, the way VS Code puts one in a view's title row. */
-.tree-header-row {
-  display: flex;
-  align-items: center;
-  padding-right: 4px;
-}
-
-.tree-header-row .tree-header {
-  flex: 1;
-  min-width: 0;
 }
 
 .tree-header {
@@ -822,19 +823,12 @@ option {
   color: var(--vscode-errorForeground);
 }
 
-/* What a session is doing: the spinner while a turn runs, the speech bubble once one finished
-   out of sight. One rule for both and for both places they appear — a tab and its project's
-   row — in the colour everything here that singles something out is drawn in. Two states of
-   one thing, so they must not come to read as two different kinds of thing.
-   On a tab each takes the agent icon's place and its size with it (`.terminal-tab-icon`), so
-   nothing here states a size: only in the sidebar do they stand on their own, at the 18 every
-   icon there is drawn at. */
-/* The size is stated here, not left to the <svg>'s own width attribute. Every other icon in the
-   window is sized from CSS — `.terminal-tab-icon`, `.tree-icon`, `.titlebar-button svg` — and
-   the one place that trusted the attribute rendered at its container's 24 instead of its own 18:
-   measured off a screenshot at 17px of ring, where the commands header's identical spinner drew
-   12. Do not take it back out. */
-/* Only the colour: what size a mark is comes from where it stands, like every other icon. It
+/* What a session is doing: the spinner while a turn runs, the question mark while it waits on
+   an answer, the speech bubble once one finished out of sight. One rule for all three and for
+   both places they appear — a tab and its project's row — in the colour everything here that
+   singles something out is drawn in. Three states of one thing, so they must not come to read
+   as three different kinds of thing.
+   Only the colour: what size a mark is comes from where it stands, like every other icon. It
    carried its own 17px here once, to make the spinner's ring reach as far as the agent icon it
    replaces — that is what `extent` in icons.tsx does now, for all of them at once. */
 .session-mark {
@@ -1156,7 +1150,7 @@ option {
   overflow: hidden;
 }
 
-/* The tab strip's height again, with the file it is showing and the way out. */
+/* The tab strip's height again, with the file it is showing, its whitespace switch and the way out. */
 .diff-dialog-bar {
   display: flex;
   align-items: center;
@@ -1185,25 +1179,6 @@ option {
   flex: 1;
   min-width: 0;
   min-height: 0;
-}
-
-.diff-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  padding: 3px 6px 3px 8px;
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-
-.diff-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
 }
 
 /* A toggle that is on, the way VS Code marks a checked action in a title bar. */

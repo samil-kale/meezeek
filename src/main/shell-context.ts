@@ -42,11 +42,20 @@ class CappedLogFile {
 
   append(text: string): void {
     this.content += text;
+    // Trimmed at twice the cap here and to the cap in flush(): a slice copies the whole buffer,
+    // and doing that per chunk once the log is full — a build produces thousands — is half a
+    // megabyte of copying per pty read on the main thread.
+    if (this.content.length > 2 * MAX_LOG_CHARS) {
+      this.trim();
+    }
+    this.dirty = true;
+  }
+
+  private trim(): void {
     if (this.content.length > MAX_LOG_CHARS) {
       this.content = this.content.slice(-MAX_LOG_CHARS);
       this.truncated = true;
     }
-    this.dirty = true;
   }
 
   flush(): void {
@@ -54,6 +63,7 @@ class CappedLogFile {
       return;
     }
     this.dirty = false;
+    this.trim();
     const contents = this.truncated ? LOG_TRUNCATION_NOTE + this.content : this.content;
     this.writing = this.writing
       .then(() => replaceFile(this.file, contents))
