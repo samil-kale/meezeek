@@ -668,13 +668,20 @@ the others.
 A terminal tab holds a foreign program that owns every key while it has focus, and meezeek's
 handler runs *before* xterm encodes anything (`attachCustomKeyEventHandler` in
 `terminal-views.ts`) — so the window can take any combination, and whether it can is never the
-question. **It takes nothing an agent could have received**, which is measured in a Claude, an
-opencode and a shell tab rather than read off xterm's encoding table. That rules out `Alt+1…9`
-(`ESC 1` is readline's digit argument) and `Ctrl+Shift+<letter>` (xterm drops the shift, so it is
-the agent's own `Ctrl+G`); `Ctrl+Tab` has no encoding at all and stays open, while plain Shift+Tab
-does have one and is Claude Code's mode toggle. There are none yet: Shift+Enter and Ctrl+V are
-handled *for* the terminal, not taken from it. And none will close a tab — behind that key is a
-live agent session that does not come back.
+question. **It takes nothing an agent could have received**, decided by reading xterm's own
+`Keyboard.ts` rather than assuming it: `evaluateKeyboardEvent`'s ctrl branch requires `!shiftKey`,
+so `Ctrl+<letter>` is the agent's own control byte (`Ctrl+G` is `\x07`) but `Ctrl+Shift+<letter>`
+falls through every branch and sends nothing — the opposite of what plain reasoning about "xterm
+drops the shift" would suggest, which is exactly why this got read rather than guessed twice.
+`Alt+1…9` is out (`ESC 1`, readline's digit argument), and so is `Ctrl+Tab` /
+`Ctrl+Shift+Tab`: keyCode 9's case never looks at `ctrlKey` at all, so both are byte-for-byte
+identical to plain Tab and plain Shift+Tab — the latter is Claude Code's own mode toggle. `Ctrl+,`
+and `Ctrl+Shift+.`/`Ctrl+Shift+,` are open: none of those keycodes appear in any branch of the
+switch, modified or not. Shift+Enter and Ctrl+V are handled *for* the terminal, not taken from it.
+None of the six window shortcuts close a tab — behind that key is a live agent session that does
+not come back. They live in `src/renderer/shortcuts.ts`, the one list both the capture-phase
+listener in `App.tsx` and the settings dialog's Shortcuts tab read from, so the binding and its
+displayed label cannot drift apart the way `parseEnv`/`formatEnv` do not.
 
 ## The renderer
 

@@ -129,18 +129,50 @@ async function readHead(cwd: string, header: string): Promise<HeadState> {
 }
 
 /**
+ * Ahead/behind for one local branch against its upstream, as two counts rather than sourcegit's
+ * commit-hash lists — this tree has no commit graph to hand them to, so `--count` turns
+ * `rev-list --left-right` into the two numbers the row wants instead of lines to parse.
+ */
+async function readTrackCount(
+  cwd: string,
+  head: string,
+  upstreamHead: string
+): Promise<{ ahead: number; behind: number } | undefined> {
+  const result = await git(cwd, ["rev-list", "--left-right", "--count", `${head}...${upstreamHead}`]);
+  if (result.code !== 0) {
+    return undefined;
+  }
+  const [ahead, behind] = result.stdout.trim().split(/\s+/).map(Number);
+  return { ahead: ahead || 0, behind: behind || 0 };
+}
+
+/**
  * Every ref the tree shows, from one `for-each-ref`. Tags ride along with the branches rather
  * than costing a `git tag` of their own — the same process either way.
+ *
+ * `%(upstream:trackshort)` rides along too: "=" or empty costs nothing more, but a local branch
+ * it reports as differing gets a `rev-list --left-right --count` of its own so the tree can show
+ * the actual numbers — sourcegit's own filter, applied here before a process is spent rather
+ * than after. The checked-out branch is skipped: `readHead` already gets its ahead/behind for
+ * free from the status header, a second count for the same branch would just repeat it. And a
+ * branch whose upstream is configured but no longer exists among these refs (deleted on the
+ * remote, "[gone]" from status's own point of view) is skipped too — nothing to diff against.
  */
 async function readRefs(
   cwd: string
-): Promise<{ localBranches: string[]; remotes: RemoteInfo[]; tags: string[]; defaultBranch?: string }> {
+): Promise<{
+  localBranches: string[];
+  remotes: RemoteInfo[];
+  tags: string[];
+  defaultBranch?: string;
+  branchTrack: Record<string, { ahead: number; behind: number }>;
+}> {
   // Full ref names, not %(refname:short): git shortens "refs/remotes/origin/HEAD" to plain
   // "origin", which cannot be told apart from a branch named after its remote. %(symref) is
   // empty for everything but "<remote>/HEAD", where it names the remote's default branch.
   const result = await git(cwd, [
     "for-each-ref",
-    "--format=%(refname)%00%(symref)",
+    "--format=%(refname)%00%(symref)%00%(objectname)%00%(HEAD)%00%(upstream)%00%(upstream:trackshort)",
     "refs/heads",
     "refs/remotes",
     "refs/tags"
@@ -149,21 +181,32 @@ async function readRefs(
   const localBranches: string[] = [];
   const tags: string[] = [];
   const remotes = new Map<string, string[]>();
+  // Every remote-tracking ref's own commit, so a diverged local branch can be diffed against it
+  // by hash rather than by name — the same ref could in principle also be a tag.
+  const remoteHeads = new Map<string, string>();
   let defaultBranch: string | undefined;
+  const diverged: { name: string; head: string; upstream: string }[] = [];
 
   for (const line of result.stdout.split("\n")) {
-    const [refname, symref = ""] = line.trim().split("\0");
+    const [refname, symref = "", objectname = "", isHead = "", upstream = "", trackshort = ""] = line
+      .trim()
+      .split("\0");
     if (!refname) {
       continue;
     }
     if (refname.startsWith("refs/heads/")) {
-      localBranches.push(refname.slice("refs/heads/".length));
+      const name = refname.slice("refs/heads/".length);
+      localBranches.push(name);
+      if (isHead !== "*" && upstream && trackshort && trackshort !== "=") {
+        diverged.push({ name, head: objectname, upstream });
+      }
       continue;
     }
     if (refname.startsWith("refs/tags/")) {
       tags.push(refname.slice("refs/tags/".length));
       continue;
     }
+    remoteHeads.set(refname, objectname);
     const remoteRef = refname.slice("refs/remotes/".length);
     // "origin/HEAD" is a symbolic pointer at the remote's default branch, not a branch of its
     // own — listing it would duplicate an entry that is already there. What it points at is
@@ -186,10 +229,23 @@ async function readRefs(
     }
   }
 
+  const branchTrack: Record<string, { ahead: number; behind: number }> = {};
+  await Promise.all(
+    diverged
+      .filter((entry) => remoteHeads.has(entry.upstream))
+      .map(async (entry) => {
+        const track = await readTrackCount(cwd, entry.head, remoteHeads.get(entry.upstream)!);
+        if (track) {
+          branchTrack[entry.name] = track;
+        }
+      })
+  );
+
   return {
     localBranches,
     tags,
     defaultBranch,
+    branchTrack,
     remotes: [...remotes].map(([name, branches]) => ({ name, branches }))
   };
 }

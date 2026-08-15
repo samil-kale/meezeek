@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from "react";
 import type { CheckoutTarget, GitActionResult, RepositoryState, StashEntry } from "../../shared/types";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm, prompt } from "./Dialog";
-import { BranchIcon, ChevronIcon, RemoteIcon, SearchIcon, StashIcon, TagIcon } from "./icons";
+import { ArrowDownIcon, ArrowUpIcon, BranchIcon, ChevronIcon, RemoteIcon, SearchIcon, StashIcon, TagIcon } from "./icons";
 
 /**
  * How the tree starts a git command: one at a time per project, named while it runs. The
@@ -49,6 +49,14 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
   const toggle = (key: string): void => setCollapsed((current) => ({ ...current, [key]: !isCollapsed(key) }));
 
   const isCurrent = (name: string): boolean => !state.detached && name === state.head;
+
+  /**
+   * The checked-out branch's numbers come from `state.ahead`/`state.behind`, already read for
+   * free off the status header; every other local branch's come from `state.branchTrack`, which
+   * only holds one once `for-each-ref` reported it differing from its upstream at all.
+   */
+  const track = (name: string): { ahead: number; behind: number } | undefined =>
+    isCurrent(name) ? { ahead: state.ahead, behind: state.behind } : state.branchTrack[name];
 
   const repository = window.meezeek.repository;
   /** The remote every command that names one uses, the way the main process picks it. */
@@ -270,18 +278,37 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
             <span className="count">({state.localBranches.length})</span>
           </button>
           {!isCollapsed("local") &&
-            localBranches.map((localBranch) => (
-              <button
-                key={localBranch}
-                className={`tree-item${isCurrent(localBranch) ? " current" : ""}`}
-                title="Double-click to check out"
-                onDoubleClick={() => checkout({ name: localBranch })}
-                onContextMenu={(event) => openMenu(event, { kind: "branch", name: localBranch })}
-              >
-                <BranchIcon className="tree-icon" />
-                <span className="tree-label">{localBranch}</span>
-              </button>
-            ))}
+            localBranches.map((localBranch) => {
+              const status = track(localBranch);
+              return (
+                <button
+                  key={localBranch}
+                  className={`tree-item${isCurrent(localBranch) ? " current" : ""}`}
+                  title="Double-click to check out"
+                  onDoubleClick={() => checkout({ name: localBranch })}
+                  onContextMenu={(event) => openMenu(event, { kind: "branch", name: localBranch })}
+                >
+                  <BranchIcon className="tree-icon" />
+                  <span className="tree-label">{localBranch}</span>
+                  {status && (status.ahead > 0 || status.behind > 0) && (
+                    <span className="tree-track">
+                      {status.ahead > 0 && (
+                        <span className="tree-track-count" title={`${status.ahead} to push`}>
+                          <ArrowUpIcon />
+                          {status.ahead}
+                        </span>
+                      )}
+                      {status.behind > 0 && (
+                        <span className="tree-track-count" title={`${status.behind} to pull`}>
+                          <ArrowDownIcon />
+                          {status.behind}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
         </div>
 
         <div className="tree-section">

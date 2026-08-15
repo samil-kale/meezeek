@@ -194,6 +194,15 @@ export interface RepositoryState {
   ahead: number;
   behind: number;
   localBranches: string[];
+  /**
+   * Ahead/behind for a local branch that is *not* the current one, so the tree can show it next
+   * to every diverged row the way sourcegit does — cheap for `for-each-ref`'s own
+   * `%(upstream:trackshort)` to say a branch differs from its upstream at all, but the count is
+   * a `rev-list` of its own, so this only holds a branch once it is confirmed to differ.
+   * Absent for a branch in sync, with no upstream, or the checked-out one — that one's numbers
+   * are `ahead`/`behind` above, already read from the status header for free.
+   */
+  branchTrack: Record<string, { ahead: number; behind: number }>;
   remotes: RemoteInfo[];
   /**
    * The branch the first remote's HEAD points at, e.g. "main" — what "Update from main"
@@ -221,6 +230,7 @@ export const EMPTY_REPOSITORY_STATE: RepositoryState = {
   ahead: 0,
   behind: 0,
   localBranches: [],
+  branchTrack: {},
   remotes: [],
   tags: [],
   stashes: [],

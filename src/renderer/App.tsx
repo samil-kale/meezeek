@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type { GitActionResult, Project, RepositoryState, TerminalDescriptor } from "../shared/types";
 import { AddRepositoryDialog } from "./components/AddRepositoryDialog";
-import { BranchBar } from "./components/BranchBar";
 import { CommandList } from "./components/CommandList";
 import type { BranchActions } from "./components/BranchTree";
 import { DiffDialog } from "./components/DiffDialog";
@@ -22,6 +21,7 @@ import {
 import { TerminalsPane } from "./components/TerminalsPane";
 import { disposeProjectTerminals } from "./terminal-views";
 import { GearIcon, PlusIcon } from "./components/icons";
+import { matchesShortcut } from "./shortcuts";
 
 /** A little over `.git-pane-host.sliding`'s 0.15s, so the class outlives the transition. */
 const GIT_SLIDE_MS = 180;
@@ -409,6 +409,53 @@ export function App() {
   );
 
   /**
+   * Ctrl/Cmd+Shift+U: across every project, whichever session has been waiting on a question the
+   * longest — or, if none is, whichever finished out of sight first. The same "oldest first" rule
+   * `showWaiting`/`showFinished` apply to one project's row, just not stopped at one project: the
+   * key exists precisely so a project nobody has clicked into is not missed.
+   */
+  const showNeedsAttention = useCallback(() => {
+    const onScreen = (projectId: string, tabId: string): boolean =>
+      projectId === activeProjectId && activeTabs[projectId] === tabId;
+    const collect = (field: "waitingAt" | "finishedAt"): { projectId: string; tab: TerminalDescriptor }[] =>
+      Object.entries(tabs)
+        .flatMap(([projectId, list]) =>
+          list
+            .filter((tab) => tab[field] !== undefined && !onScreen(projectId, tab.tabId))
+            .map((tab) => ({ projectId, tab }))
+        )
+        .sort((a, b) => (a.tab[field] ?? 0) - (b.tab[field] ?? 0));
+    const next = collect("waitingAt")[0] ?? collect("finishedAt")[0];
+    if (next) {
+      showTab(next.projectId, next.tab.tabId);
+    }
+  }, [tabs, activeProjectId, activeTabs, showTab]);
+
+  /** Ctrl/Cmd+Shift+./, — the active project's tabs, one over from where it is now. */
+  const cycleTab = useCallback(
+    (direction: 1 | -1) => {
+      if (!activeProjectId) {
+        return;
+      }
+      const list = tabs[activeProjectId] ?? [];
+      if (list.length === 0) {
+        return;
+      }
+      const at = list.findIndex((tab) => tab.tabId === activeTabs[activeProjectId]);
+      const next = list[(at + direction + list.length) % list.length];
+      showTab(activeProjectId, next.tabId);
+    },
+    [activeProjectId, tabs, activeTabs, showTab]
+  );
+
+  /** Ctrl/Cmd+Shift+T — a shell tab in the project on screen, the same as its row's own button. */
+  const newShellTab = useCallback(() => {
+    if (activeProjectId) {
+      openTerminal(activeProjectId);
+    }
+  }, [activeProjectId, openTerminal]);
+
+  /**
    * Coming back to the window is when a change the watcher missed would show, so that is when
    * the repository is read again — GitHub Desktop refreshes on focus for the same reason. Only
    * the project on screen: refreshing every open one would spend three git processes each for
@@ -425,7 +472,44 @@ export function App() {
     return () => window.removeEventListener("focus", onFocus);
   }, [activeProjectId]);
 
-  const busyLabel = branchAction?.projectId === activeProjectId ? branchAction.label : null;
+  /**
+   * The window's own shortcuts, on `document` in the capture phase so they win the race against
+   * xterm's own listener (attached to its own textarea, further down the tree) rather than
+   * arriving as input to whichever terminal has focus — see "The keyboard belongs to the
+   * terminal" in CLAUDE.md for why every one of `matchesShortcut`'s combinations is safe to take.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (matchesShortcut(event, "settings")) {
+        event.preventDefault();
+        event.stopPropagation();
+        setSettingsOpen(true);
+      } else if (matchesShortcut(event, "toggleGit")) {
+        event.preventDefault();
+        event.stopPropagation();
+        setGitOpen(!gitOpen);
+      } else if (matchesShortcut(event, "needsAttention")) {
+        event.preventDefault();
+        event.stopPropagation();
+        showNeedsAttention();
+      } else if (matchesShortcut(event, "nextTab")) {
+        event.preventDefault();
+        event.stopPropagation();
+        cycleTab(1);
+      } else if (matchesShortcut(event, "previousTab")) {
+        event.preventDefault();
+        event.stopPropagation();
+        cycleTab(-1);
+      } else if (matchesShortcut(event, "newShellTab")) {
+        event.preventDefault();
+        event.stopPropagation();
+        newShellTab();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [gitOpen, setGitOpen, showNeedsAttention, cycleTab, newShellTab]);
+
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_REPOSITORY_STATE;
 
@@ -599,13 +683,6 @@ export function App() {
 
       <Notices />
       <Dialogs />
-
-      <BranchBar
-        project={activeProject}
-        state={activeState}
-        busyLabel={busyLabel}
-        run={runActiveBranchAction}
-      />
     </div>
   );
 }

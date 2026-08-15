@@ -6,7 +6,7 @@ import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { confirm } from "./Dialog";
 import { notify } from "./Notices";
 import { MIN_PANE_HEIGHT, Sash } from "./Sash";
-import { DiscardIcon, StashIcon } from "./icons";
+import { ArrowDownIcon, ArrowUpIcon, DiscardIcon, StashIcon, SyncIcon } from "./icons";
 
 interface GitPaneProps {
   project: Project;
@@ -49,6 +49,12 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
     () => state.changes.filter((change) => change.path.toLowerCase().includes(query)),
     [state.changes, query]
   );
+
+  // Fetch, pull and push all go through the one action slot a discard or a stash also uses, so
+  // both a file action and a branch command hold the same lock.
+  const remote = state.remotes[0]?.name;
+  const canSync = remote !== undefined && !state.detached;
+  const syncLocked = branch.busy || acting;
 
   // Taken back when the pane goes: it can be closed while a discard is still running, and a
   // "busy" nobody is left to clear would keep the one progress bar running for good.
@@ -177,6 +183,40 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
       <div className="git-section" style={{ height: treeHeight }}>
         <div className="sidebar-header">
           <span>BRANCHES</span>
+          <span className="sidebar-header-actions">
+            <button
+              className="icon-button"
+              title={remote ? `Fetch from ${remote}` : "This repository has no remote"}
+              disabled={syncLocked || !canSync}
+              onClick={() => branch.run("Fetching...", () => window.meezeek.repository.fetch(project.id))}
+            >
+              <SyncIcon />
+            </button>
+            <button
+              className="icon-button"
+              title={state.upstream ? `Pull from ${state.upstream}` : "No upstream to pull from"}
+              disabled={syncLocked || !canSync || state.upstream === undefined}
+              onClick={() => branch.run("Pulling...", () => window.meezeek.repository.pull(project.id))}
+            >
+              <ArrowDownIcon />
+            </button>
+            <button
+              className="icon-button"
+              title={
+                state.upstream === undefined
+                  ? `Push ${state.head} to ${remote} and track it`
+                  : `Push to ${state.upstream}`
+              }
+              disabled={syncLocked || !canSync}
+              onClick={() =>
+                branch.run(state.upstream === undefined ? "Publishing..." : "Pushing...", () =>
+                  window.meezeek.repository.push(project.id)
+                )
+              }
+            >
+              <ArrowUpIcon />
+            </button>
+          </span>
         </div>
         <BranchTree projectId={project.id} state={state} branch={branch} />
       </div>

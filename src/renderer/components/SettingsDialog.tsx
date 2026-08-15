@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import type { AppInfo, AppSettings, NotificationSettings } from "../../shared/types";
+import { SHORTCUTS, shortcutLabel } from "../shortcuts";
 import { useEscape } from "./use-escape";
 
 interface SettingsDialogProps {
   onClose: () => void;
 }
 
-type SettingsTab = "notifications" | "info";
+type SettingsTab = "notifications" | "shortcuts" | "info";
 
 /** The dialog's panes, in the order they are worth opening. */
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "notifications", label: "Notifications" },
+  { id: "shortcuts", label: "Shortcuts" },
   { id: "info", label: "Info" }
 ];
 
@@ -106,6 +108,16 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                 already open only after meezeek is restarted.
               </p>
             </>
+          )}
+          {tab === "shortcuts" && (
+            <div className="settings-shortcuts">
+              {SHORTCUTS.map(({ id, description }) => (
+                <div key={id} className="settings-shortcut-row">
+                  <span>{shortcutLabel(id)}</span>
+                  <span>{description}</span>
+                </div>
+              ))}
+            </div>
           )}
           {tab === "info" && info && (
             <div className="settings-info">

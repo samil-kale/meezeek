@@ -133,8 +133,6 @@ option {
   display: flex;
   flex-direction: column;
   height: 100%;
-  /* Shared with the notices, which stack on top of this bar rather than beside it. */
-  --branch-bar-height: 28px;
   /* The floors every pane shares, one per direction — MIN_PANE_* in Sash.tsx, which is where
      the two numbers are explained. Stated here as well because a sash only bounds a drag,
      and a window being made smaller reaches the same panes without going through one. */
@@ -293,87 +291,6 @@ option {
   to {
     transform: rotate(360deg);
   }
-}
-
-/* Branch bar ----------------------------------------------------------------------------- */
-
-/* The window's bottom strip, below everything else. */
-.branch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  height: var(--branch-bar-height);
-  flex: none;
-  padding: 0 8px;
-  background: var(--vscode-editor-background);
-  border-top: 1px solid var(--vscode-panel-border);
-}
-
-/* Takes the leftover width, which is what pushes the branch and its actions to the right. It
-   is also the one thing here that may be cut, hence the ellipsis. */
-.branch-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-}
-
-/* Every icon in this bar stands beside a label rather than in a button of its own — the branch
-   icon says the same thing as the strip's about the same repository, and the arrows and the
-   sync icon are read together with the 11px and 12px text beside them — so the bar states
-   their size itself. */
-.branch-icon,
-.branch-count svg,
-.branch-sync svg {
-  flex: none;
-  width: var(--icon-size);
-  height: var(--icon-size);
-}
-
-.branch-name {
-  font-size: 12px;
-}
-
-/* Ahead and behind, each next to the arrow that says which way it goes. */
-.branch-count {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  font-size: 11px;
-  color: var(--vscode-descriptionForeground);
-}
-
-/* The one network button, GitHub Desktop's: what it does depends on where the branch stands,
-   so it carries a label rather than an icon alone. */
-.branch-sync {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 3px;
-  font-size: 12px;
-  color: inherit;
-}
-
-.branch-sync:hover:not(:disabled) {
-  background: var(--vscode-toolbar-hoverBackground);
-}
-
-.branch-sync:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* Says what the branch command is doing rather than what HEAD still is — set apart, because
-   for those seconds the name in this bar is not the branch you are on. */
-.branch-name.busy {
-  color: var(--vscode-descriptionForeground);
-  font-style: italic;
 }
 
 /* Body ----------------------------------------------------------------------------------- */
@@ -659,12 +576,12 @@ option {
   background: var(--vscode-list-hoverBackground);
 }
 
-/* HEAD, in the blue the active tab underlines itself with — the one colour here that singles
-   something out. It was green, borrowed from `gitDecoration-untrackedResourceForeground`, a
-   variable meaning "git does not know this file" and so nothing to do with which branch is
-   checked out. */
+/* HEAD, marked the way the sidebar already marks the active project: a background rather than
+   a recolored label, which also keeps a track badge on this row legible instead of turning it
+   the same blue as the branch name. */
 .tree-item.current {
-  color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
 }
 
 .tree-icon,
@@ -688,6 +605,41 @@ option {
 .count {
   color: var(--vscode-descriptionForeground);
   font-weight: 400;
+}
+
+/* Ahead/behind on a local branch row, sourcegit's own pair of arrows: only the direction that
+   is not zero shows, each next to the count it belongs to. Pushed to the row's right edge on
+   its own — `.tree-label`'s width still varies with the branch name, so this is a margin on
+   the track rather than a `flex: 1` on every row's label, which would also move `.count` on
+   the rows that carry no track at all. Deliberately not muted like `.count`: read as an icon
+   with a number beside it, the same size and color as the label — the play button beside a
+   command is the model, not a secondary annotation. */
+.tree-track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+  /* `.tree-item`'s own 6px padding-right lands on the pill's border; `.icon-button` in the
+     header sits in its own 24px box on top of that, which insets its icon a further ~5px
+     past the same 6px. This is that same inset, so the two right edges read the same. */
+  padding-right: 5px;
+}
+
+.tree-track-count {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: calc(1em - 2px);
+  border: 1px solid var(--vscode-foreground);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.tree-track-count svg {
+  flex: none;
+  width: calc(var(--icon-size) - 3px);
+  height: calc(var(--icon-size) - 3px);
 }
 
 /* Terminals ------------------------------------------------------------------------------ */
@@ -1516,6 +1468,25 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
+/* The Shortcuts tab's rows: the key combo in a fixed-width column, the way the Info tab's
+   labels are, wide enough for "Ctrl+Shift+" plus a letter. */
+.settings-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-shortcut-row {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-shortcut-row span:first-child {
+  width: 110px;
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* The field a name is typed into, with its label above it. */
 .dialog-field {
   display: flex;
@@ -1776,15 +1747,13 @@ option {
 
 /* Notices -------------------------------------------------------------------------------- */
 
-/* Stacked above the branch bar. Sized to its content rather than the window: a one-line
-   message should not draw a bar across the whole screen. */
 /* Laid over the window's bottom right corner, not in the column with everything else: a
    message arriving must not resize the panes underneath it. Only the messages themselves take
    the pointer, so the empty space around them stays clickable. */
 .notices {
   position: absolute;
   right: 0;
-  bottom: var(--branch-bar-height);
+  bottom: 0;
   /* Above the views and the context menus, below a dialog, which is modal. */
   z-index: 25;
   display: flex;
