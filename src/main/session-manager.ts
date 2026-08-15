@@ -60,6 +60,8 @@ interface TabState extends Omit<TerminalDescriptor, "hasSession"> {
   spawnedAt?: number;
   /** Mirrors AgentSessionInfo.provisionalTitle for this tab's session. */
   provisionalTitle?: boolean;
+  /** When the running turn was reported as started — what a turn end is dated against. */
+  busySince?: number;
   /** The program a saved command runs, when that is not this agent's own executable. */
   executable?: string;
   /** A saved command's arguments — its own program's, or a shell's when it asked for one. */
@@ -124,7 +126,9 @@ function titleUnsettled(tab: TabState): boolean {
  */
 function setTurn(tab: TabState, busy: boolean): void {
   tab.busy = busy;
-  if (!busy) {
+  if (busy) {
+    tab.busySince = Date.now();
+  } else {
     tab.finishedAt = Date.now();
   }
 }
@@ -837,6 +841,20 @@ export class ProjectSessionManager {
       // Tracked even when the label itself is unchanged: an assigned name can read the same
       // as the stand-in it replaces, and that still ends the polling above.
       tab.provisionalTitle = info.provisionalTitle;
+      // The net under the end-of-turn signal, for the ends that signal cannot carry: Claude
+      // Code runs no Stop hook for a turn the user cut short — an escaped prompt or a rejected
+      // tool call — so no marker lands and the spinner would run until the *next* turn ends.
+      // The agent's own record has the end either way, so the listing reports it and this is
+      // where it is read, the way the marker sweep is the net under fs.watch.
+      //
+      // Only ever ends a turn, and only one still believed to be running: an end older than
+      // the busy that started this turn belongs to the one before it. And it leaves no mark —
+      // the only end that reaches us this way is one the user cut short in that very tab, so
+      // there is nothing to find again later.
+      if (tab.busy && info.turnEndedAt !== undefined && info.turnEndedAt > (tab.busySince ?? 0)) {
+        tab.busy = false;
+        changed = true;
+      }
       if (info.title !== tab.title || info.updatedAt !== tab.updatedAt) {
         tab.title = info.title;
         tab.updatedAt = info.updatedAt;

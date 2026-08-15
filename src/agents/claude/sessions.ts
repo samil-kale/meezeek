@@ -21,12 +21,20 @@ export const claudeSessionProvider: SessionProvider = {
         files.map(async (file) => {
           const id = file.slice(0, -".jsonl".length);
           const filePath = path.join(projectDir, file);
-          const [{ title, provisional }, mtime, createdAt] = await Promise.all([
-            extractTitle(filePath, id),
+          const [tail, mtime, createdAt] = await Promise.all([
+            scanTail(filePath, id),
             fs.promises.stat(filePath).then((stat) => stat.mtimeMs),
             extractCreatedAt(filePath)
           ]);
-          return { id, title, updatedAt: mtime, provisionalTitle: provisional, createdAt: createdAt ?? mtime };
+          const { title, provisional } = await extractTitle(filePath, tail.customTitle);
+          return {
+            id,
+            title,
+            updatedAt: mtime,
+            provisionalTitle: provisional,
+            createdAt: createdAt ?? mtime,
+            turnEndedAt: tail.turnEndedAt
+          };
         })
       );
       entries.sort((a, b) => a.createdAt - b.createdAt);
@@ -155,8 +163,9 @@ interface ResolvedTitle {
  * Resolves a session's display name the same way Claude Code's own `/resume` list does
  * (order verified against the CLI, including that a rename outranks an "agent-name"):
  * a `custom-title` entry (Claude's own `/rename`, and what our rename writes) wins and
- * is appended at the true end of the file, so it's found via a tail scan rather than the
- * head window below. Otherwise "agent-name", else "ai-title" — for both, the last
+ * is appended at the true end of the file, so it comes from the tail scan the caller has
+ * already run rather than from the head window below. Otherwise "agent-name", else
+ * "ai-title" — for both, the last
  * occurrence *within that window* wins, since a later one supersedes an earlier one. Else
  * a "summary" entry (only seen after `/compact`), else the first prompt the user typed:
  * Claude assigns no title at all to short sessions, and `/resume` labels those by that
@@ -165,8 +174,7 @@ interface ResolvedTitle {
  * Don't change this scanning logic casually: a regression here silently shows the wrong
  * tab title with nothing to catch it.
  */
-async function extractTitle(filePath: string, sessionId: string): Promise<ResolvedTitle> {
-  const customTitle = await findLastCustomTitle(filePath, sessionId);
+async function extractTitle(filePath: string, customTitle: string | undefined): Promise<ResolvedTitle> {
   if (customTitle) {
     return { title: truncateTitle(customTitle), provisional: false };
   }
@@ -261,12 +269,27 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+/** What one pass over the transcript's tail answers — see scanTail. */
+interface TranscriptTail {
+  /** The last `custom-title` entry, if the tail holds one. */
+  customTitle?: string;
+  /** When the last turn ended, from the `turn_duration` entry Claude writes at every end. */
+  turnEndedAt?: number;
+}
+
 /**
- * Reads just the transcript's tail (custom-title is appended at the end, potentially well past
- * the head window above) and returns the last custom-title entry there, if any — matching
- * Claude's own "last one wins".
+ * Reads just the transcript's tail once and answers both questions that live at the end of the
+ * file: the custom-title (appended at the true end, potentially well past extractTitle's head
+ * window) and when the last turn ended. One pass because both are read on every listing, and a
+ * listing runs for every session of the repository.
+ *
+ * Both take the *last* occurrence, so the scan runs backwards and stops as soon as it has them.
+ * Claude writes a `turn_duration` entry when a turn ends whichever way it ended — the one after
+ * an interrupted turn is what the Stop hook never reports, and what AgentSessionInfo.turnEndedAt
+ * exists for. Sidechain entries are a subagent's own turns, not the session's.
  */
-async function findLastCustomTitle(filePath: string, sessionId: string): Promise<string | undefined> {
+async function scanTail(filePath: string, sessionId: string): Promise<TranscriptTail> {
+  const tail: TranscriptTail = {};
   let handle: fs.promises.FileHandle | undefined;
   try {
     handle = await fs.promises.open(filePath, "r");
@@ -282,19 +305,27 @@ async function findLastCustomTitle(filePath: string, sessionId: string): Promise
       } catch {
         continue;
       }
-      if (entry.type === "custom-title" && entry.sessionId === sessionId) {
-        const customTitle = nonEmptyString(entry.customTitle);
-        if (customTitle) {
-          return customTitle;
-        }
+      if (tail.customTitle === undefined && entry.type === "custom-title" && entry.sessionId === sessionId) {
+        tail.customTitle = nonEmptyString(entry.customTitle);
+      } else if (
+        tail.turnEndedAt === undefined &&
+        entry.type === "system" &&
+        entry.subtype === "turn_duration" &&
+        entry.isSidechain !== true
+      ) {
+        const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
+        tail.turnEndedAt = Number.isNaN(ms) ? undefined : ms;
+      }
+      if (tail.customTitle !== undefined && tail.turnEndedAt !== undefined) {
+        break;
       }
     }
   } catch (error) {
-    console.error("[meezeek] claude custom-title scan failed:", error);
+    console.error("[meezeek] claude transcript tail scan failed:", error);
   } finally {
     await handle?.close();
   }
-  return undefined;
+  return tail;
 }
 
 function truncateTitle(text: string): string {

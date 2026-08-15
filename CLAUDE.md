@@ -476,6 +476,17 @@ after it was written, the watcher process healthy the whole time. A `readdir` on
 empty directory is a syscall rather than a process, so the net is free in the terms the git section
 counts in.
 
+**Claude Code runs no Stop hook for a turn the user cut short**, so that end never reaches
+`finished/` at all — an escaped prompt or a rejected tool call left the spinner running until the
+next turn ended. Confirmed in the transcript: the completed turn has a `stop_hook_summary` naming
+`stop-guard.ps1`, the interrupted one has none, and no hook event covers an interrupt. The net is
+the transcript itself, which records a `system` / `turn_duration` entry at *every* turn end: the
+session listing reports it as `AgentSessionInfo.turnEndedAt`, out of the same tail scan
+`custom-title` already needed, and `reconcile` is the one place it is read. It only ever *ends* a
+turn, only one still believed to be running, and only when that end is newer than the busy which
+started it — an older one belongs to the turn before. It leaves no mark: an end that reaches us
+this way is one the user cut short in that very tab.
+
 Reusing the Stop hook is the point of it: it already carries the `background_tasks` guard, so a
 turn that only launched a subagent and returned is not "finished". Any guess made from the TUI's
 output would lose exactly that. The hooks are therefore registered whatever the notification

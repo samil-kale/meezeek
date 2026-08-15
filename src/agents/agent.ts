@@ -16,6 +16,14 @@ export interface AgentSessionInfo {
    * longer for sessions flagged here — see reconcile.
    */
   provisionalTitle?: boolean;
+  /**
+   * When this session's last turn ended, ms since epoch, as the agent's own record of it says —
+   * undefined where the agent keeps no such record. It is a *net* under the end-of-turn signal
+   * an agent reports through AgentPaths.onSessionFinished, for the ends that signal cannot
+   * carry: Claude Code runs no Stop hook for a turn the user cut short. See reconcile, which is
+   * the one place it is read, and only ever to end a turn.
+   */
+  turnEndedAt?: number;
 }
 
 /**
