@@ -5,7 +5,7 @@ import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { reorder, useDragReorder } from "./drag-reorder";
 import { notify } from "./Notices";
-import { CloseIcon, CommentIcon, PlusIcon, SpinnerIcon } from "./icons";
+import { CloseIcon, CommentIcon, PlusIcon, QuestionIcon, SpinnerIcon } from "./icons";
 
 /**
  * A type of our own rather than text/plain: a project dragged across a terminal must not end
@@ -23,16 +23,22 @@ interface ProjectListProps {
   onAdd: () => void;
   /** The project's first remote, for the entries that open or change its url. */
   remoteOf: (projectId: string) => RemoteInfo | undefined;
+  /** What its HEAD is at — a branch name, or the short commit id while it is detached. */
+  headOf: (projectId: string) => string | undefined;
   /** Opens a shell tab in that project, which is what "open in terminal" means here. */
   onOpenTerminal: (projectId: string) => void;
   /** Whether a session of this project finished a turn nobody has looked at yet. */
   hasFinished: (projectId: string) => boolean;
   /** Whether one of its sessions is working on a turn right now. */
   hasBusy: (projectId: string) => boolean;
+  /** Whether one of its sessions stopped mid-turn on a question nobody has answered. */
+  hasWaiting: (projectId: string) => boolean;
   /** Opens the first session that is working — what the spinner goes to. */
   onShowBusy: (projectId: string) => void;
   /** Opens the oldest of those; pressing the mark again moves on to the next. */
   onShowFinished: (projectId: string) => void;
+  /** The same, for the session that has been waiting on an answer the longest. */
+  onShowWaiting: (projectId: string) => void;
 }
 
 /**
@@ -73,11 +79,14 @@ export function ProjectList({
   onReorder,
   onAdd,
   remoteOf,
+  headOf,
   onOpenTerminal,
   hasFinished,
   hasBusy,
+  hasWaiting,
   onShowBusy,
-  onShowFinished
+  onShowFinished,
+  onShowWaiting
 }: ProjectListProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; project: Project } | null>(null);
 
@@ -165,9 +174,28 @@ export function ProjectList({
             }}
           >
             <span className="project-item-label">{project.name}</span>
-            {/* Both states of a project's sessions, and both can hold at once — one tab working
-                while another waits to be read. Both are buttons, and both go to a session: this
-                one to the first that is working, the one below to the one that finished first. */}
+            {/* Where the repository stands, next to what a command runs with in the list below
+                and drawn the same way: context for the row, not part of its name. The branch bar
+                says it for the project on screen only, and an agent switching a branch in a
+                terminal is exactly what one wants to see on a project that is not. */}
+            {headOf(project.id) && <span className="project-extra">{headOf(project.id)}</span>}
+            {/* All three states of a project's sessions, and they can hold at once — one tab
+                stopped on a question, another working, a third waiting to be read. Each is a
+                button and each goes to a session. Unlike on a tab there is no ranking here:
+                a row has no single icon to replace, so nothing has to give way to anything.
+                A standing question comes first because it is the one costing time. */}
+            {hasWaiting(project.id) && (
+              <button
+                className="icon-button"
+                title="Open the session waiting for an answer"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onShowWaiting(project.id);
+                }}
+              >
+                <QuestionIcon className="session-mark" />
+              </button>
+            )}
             {hasBusy(project.id) && (
               <button
                 className="icon-button"

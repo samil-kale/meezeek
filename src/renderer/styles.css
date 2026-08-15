@@ -452,19 +452,6 @@ option {
   font-family: var(--vscode-editor-font-family);
 }
 
-/* The variables it runs with. Kept small and dimmed: it is context for the command, not part
-   of it. */
-.command-extra {
-  flex: none;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--vscode-descriptionForeground);
-}
-
-
 /* Exactly as tall as the tab strip next to it, border included, so the sidebar's title and the
    tabs sit on one line and end on one. */
 /* Every section header in the sidebar: the tab strip's 35px, and a line below it. The line
@@ -556,6 +543,20 @@ option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* What a row stands on rather than what it is: the variables a command runs with, the branch a
+   repository is checked out at. Kept small and dimmed, and declared together with the row shape
+   above so the two lists cannot drift apart. */
+.command-extra,
+.project-extra {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* Git tab -------------------------------------------------------------------------------- */

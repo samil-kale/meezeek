@@ -19,6 +19,16 @@ export const SESSION_STATUS_EVENT = "session.status";
 export const SESSION_BUSY_STATUS = "busy";
 
 /**
+ * The turn stopped part-way for an answer only the user can give. Named here for the same
+ * reason as the event above — the toast and the mark on the tab answer the same events.
+ *
+ * `session.error` is deliberately not one of them, although it shares the toast below: an error
+ * is something that happened, not a question standing open, and marking a tab for it would put
+ * a state on screen that nothing can ever answer.
+ */
+export const SESSION_WAITING_EVENTS = ["permission.asked", "question.asked"] as const;
+
+/**
  * Fires the OS notifications for opencode. No hooks and no generated plugin: the server's own
  * event stream carries what a notification would be about, and meezeek is already subscribed
  * to it for everything else — opencode's configuration stays untouched.
@@ -48,7 +58,7 @@ export function createOpencodeNotifier(
       `${displayName}: Action needed`,
       `Waiting for input in ${repositoryName}`
     );
-    for (const type of ["permission.asked", "question.asked", "session.error"]) {
+    for (const type of [...SESSION_WAITING_EVENTS, "session.error"]) {
       commands.set(type, command);
     }
   }

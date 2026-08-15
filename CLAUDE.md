@@ -372,8 +372,9 @@ and opencode's notifier is built around the event stream when its server comes u
 handed its notification setup once and cannot be reached afterwards. A change applies to what is
 started after it, and the dialog says so.
 
-Deliberately not in there: the mark on a tab that finished out of sight. It is not a notification
-the user turns off but how such a session is found again (see that section).
+Deliberately not in there: the marks on a tab that finished out of sight or is waiting on an
+answer. Neither is a notification the user turns off but how such a session is found again (see
+that section).
 
 ## Everything the user is told is a notice
 
@@ -430,44 +431,67 @@ replace.
 
 ## Both ends of a turn
 
-A session says whether it is *working* and whether it *finished out of sight*, and the two are one
-mechanism read at either end of the same turn. Both are drawn in both places — on the tab and on
-its project's row — so a project that is not on screen still says what its sessions are doing:
+A session says whether it is *working*, whether it *stopped for an answer*, and whether it
+*finished out of sight*. All three are one mechanism read at three points of the same turn, and all
+three are drawn in both places — on the tab and on its project's row — so a project that is not on
+screen still says what its sessions are doing:
 
 - **working**: a spinner, for as long as the turn runs.
+- **waiting on you**: a question mark. The turn is open but nothing is moving: a permission prompt,
+  an elicitation, or an `AskUserQuestion`. It clears the moment the tab is in front of the user,
+  and — like the bubble — it is a condition, not a notice.
 - **finished out of sight**: a speech bubble. One shape for one thing — a bell in the sidebar was
   tried and taken back out, since two glyphs for the same condition read as two conditions. It goes
   away the moment the tab is in front of the user, and it is deliberately not a notice: a notice is
   something that happened once, this is a condition that holds until it is answered.
 
-In the project row both are buttons that step through their sessions one press at a time. They do
-it differently, and the difference is the mechanism: the bubble works through its list by *emptying*
-it, since a session seen stops being marked, while a session watched carries on working — so the
-spinner keeps a cursor per project (`App.busyCursor`, a ref: it changes what the next press does,
-not what is on screen) and wraps around.
+In the project row all three are buttons that step through their sessions one press at a time. Two
+of them work through their list by *emptying* it, since a session seen stops being marked; a session
+watched carries on working, so the spinner instead keeps a cursor per project (`App.busyCursor`, a
+ref: it changes what the next press does, not what is on screen) and wraps around.
 
-**On a tab both take the agent icon's place** rather than a slot of their own — a tab is as wide as
-its label, and the icon is already what stands for "which session is this". Working outranks
-finished where both hold, since a turn that started after the last one ended is the newer truth and
-the mark is still underneath when it stops. In the sidebar there is no icon to replace, so the two
-stand next to each other, left of the close button. Both are `--vscode-focusBorder` under one
-`.session-mark` rule: two states of one thing must not read as two kinds of thing.
+**On a tab all three take the agent icon's place** rather than a slot of their own — a tab is as
+wide as its label, and the icon is already what stands for "which session is this". One slot means a
+ranking, and it goes **waiting > working > finished**: a session stopped on a question is precisely
+*not* working, so that is the more useful truth of the two, and working in turn outranks finished
+because a turn that started after the last one ended is the newer one and the mark is still
+underneath when it stops. In the sidebar there is no icon to replace, so they stand next to each
+other left of the close button and nothing has to give way. All are `--vscode-focusBorder` under one
+`.session-mark` rule: three states of one thing must not read as three kinds of thing.
 
-**Nothing here is read off the terminal.** Each agent already knows when a turn starts and ends,
-and `AgentPaths.onSessionBusy` / `onSessionFinished` are how it says so:
+**Whether a question is *shown* is decided in `App`**, next to the rule for the bubble
+(`waitingTabs` beside `markedTabs`) and for the same reason — the main process holds the state but
+cannot know which tab is on screen, and two views applying the rule themselves would be two chances
+to disagree.
+
+**Nothing here is read off the terminal.** Each agent already knows when a turn starts, stalls and
+ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` are how it says so:
 
 - opencode says `session.status` with a `busy` status, then `session.idle`, on the event stream
   meezeek is already subscribed to. `subscribe` carries `properties.sessionID` and
   `properties.status.type` alongside the event's `type`, all three verified against the binary's
   own `mo.define({type:"session.idle",schema:{sessionID}})`, its `SessionStatus` union, and the
-  `{type, properties}` envelope it publishes with.
-- Claude Code's hooks are processes of their own that cannot call back into meezeek, so each end
+  `{type, properties}` envelope it publishes with. A question is `permission.asked` /
+  `question.asked` on the same stream; `session.error` shares their toast but deliberately not the
+  mark, since an error is something that happened rather than a question left standing.
+- Claude Code's hooks are processes of their own that cannot call back into meezeek, so each point
   `touch`es an empty file named after the session id — `UserPromptSubmit` into `<agentDir>/busy/`,
-  `Stop` into `<agentDir>/finished/` — and `watchMarkers` picks them up. Both halves live in
-  `hooks.ts`, either side of `markerDir`. The busy hook shares `UserPromptSubmit` with the command
-  that prints the context file, so it must stay **silent**: everything such a hook writes is
-  appended to the prompt itself. It must also exit 0 whatever happens, since a failing
-  UserPromptSubmit hook can hold the prompt back.
+  `Stop` into `<agentDir>/finished/`, and `Notification`
+  (`permission_prompt|elicitation_dialog`) plus `PreToolUse` (`AskUserQuestion`) into
+  `<agentDir>/waiting/` — and `watchMarkers` picks them up. Both halves live in `hooks.ts`, either
+  side of `markerDir`. The busy hook shares `UserPromptSubmit` with the command that prints the
+  context file, so it must stay **silent**: everything such a hook writes is appended to the prompt
+  itself. It must also exit 0 whatever happens, since a failing UserPromptSubmit hook can hold the
+  prompt back. `AskUserQuestion` needs a hook of its own because it is a *tool*, not a Notification
+  event, and `idle_prompt` is deliberately not among the matchers: it fires after a turn has ended,
+  which is what the bubble already says.
+
+**There is no "answered" signal, from either agent**, and buying one would cost a hook process on
+every tool call. So a question is cleared by exactly two things: the tab being looked at
+(`markSeen`, alongside the bubble), and either end of a turn — `setTurn` clears it, because a
+question can only stand open *within* a turn. A permission granted mid-turn therefore leaves the
+mark until the tab is in front of the user, which is the same contract the bubble has and the reason
+the two are cleared in one place.
 
 `watchMarkers` sweeps its directory on a timer **as well as** watching it, and that net is not
 optional: on win32 `fs.watch` can fire before the new name is in the directory listing, and nothing
@@ -491,12 +515,14 @@ this way is one the user cut short in that very tab.
 Reusing the Stop hook is the point of it: it already carries the `background_tasks` guard, so a
 turn that only launched a subagent and returned is not "finished". Any guess made from the TUI's
 output would lose exactly that. The hooks are therefore registered whatever the notification
-settings say — only the toast inside Stop is optional. Whatever sits in either directory at startup
-is deleted *without* being reported: those turns ended before this window existed.
+settings say — only the toast inside them is optional, and the same holds for the two that mark a
+question. Whatever sits in any of the directories at startup is deleted *without* being reported:
+those turns ended before this window existed.
 
-The state is `TerminalDescriptor.busy` and `finishedAt`, held per tab in the main process the way
-`hasSession` is, so a closed tab takes it with it. `finishedAt` is a time rather than a flag,
-because the project row's mark opens the oldest one first, and `setTurn` writes both at once —
+The state is `TerminalDescriptor.busy`, `waitingAt` and `finishedAt`, held per tab in the main
+process the way `hasSession` is, so a closed tab takes it with it. `finishedAt` is a time rather
+than a flag, because the project row's mark opens the oldest one first, and `setTurn` writes both at
+once —
 ending a turn is exactly "stop spinning and leave the mark". Two halves keep it honest, and neither
 can do the other's job:
 
@@ -721,9 +747,9 @@ the others.
   (`--vscode-sash-hoverBorder`, VS Code's own name for the same blue). A new one copies an existing
   rule instead of picking a width and a color of its own — two of them that differ read as two
   different meanings. The active git toggle's 2px accent is the exception, and it is VS Code's own.
-  The same holds for a mark that is a *shape*: all four session marks sit under one `.session-mark`
-  rule, and an icon that marks something is drawn to the square its neighbours occupy rather than
-  to the full 2–14 box.
+  The same holds for a mark that is a *shape*: every session mark — three states, each drawn on a
+  tab and on a project row — sits under one `.session-mark` rule, and an icon that marks something
+  is drawn to the square its neighbours occupy rather than to the full 2–14 box.
 - **Icons and marks are monochrome**; the only colour any of them takes is that blue. The changes
   list's status letters are the one exception, and they are the theme's own answer:
   `gitDecoration-*` is what VS Code colours that exact list with. Which is the test for the next one

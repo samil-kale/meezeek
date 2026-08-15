@@ -8,7 +8,8 @@ import {
   createOpencodeNotifier,
   SESSION_BUSY_STATUS,
   SESSION_FINISHED_EVENT,
-  SESSION_STATUS_EVENT
+  SESSION_STATUS_EVENT,
+  SESSION_WAITING_EVENTS
 } from "./notify";
 import { basicAuth, forgetServer, killServerTree, rememberServer, serversReclaimed } from "./server-registry";
 import { installTuiConfig } from "./tui-config";
@@ -285,6 +286,9 @@ export async function prepareOpencodeSpawn(
       paths.onSessionFinished(event.sessionId);
     } else if (event.type === SESSION_STATUS_EVENT && event.status === SESSION_BUSY_STATUS) {
       paths.onSessionBusy(event.sessionId);
+    } else if ((SESSION_WAITING_EVENTS as readonly string[]).includes(event.type)) {
+      // Not an end of the turn — the session is still busy and stays that way until it idles.
+      paths.onSessionWaiting(event.sessionId);
     }
   });
   return {

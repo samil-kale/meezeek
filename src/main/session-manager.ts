@@ -98,9 +98,17 @@ interface AgentRuntime {
   readonly pendingTurns: Map<string, PendingTurn>;
 }
 
-/** One end of a turn, waiting for the reconcile that gives its session a tab. */
+/**
+ * What a session reported before any tab held its id, waiting for the reconcile that gives it
+ * one. The two are kept side by side rather than as one latest-wins value: a question always
+ * arrives *within* a turn, so a waiting report that overwrote the busy before it would land a
+ * mark on a tab that never learned it was working.
+ */
 interface PendingTurn {
-  busy: boolean;
+  /** The last end-of-turn signal, if one came in at all. */
+  busy?: boolean;
+  /** When a question was reported, if one was; see TerminalDescriptor.waitingAt. */
+  waitingAt?: number;
   since: number;
 }
 
@@ -123,9 +131,15 @@ function titleUnsettled(tab: TabState): boolean {
 /**
  * A turn started or ended. The spinner follows it either way, and the end of one also leaves
  * the mark that outlives it — the two belong together, so one function sets both.
+ *
+ * Either end also clears `waitingAt`: a question can only stand open within a turn, so a turn
+ * that has just begun cannot have one yet and one that has ended cannot still have one. This is
+ * the only signal there is — no agent reports that a question was answered — which is why a
+ * permission granted mid-turn leaves the mark until the tab is looked at.
  */
 function setTurn(tab: TabState, busy: boolean): void {
   tab.busy = busy;
+  tab.waitingAt = undefined;
   if (busy) {
     tab.busySince = Date.now();
   } else {
@@ -134,7 +148,8 @@ function setTurn(tab: TabState, busy: boolean): void {
 }
 
 function toDescriptor(tab: TabState): TerminalDescriptor {
-  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt, busy } = tab;
+  const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt, busy, waitingAt } =
+    tab;
   return {
     tabId,
     projectId,
@@ -145,6 +160,7 @@ function toDescriptor(tab: TabState): TerminalDescriptor {
     status,
     finishedAt,
     busy,
+    waitingAt,
     hasSession: sessionId !== undefined
   };
 }
@@ -196,7 +212,8 @@ export class ProjectSessionManager {
       // the current settings apply, and a change reaches the ones set up after it.
       notifications: this.settings.get().notifications,
       onSessionBusy: (sessionId) => this.markTurn(runtime, sessionId, true),
-      onSessionFinished: (sessionId) => this.markTurn(runtime, sessionId, false)
+      onSessionFinished: (sessionId) => this.markTurn(runtime, sessionId, false),
+      onSessionWaiting: (sessionId) => this.markWaiting(runtime, sessionId)
     };
   }
 
@@ -572,9 +589,11 @@ export class ProjectSessionManager {
             this.scheduleReconcile(runtime);
             // A process that is gone is not working on anything, whatever the agent last said:
             // a CLI killed mid-turn never gets to report its end, and the spinner would turn
-            // on a dead tab for the rest of the session.
-            if (tab.busy) {
+            // on a dead tab for the rest of the session. An open question goes the same way and
+            // for the same reason — there is nothing left to answer it.
+            if (tab.busy || tab.waitingAt !== undefined) {
               tab.busy = false;
+              tab.waitingAt = undefined;
               this.postTabs();
             }
             // Safety net: the CLI may exit before ever producing enough output to cross the
@@ -736,9 +755,12 @@ export class ProjectSessionManager {
     }
     // No tab holds that id yet — a fresh tab whose first turn began, or ended, before the
     // reconcile that adopts its session ran; the common short-first-question case. Held rather
-    // than dropped, and re-listed at once so the wait is as short as it can be. A second signal
-    // for the same session replaces the first, so what lands is the state it ended up in.
-    runtime.pendingTurns.set(sessionId, { busy, since: Date.now() });
+    // than dropped, and re-listed at once so the wait is as short as it can be. A second turn
+    // signal for the same session replaces the first, so what lands is the state it ended up
+    // in; a question held alongside it is left where it is, since applying the turn is what
+    // decides whether it still stands.
+    const pending = runtime.pendingTurns.get(sessionId);
+    runtime.pendingTurns.set(sessionId, { ...pending, busy, since: Date.now() });
     this.scheduleReconcile(runtime, 0);
   }
 
@@ -753,16 +775,45 @@ export class ProjectSessionManager {
   }
 
   /**
+   * A turn in one of this project's sessions stopped on a question — see
+   * AgentPaths.onSessionWaiting. Held for a tabless session the same way a turn is, because the
+   * very first thing a fresh session does can be to ask for a permission.
+   *
+   * Deliberately not routed through setTurn: the turn is still open, and nothing here touches
+   * `busy`. What the mark does to the spinner is the renderer's decision.
+   */
+  private markWaiting(runtime: AgentRuntime, sessionId: string): void {
+    if (this.disposed) {
+      return;
+    }
+    const waitingAt = Date.now();
+    const tab = this.tabsOf(runtime).find((candidate) => candidate.sessionId === sessionId);
+    if (tab) {
+      tab.waitingAt = waitingAt;
+      this.postTabs();
+      return;
+    }
+    const pending = runtime.pendingTurns.get(sessionId);
+    runtime.pendingTurns.set(sessionId, { ...pending, waitingAt, since: pending?.since ?? waitingAt });
+    this.scheduleReconcile(runtime, 0);
+  }
+
+  /**
    * The tab is in front of the user, so whatever was waiting on it has been seen. Nothing is
    * checked here: the renderer calls it for the active tab of the project on screen, which is
    * the one thing this process cannot know for itself.
    */
   markSeen(tabId: string): void {
     const tab = this.tabs.find((candidate) => candidate.tabId === tabId);
-    if (tab?.finishedAt === undefined) {
+    if (!tab || (tab.finishedAt === undefined && tab.waitingAt === undefined)) {
       return;
     }
     tab.finishedAt = undefined;
+    // The open question goes with it, and this is the only signal that clears one before the
+    // turn ends: neither agent reports that a permission was granted, and buying that would
+    // cost a hook process on every tool call. A tab on screen has been answered or not, and
+    // either way the user knows — which is the same contract the bubble beside it has.
+    tab.waitingAt = undefined;
     this.postTabs();
   }
 
@@ -892,7 +943,14 @@ export class ProjectSessionManager {
     for (const [sessionId, pending] of runtime.pendingTurns) {
       const tab = ownTabs.find((candidate) => candidate.sessionId === sessionId);
       if (tab) {
-        setTurn(tab, pending.busy);
+        // The turn first, the question after: setTurn clears `waitingAt`, so the other order
+        // would drop a question that came in while the same turn was still open.
+        if (pending.busy !== undefined) {
+          setTurn(tab, pending.busy);
+        }
+        if (pending.waitingAt !== undefined && tab.busy !== false) {
+          tab.waitingAt = pending.waitingAt;
+        }
         runtime.pendingTurns.delete(sessionId);
         changed = true;
       } else if (Date.now() - pending.since > PENDING_TURN_TTL_MS) {

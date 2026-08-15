@@ -272,6 +272,22 @@ export function App() {
   );
 
   /**
+   * A project's sessions that stopped mid-turn on a question, oldest first. The same rule as
+   * `markedTabs` and for the same reason — a question asked in the tab in front of the user was
+   * never asked out of sight — so the two live next to each other and both views take the
+   * answer from here rather than working it out twice.
+   */
+  const waitingTabs = useCallback(
+    (projectId: string): TerminalDescriptor[] => {
+      const onScreen = projectId === activeProjectId ? activeTabs[projectId] : undefined;
+      return (tabs[projectId] ?? [])
+        .filter((tab) => tab.waitingAt !== undefined && tab.tabId !== onScreen)
+        .sort((a, b) => (a.waitingAt ?? 0) - (b.waitingAt ?? 0));
+    },
+    [tabs, activeTabs, activeProjectId]
+  );
+
+  /**
    * Whether any session of this project is working on a turn. Unlike the mark above, the tab in
    * front of the user is *not* left out: a spinner says what is happening now, and it says it
    * wherever the tab is — the reason to look at it is that the answer is not there yet.
@@ -315,6 +331,17 @@ export function App() {
     [markedTabs, showTab]
   );
 
+  /** The same, for the session that has been waiting on an answer the longest. */
+  const showWaiting = useCallback(
+    (projectId: string) => {
+      const next = waitingTabs(projectId)[0];
+      if (next) {
+        showTab(projectId, next.tabId);
+      }
+    },
+    [waitingTabs, showTab]
+  );
+
   /**
    * The tab in front of the user has been seen, so the mark on it goes. The main process holds
    * it but never learns which tab is on screen, which is why this is the renderer's half.
@@ -324,7 +351,9 @@ export function App() {
       return;
     }
     const onScreen = activeTabs[activeProjectId];
-    const seen = tabs[activeProjectId]?.find((tab) => tab.tabId === onScreen && tab.finishedAt !== undefined);
+    const seen = tabs[activeProjectId]?.find(
+      (tab) => tab.tabId === onScreen && (tab.finishedAt !== undefined || tab.waitingAt !== undefined)
+    );
     if (seen) {
       window.meezeek.terminals.seen(activeProjectId, seen.tabId);
     }
@@ -382,11 +411,14 @@ export function App() {
             onReorder={reorderProjects}
             onAdd={() => setAddOpen(true)}
             remoteOf={(projectId) => states[projectId]?.remotes[0]}
+            headOf={(projectId) => states[projectId]?.head}
             onOpenTerminal={openTerminal}
             hasFinished={(projectId) => markedTabs(projectId).length > 0}
             hasBusy={hasBusyTab}
+            hasWaiting={(projectId) => waitingTabs(projectId).length > 0}
             onShowBusy={showBusy}
             onShowFinished={showFinished}
+            onShowWaiting={showWaiting}
           />
           <Sash
             orientation="horizontal"
@@ -453,6 +485,7 @@ export function App() {
               openedTab={openedTab?.projectId === project.id ? openedTab : null}
               onActiveTab={setActiveTab}
               markedTabIds={markedTabs(project.id).map((tab) => tab.tabId)}
+              waitingTabIds={waitingTabs(project.id).map((tab) => tab.tabId)}
             />
           ))}
           {!activeProject && (

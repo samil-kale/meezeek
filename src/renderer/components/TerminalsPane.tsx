@@ -5,7 +5,7 @@ import { AgentIcon } from "./agent-icons";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { TerminalHost } from "./TerminalHost";
-import { BranchIcon, CloseIcon, CommentIcon, PlusIcon, SpinnerIcon } from "./icons";
+import { BranchIcon, CloseIcon, CommentIcon, PlusIcon, QuestionIcon, SpinnerIcon } from "./icons";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
 const RESIZE_DEBOUNCE_MS = 100;
@@ -44,6 +44,8 @@ interface TerminalsPaneProps {
   onActiveTab: (projectId: string, tabId: string | null) => void;
   /** Tabs whose finished turn is still waiting to be looked at — App decides, this draws it. */
   markedTabIds: string[];
+  /** Tabs stopped mid-turn on an unanswered question — decided in App for the same reason. */
+  waitingTabIds: string[];
 }
 
 export function TerminalsPane({
@@ -56,7 +58,8 @@ export function TerminalsPane({
   onOpenDiff,
   openedTab,
   onActiveTab,
-  markedTabIds
+  markedTabIds,
+  waitingTabIds
 }: TerminalsPaneProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -323,10 +326,15 @@ export function TerminalsPane({
             title={tabTooltip(tab)}
           >
             {/* What this session is doing takes the agent icon's place rather than claiming room
-                of its own — the tab is as wide as its label and nothing more. Working outranks
-                finished: a turn that started after the last one ended is the newer truth, and
-                the mark is still there underneath for when it stops. */}
-            {tab.busy ? (
+                of its own — the tab is as wide as its label and nothing more. Three states of
+                one thing, in the order of how much they say. A standing question outranks
+                working, because such a session is precisely *not* working and nothing moves
+                until it is answered; working outranks finished, since a turn that started after
+                the last one ended is the newer truth, and the mark is still there underneath for
+                when it stops. */}
+            {waitingTabIds.includes(tab.tabId) ? (
+              <QuestionIcon className="terminal-tab-icon session-mark" />
+            ) : tab.busy ? (
               <SpinnerIcon className="terminal-tab-icon session-mark spinning" />
             ) : markedTabIds.includes(tab.tabId) ? (
               <CommentIcon className="terminal-tab-icon session-mark" />

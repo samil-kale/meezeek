@@ -89,6 +89,17 @@ export interface AgentPaths {
    */
   onSessionBusy(sessionId: string): void;
   onSessionFinished(sessionId: string): void;
+  /**
+   * The turn stopped part-way on a question only the user can answer — a permission prompt, an
+   * elicitation, or `AskUserQuestion`. Reported through the same path and held the same way as
+   * the two above, and deliberately *not* an end: the turn is still open, which is why it takes
+   * the spinner's place rather than clearing it.
+   *
+   * There is no matching "answered" signal from either agent, and neither is worth buying: it
+   * would cost a hook process on every tool call. The mark is cleared by being looked at, and
+   * by either end of the turn — see setTurn.
+   */
+  onSessionWaiting(sessionId: string): void;
 }
 
 /**

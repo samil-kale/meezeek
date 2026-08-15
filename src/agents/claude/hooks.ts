@@ -10,12 +10,14 @@ import {
 import type { NotificationSettings } from "../../shared/types";
 
 /**
- * Where a hook drops its markers, and where meezeek watches for them. Two kinds, either end of
- * a turn: `busy` from UserPromptSubmit, `finished` from Stop. A marker's *filename* is the whole
- * message — nothing is read out of a file, so a reader never races a half-written one, which
- * every other file shared with another process here has to be written around.
+ * Where a hook drops its markers, and where meezeek watches for them. Three kinds: `busy` from
+ * UserPromptSubmit and `finished` from Stop, either end of a turn, plus `waiting` from
+ * Notification and PreToolUse for a turn that stopped part-way on a question. A marker's
+ * *filename* is the whole message — nothing is read out of a file, so a reader never races a
+ * half-written one, which every other file shared with another process here has to be written
+ * around.
  */
-type Marker = "busy" | "finished";
+type Marker = "busy" | "finished" | "waiting";
 
 /**
  * How often the marker directories are swept regardless of the watcher — see watchMarkers for
@@ -222,6 +224,50 @@ ${notifyCommand ?? ""}
 }
 
 /**
+ * Builds a hook command that records the session as waiting on the user, and then notifies
+ * where notifications are on. Built exactly like the Stop command and for the same reason: the
+ * marker is what puts the mark on the tab, and that mark is not a notification the user can
+ * turn off — it is how a session blocked out of sight is found again. Only the toast is
+ * optional.
+ *
+ * No guard of its own, unlike Stop's `background_tasks` check: Claude Code raises these events
+ * only when it has actually stopped for an answer, so there is no "it merely looks stopped"
+ * case to rule out. It carries no turn state either — the turn is still open, and `waiting`
+ * says where it stopped, not that it ended.
+ *
+ * `id` names the script file, because the two callers want different toast wording and a
+ * shared file would have the second overwrite the first.
+ */
+function buildWaitingCommand(storageDir: string, id: string, notifyCommand: string | undefined): string {
+  const marks = markerDir(storageDir, "waiting");
+  fs.mkdirSync(marks, { recursive: true });
+  if (process.platform === "win32") {
+    const scriptFile = path.join(storageDir, `${id}.ps1`);
+    fs.writeFileSync(
+      scriptFile,
+      WIN_BOM +
+        `try {
+  $json = [Console]::In.ReadToEnd() | ConvertFrom-Json
+${markPowershell(marks)}
+} catch {}
+${notifyCommand ?? ""}
+`
+    );
+    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
+  }
+  const scriptFile = path.join(storageDir, `${id}.sh`);
+  writePosixScript(
+    scriptFile,
+    `#!/bin/sh
+json=$(cat)
+${markPosix(marks)}
+${notifyCommand ?? ""}
+`
+  );
+  return `sh "${scriptFile}"`;
+}
+
+/**
  * Builds the UserPromptSubmit-hook command that prints the context file — its stdout is
  * attached to every user prompt as context.
  *
@@ -281,39 +327,75 @@ export function setupClaudeHooks(
     : undefined;
   hooks.Stop = [{ hooks: [{ type: "command", command: buildStopCommand(storageDir, notify) }] }];
 
-  const notificationMatchers: { id: string; matcher: string; title: string; body: string }[] = [];
-  if (notifications.needsYou) {
-    notificationMatchers.push({
-      id: "needs-you",
+  // A turn that stopped on a question, registered on the same terms as Stop above: the command
+  // marks the tab whatever the settings say, and only the toast inside it is optional. The
+  // matcher is the pair of Notification events that mean Claude Code is actually blocked —
+  // `idle_prompt` is deliberately not among them, since that one fires *after* a turn ended and
+  // is already what the bubble stands for.
+  const notificationHooks: { matcher: string; hooks: { type: string; command: string }[] }[] = [
+    {
       matcher: "permission_prompt|elicitation_dialog",
-      title: `${displayName}: Action needed`,
-      body: `Waiting for input in ${repositoryName}`
-    });
-  }
+      hooks: [
+        {
+          type: "command",
+          command: buildWaitingCommand(
+            storageDir,
+            "needs-you",
+            notifications.needsYou
+              ? buildNotifyCommand(
+                  storageDir,
+                  "needs-you",
+                  `${displayName}: Action needed`,
+                  `Waiting for input in ${repositoryName}`
+                )
+              : undefined
+          )
+        }
+      ]
+    }
+  ];
   if (notifications.idleReminder) {
-    notificationMatchers.push({
-      id: "idle",
+    notificationHooks.push({
       matcher: "idle_prompt",
-      title: `${displayName}: Still waiting`,
-      body: `No response yet in ${repositoryName}`
+      hooks: [
+        {
+          type: "command",
+          command: buildNotifyCommand(
+            storageDir,
+            "idle",
+            `${displayName}: Still waiting`,
+            `No response yet in ${repositoryName}`
+          )
+        }
+      ]
     });
   }
-  if (notificationMatchers.length > 0) {
-    hooks.Notification = notificationMatchers.map(({ id, matcher, title, body }) => ({
-      matcher,
-      hooks: [{ type: "command", command: buildNotifyCommand(storageDir, id, title, body) }]
-    }));
-  }
+  hooks.Notification = notificationHooks;
 
-  if (notifications.needsYou) {
-    const notify = buildNotifyCommand(
-      storageDir,
-      "question",
-      `${displayName}: Question`,
-      `Waiting for your answer in ${repositoryName}`
-    );
-    hooks.PreToolUse = [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: notify }] }];
-  }
+  // `AskUserQuestion` is a tool rather than a Notification event, so the same condition needs a
+  // second hook to be seen at all.
+  hooks.PreToolUse = [
+    {
+      matcher: "AskUserQuestion",
+      hooks: [
+        {
+          type: "command",
+          command: buildWaitingCommand(
+            storageDir,
+            "question",
+            notifications.needsYou
+              ? buildNotifyCommand(
+                  storageDir,
+                  "question",
+                  `${displayName}: Question`,
+                  `Waiting for your answer in ${repositoryName}`
+                )
+              : undefined
+          )
+        }
+      ]
+    }
+  ];
 
   // The context block points at a file in meezeek's own storage — outside the repository,
   // where reads are denied unless granted. Scoped to that one file rather than the whole

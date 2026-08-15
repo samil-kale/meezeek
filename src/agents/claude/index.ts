@@ -19,9 +19,11 @@ export const claudeAgent: AgentDefinition = {
     try {
       args = setupClaudeHooks(paths.agentDir, cwd, "Claude", paths.notifications, paths);
       // A hook is a process of its own and cannot call back into meezeek, so each end of a turn
-      // leaves a file behind and these are what pick them up.
+      // — and the point part-way through where it stops for an answer — leaves a file behind,
+      // and these are what pick them up.
       watchers.push(watchMarkers(paths.agentDir, "busy", paths.onSessionBusy));
       watchers.push(watchMarkers(paths.agentDir, "finished", paths.onSessionFinished));
+      watchers.push(watchMarkers(paths.agentDir, "waiting", paths.onSessionWaiting));
     } catch (error) {
       // Unlike opencode's server, these hooks are not what makes the CLI usable — losing
       // the notifications must not keep Claude from starting, so this is swallowed rather

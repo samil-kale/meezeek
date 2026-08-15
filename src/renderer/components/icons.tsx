@@ -298,6 +298,22 @@ export function WhitespaceIcon(props: IconProps) {
   );
 }
 
+/**
+ * A session stopped mid-turn on a question nobody has answered — on its tab and on its
+ * project's row. A question mark rather than a second bubble: it stands next to the bubble and
+ * the spinner in the one slot each of those uses, so the three have to be told apart at a
+ * glance, and both things that raise it (a permission prompt, an `AskUserQuestion`) are
+ * literally questions.
+ */
+export function QuestionIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={9.32} cx={8.05} cy={7.45}>
+      <path d="M5.35 5.5a2.7 2.7 0 1 1 2.7 2.85v1.35" />
+      <circle cx="8.05" cy="12.15" r="0.35" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
 /** A session answered and nobody has looked yet — on its tab and on its project's row. */
 export function CommentIcon(props: IconProps) {
   return (

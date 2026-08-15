@@ -343,4 +343,14 @@ export interface TerminalDescriptor {
    * process has ended, whatever the agent last said.
    */
   busy?: boolean;
+  /**
+   * When this session last stopped mid-turn on a question nobody has answered yet — a
+   * permission prompt, an elicitation, or an `AskUserQuestion` — ms since epoch. Cleared the
+   * moment the tab is on screen, exactly like `finishedAt`, and by either end of a turn.
+   *
+   * Its own field rather than a shade of `busy`, because it is the opposite of it: such a
+   * session is *not* working, and nothing moves until the user answers. A time rather than a
+   * flag for `finishedAt`'s reason — the project row's mark opens the oldest one first.
+   */
+  waitingAt?: number;
 }
