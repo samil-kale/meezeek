@@ -3,6 +3,7 @@ import { app, BrowserWindow, Menu } from "electron";
 import { prepareAgents } from "../agents";
 import { AccountStore } from "../providers/accounts";
 import type { Project, TerminalOutput, TerminalStatus } from "../shared/types";
+import { startAutoUpdate } from "./auto-update";
 import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
 import { startGitProcess, stopGitProcess } from "./git-client";
 import { registerIpc } from "./ipc";
@@ -175,6 +176,7 @@ if (!app.requestSingleInstanceLock()) {
     prepareAgents(app.getPath("userData"));
     registerIpc({ store, settings, accounts, repositories, sessions, send, openProject, openWorkspace });
     createWindow();
+    startAutoUpdate((severity, message) => send("app:notice", { severity, message }));
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {

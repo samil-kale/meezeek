@@ -9,7 +9,7 @@ directories:
   output: release
 
 # Everything the app needs at runtime. node_modules is not listed: electron-builder takes the
-# production dependencies by itself, which is node-pty and nothing else.
+# production dependencies by itself, which is node-pty and electron-updater.
 files:
   - dist/**
   - package.json
@@ -42,3 +42,11 @@ linux:
   target:
     - AppImage
     - deb
+
+# Where the release workflow's `npm run dist -- --publish always` uploads the installers, and
+# where the running app's electron-updater looks for them. The repo is public, so no token is
+# needed to read releases — only to publish, which the workflow does with its own GITHUB_TOKEN.
+publish:
+  provider: github
+  owner: samil-kale
+  repo: meezeek
