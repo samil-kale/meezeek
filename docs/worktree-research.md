@@ -550,10 +550,51 @@ directly applicable to how meezeek starts a terminal in a new worktree.
 > setup time than a basic worktree, but it gives AgentsCommander stronger isolation for parallel
 > teams, safer delegation boundaries, and cleaner test or build state per workgroup.
 
+What that actually is on disk, read from `entity_creation.rs`:
+
+```
+my-project/.ac/wg-1-feature-x/
+├── TASK.md                  # the workgroup's goal, owned by the coordinator
+├── messaging/               # every inter-agent message, one timestamped .md each
+├── repo-app/                # git clone --depth 1 <url>   ← one per repo, per workgroup
+├── repo-admin/
+├── __agent_tech-lead/       # coordinator replica: scratch, inbox/, outbox/, sessions
+├── __agent_dev-rust/        # worker replica; config.json points at ../repo-app
+└── __agent_dev-ts/
+```
+
+Three details the prose glosses over:
+
+- **The repo copy is per workgroup, not per replica.** Agents in one team share the checkout; each
+  replica's `config.json` just lists `../repo-<name>` for the repos that agent may touch. The
+  isolation unit is *one team working one task*, not *one agent*.
+- **It is `git clone --depth 1 <url>` from the remote**, not a local clone and not a worktree —
+  with `-c core.longpaths=true`, credentials scrubbed from the environment, `CREATE_NO_WINDOW` on
+  Windows, a 10-minute timeout, and a `git reset` fallback when `.git/index` is missing afterwards.
+  A team defines repos as URLs, with per-repo agent include/exclude lists.
+- **The isolation is organisational, not a sandbox.** Its own `security.md` says so plainly: *"AC
+  adds visibility and coordination; it does **not** add a sandbox. If the underlying agent can
+  `rm -rf ~/`, AC will let it."* What the replica separates is git state, build state and
+  delegation authority — not filesystem reach.
+
 Its user-facing hint still lists worktrees as a valid lighter option. It does contain a lot of
 worktree-*aware* code — its git status watcher notes that dirtiness is a property of the worktree
 and that several replicas legitimately share one, and its repo detection knows `.git` is a file in
 a linked worktree.
+
+**Trade-off against a worktree**, since this is the road not taken:
+
+| | Workgroup replica | Worktree |
+| --- | --- | --- |
+| Cost per unit | Full shallow clone: disk × N, network, minutes on a big repo | Working tree only; object DB shared, seconds |
+| git state | Fully separate — own refs, branches, stash, config, hooks, object DB | Shared refs/objects/config/hooks; a branch can only be checked out in one worktree |
+| Cleanup | `rm -rf` the directory. No `prune`, no `lock`, no orphaned `.git/worktrees/*` entries | The whole ladder in §2 exists because this is genuinely hard |
+| Start point | Guaranteed the remote's tip | Whatever local ref you pick — the §1.3 problem |
+| Local uncommitted work | Cannot come along at all | Can be carried over (agent-deck `--with-state`, hive duplicate) |
+| History | `--depth 1`: no `git log`, no merge-base against older commits, no rebase onto anything old | Full |
+| Needs a remote + network | Yes | No |
+| Harvest | Only via push + PR | Local merge, or hunk-level apply |
+| Where the user's editor is pointed | Somewhere else entirely | Also somewhere else, but on the same object DB |
 
 **fukuyori/wtmux** is a tmux clone for Windows Terminal. No git anything. The name is a
 coincidence.
