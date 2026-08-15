@@ -54,8 +54,8 @@ export function watchMarkers(
     }
     for (const name of names) {
       try {
-        // Deliberately not `force`: a marker a concurrent drain already took raises ENOENT
-        // here, and that is what keeps one turn from being reported twice.
+        // Not `force`: a marker gone by now raises ENOENT here, and an unlink that did not
+        // happen is not a turn to report.
         await fs.promises.unlink(path.join(dir, name));
       } catch {
         continue;
@@ -66,10 +66,16 @@ export function watchMarkers(
     }
   };
 
-  void drain(false);
+  // One drain at a time, in order: the startup drain's own unlinks fire the watcher, and a
+  // drain started by that would race it for the next stale marker — and report it.
+  let draining = Promise.resolve();
+  const queueDrain = (report: boolean): void => {
+    draining = draining.then(() => drain(report)).catch(() => undefined);
+  };
+  queueDrain(false);
   let watcher: fs.FSWatcher | undefined;
   try {
-    watcher = fs.watch(dir, () => void drain(true));
+    watcher = fs.watch(dir, () => queueDrain(true));
   } catch (error) {
     console.error(`[meezeek] could not watch Claude's ${kind} sessions:`, error);
   }
@@ -80,7 +86,7 @@ export function watchMarkers(
   // one lost event strands a turn *forever*: the spinner never stops and the mark never lands.
   // A readdir on an all-but-always-empty directory is a syscall, not a process, so the net
   // costs nothing; the watcher stays because it is what makes the common case immediate.
-  const sweep = setInterval(() => void drain(true), MARKER_SWEEP_MS);
+  const sweep = setInterval(() => queueDrain(true), MARKER_SWEEP_MS);
   return () => {
     stopped = true;
     clearInterval(sweep);

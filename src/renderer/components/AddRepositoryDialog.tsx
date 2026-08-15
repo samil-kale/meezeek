@@ -270,6 +270,9 @@ function RemoteTab({ onClone }: RemoteTabProps) {
     });
     return () => {
       cancelled = true;
+      // The next run only turns it back on when it fetches: switching to an account that is
+      // already listed would otherwise leave the spinner standing over that list.
+      setLoading(false);
     };
   }, [selectedId, repos]);
 

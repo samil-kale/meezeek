@@ -118,6 +118,11 @@ export class Repository {
     }
     await this.loadRemoteUrls();
     await this.refresh();
+    // Closed while the first refresh ran (seconds, on a large tree): a watcher and a fetch
+    // interval started now would have nothing left to close them.
+    if (this.disposed) {
+      return;
+    }
     this.startWatching();
     this.autoFetchTimer = setInterval(() => void this.autoFetch(), AUTO_FETCH_INTERVAL_MS);
   }
@@ -429,7 +434,20 @@ export class Repository {
   private startWatching(): void {
     try {
       this.watcher = fs.watch(this.project.path, { recursive: true }, (_event, filename) => {
-        if (filename && isIgnoredEvent(filename.toString())) {
+        const name = filename?.toString();
+        if (name && isIgnoredEvent(name)) {
+          return;
+        }
+        // The watched directory itself going away raises no `error`: on win32 it is reported
+        // as an unending storm of events naming the directory's own absolute path (measured at
+        // >100 000 a second, each one scheduling a refresh), and on Linux as one event carrying
+        // its basename after which the watch is silently dead. Only an event that could be
+        // that pays for the `stat`; the retry loop takes it from here and picks the directory
+        // back up when it reappears.
+        if ((!name || path.isAbsolute(name) || name === path.basename(this.project.path)) && !fs.existsSync(this.project.path)) {
+          this.watcher?.close();
+          this.watcher = undefined;
+          this.retryWatching();
           return;
         }
         // Events are arriving, so whatever went wrong before is over — the next failure backs

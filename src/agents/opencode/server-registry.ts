@@ -75,7 +75,9 @@ export function forgetServer(pid: number): void {
  */
 export function killServerTree(pid: number): void {
   if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", windowsHide: true });
+    spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", windowsHide: true })
+      // A child that could not be spawned emits this, and unhandled it takes the process down.
+      .on("error", (error) => console.error("[meezeek] taskkill failed:", error));
     return;
   }
   try {

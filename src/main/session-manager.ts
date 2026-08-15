@@ -310,6 +310,11 @@ export class ProjectSessionManager {
     }
 
     const infos = await agent.sessions.list(executable, cwd);
+    // Closed while listing: nothing to post to, and the watcher started below would be one
+    // `dispose` has already run past.
+    if (this.disposed) {
+      return;
+    }
     for (const info of infos) {
       this.tabs.push({
         tabId: info.id,
@@ -351,11 +356,22 @@ export class ProjectSessionManager {
 
   private async doPrepare(runtime: AgentRuntime): Promise<boolean> {
     const { agent, executable } = runtime;
+    if (this.disposed) {
+      return false;
+    }
     if (!agent.prepareSpawn || runtime.preparation) {
       return !runtime.prepareFailed;
     }
     try {
-      runtime.preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(runtime));
+      const preparation = await agent.prepareSpawn(executable, this.project.path, this.pathsFor(runtime));
+      // The project may have been closed while that ran — opencode's server boot takes seconds
+      // — and `dispose` has already been past `runtime.preparation`, so what arrives now would
+      // outlive the project (a server, the marker watchers) with nothing left to end it.
+      if (this.disposed) {
+        preparation.dispose();
+        return false;
+      }
+      runtime.preparation = preparation;
       // A setup that worked clears the earlier failure: `canStart` reads this flag and nothing
       // else puts it back, so one failed preparation (opencode's port taken, say) would leave
       // the agent unstartable for the rest of the session.
@@ -650,7 +666,12 @@ export class ProjectSessionManager {
       // reconcile match a tab we already spliced out.
       this.detachedTabs.push(tab);
       try {
-        await this.reconcile(this.runtimeFor(tab.agentId));
+        const runtime = this.runtimeFor(tab.agentId);
+        // A reconcile already underway listed before this tab was detached and cannot match
+        // it; `reconcile` would hand back that very promise. Let it finish, then run one that
+        // sees the tab — or its session outlives the tab and is back on the next start.
+        await runtime.reconciling;
+        await this.reconcile(runtime);
       } finally {
         this.detachedTabs.splice(this.detachedTabs.indexOf(tab), 1);
       }
@@ -888,6 +909,10 @@ export class ProjectSessionManager {
     // Read by the reconcile loop, whose calls can outlive this and would otherwise arm
     // themselves again — see armReconcileTimer.
     this.disposed = true;
+    // A resize whose preparation is still underway spawns its tab once that resolves, if the
+    // tab is still known — with the project gone, none of them is.
+    this.tabs = [];
+    this.starting.clear();
     this.shellContext.dispose();
     for (const runtime of this.runtimes.values()) {
       clearTimeout(runtime.reconcileTimer);

@@ -11,7 +11,7 @@ export const claudeAgent: AgentDefinition = {
   installUrl: "https://docs.claude.com/en/docs/claude-code/setup",
   // Print mode: one prompt, the answer on stdout. `--no-session-persistence` is what keeps it
   // from leaving a transcript behind — one would come back as a tab on the next start.
-  askArgs: (question) => ["-p", "--no-session-persistence", question],
+  askArgs: ["-p", "--no-session-persistence"],
   sessions: claudeSessionProvider,
   prepareSpawn: (_executable, cwd, paths) => {
     let args: string[] = [];

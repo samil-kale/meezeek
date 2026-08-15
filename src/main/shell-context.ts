@@ -82,6 +82,28 @@ function cleanTerminalOutput(data: string): string {
     .join("\n");
 }
 
+// eslint-disable-next-line no-control-regex
+const ANSI_AT_START = /^(?:\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_])/;
+/** How much of a chunk may be held back for the next one before it counts as never ending. */
+const MAX_CARRY = 4096;
+
+/**
+ * Where a chunk has to be cut so that what `cleanTerminalOutput` acts on is whole: pty reads
+ * end anywhere, and a chunk ending in the `\r` of a `\r\n` would lose its whole line to the
+ * carriage-return rule, while an escape sequence split in two would leave both halves in the
+ * log. Everything from that point on waits for the next chunk.
+ */
+function carryFrom(data: string): number {
+  if (data.endsWith("\r")) {
+    return data.length - 1;
+  }
+  const escape = data.lastIndexOf("\x1b");
+  if (escape !== -1 && data.length - escape < MAX_CARRY && !ANSI_AT_START.test(data.slice(escape))) {
+    return escape;
+  }
+  return data.length;
+}
+
 /**
  * What meezeek tells an agent about the repository it is working in: the running transcript of
  * the shell tabs the user opened next to it. Modelled on how the VS Code extension passed a
@@ -98,6 +120,8 @@ export class ShellContext {
   private written: string | undefined;
   /** Writes are chained rather than started concurrently — they share one temp path. */
   private writing: Promise<void> = Promise.resolve();
+  /** The end of the last chunk that could not be cleaned until the next one arrives. */
+  private carry = "";
 
   constructor(
     private readonly directory: string,
@@ -119,7 +143,10 @@ export class ShellContext {
   }
 
   append(data: string): void {
-    this.log.append(cleanTerminalOutput(data));
+    const whole = this.carry + data;
+    const cut = carryFrom(whole);
+    this.carry = whole.slice(cut);
+    this.log.append(cleanTerminalOutput(whole.slice(0, cut)));
     clearTimeout(this.writeTimer);
     this.writeTimer = setTimeout(() => {
       this.log.flush();

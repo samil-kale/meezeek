@@ -26,7 +26,7 @@ export const claudeSessionProvider: SessionProvider = {
             fs.promises.stat(filePath).then((stat) => stat.mtimeMs),
             extractCreatedAt(filePath)
           ]);
-          const { title, provisional } = await extractTitle(filePath, tail.customTitle);
+          const { title, provisional } = await extractTitle(filePath, tail);
           return {
             id,
             title,
@@ -101,6 +101,19 @@ export const claudeSessionProvider: SessionProvider = {
         return;
       }
       projectWatcher = fs.watch(projectDir, (_eventType, filename) => {
+        // The directory itself deleted (a cleared `~/.claude/projects`) raises no error: win32
+        // reports it as an unending storm of events naming the directory's own absolute path,
+        // Linux as one event carrying its basename after which the watch is silently dead. Back
+        // to the first stage either way, which arms this again once Claude recreates it.
+        if (
+          (filename === null || path.isAbsolute(filename) || filename === path.basename(projectDir)) &&
+          !fs.existsSync(projectDir)
+        ) {
+          projectWatcher?.close();
+          projectWatcher = undefined;
+          armRootWatcher();
+          return;
+        }
         // A null filename means "something here changed" on platforms that don't report
         // it — reconciling then is the safe read.
         if (filename === null || filename.endsWith(".jsonl")) {
@@ -111,8 +124,8 @@ export const claudeSessionProvider: SessionProvider = {
       rootWatcher = undefined;
     };
 
-    void armProjectWatcher().then(() => {
-      if (stopped || projectWatcher) {
+    const armRootWatcher = (): void => {
+      if (stopped || projectWatcher || rootWatcher) {
         return;
       }
       try {
@@ -120,7 +133,9 @@ export const claudeSessionProvider: SessionProvider = {
       } catch {
         // Claude has never run on this machine — nothing to watch, listing stays polled.
       }
-    });
+    };
+
+    void armProjectWatcher().then(armRootWatcher);
 
     return () => {
       stopped = true;
@@ -162,11 +177,11 @@ interface ResolvedTitle {
 /**
  * Resolves a session's display name the same way Claude Code's own `/resume` list does
  * (order verified against the CLI, including that a rename outranks an "agent-name"):
- * a `custom-title` entry (Claude's own `/rename`, and what our rename writes) wins and
- * is appended at the true end of the file, so it comes from the tail scan the caller has
- * already run rather than from the head window below. Otherwise "agent-name", else
- * "ai-title" — for both, the last
- * occurrence *within that window* wins, since a later one supersedes an earlier one. Else
+ * a `custom-title` entry (Claude's own `/rename`, and what our rename writes) wins; it can
+ * sit anywhere in the file, so it comes from the backwards scan the caller has already run
+ * rather than from the head window below. Otherwise "agent-name", else "ai-title" — for both
+ * the last occurrence in the file wins, since a later one supersedes an earlier one, and that
+ * one is the scan's as well; the head window's own copy is the fallback. Else
  * a "summary" entry (only seen after `/compact`), else the first prompt the user typed:
  * Claude assigns no title at all to short sessions, and `/resume` labels those by that
  * prompt rather than leaving them blank. Falls back to "" — the UI shows a placeholder.
@@ -174,9 +189,9 @@ interface ResolvedTitle {
  * Don't change this scanning logic casually: a regression here silently shows the wrong
  * tab title with nothing to catch it.
  */
-async function extractTitle(filePath: string, customTitle: string | undefined): Promise<ResolvedTitle> {
-  if (customTitle) {
-    return { title: truncateTitle(customTitle), provisional: false };
+async function extractTitle(filePath: string, tail: TranscriptTail): Promise<ResolvedTitle> {
+  if (tail.customTitle) {
+    return { title: truncateTitle(tail.customTitle), provisional: false };
   }
 
   const stream = fs.createReadStream(filePath, { encoding: "utf8", end: TITLE_SCAN_BYTE_LIMIT });
@@ -212,7 +227,9 @@ async function extractTitle(filePath: string, customTitle: string | undefined): 
     lines.close();
     stream.destroy();
   }
-  const assigned = agentName ?? aiTitle ?? summary;
+  // The tail scan's are the last in the whole file and outrank what this window holds:
+  // Claude appends a fresh ai-title on a resume, and a long session's is past the window.
+  const assigned = tail.agentName ?? agentName ?? tail.aiTitle ?? aiTitle ?? summary;
   const title = assigned ?? firstPrompt;
   return { title: title ? truncateTitle(title) : "", provisional: assigned === undefined };
 }
@@ -269,24 +286,86 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-/** What one pass over the transcript's tail answers — see scanTail. */
+/** What the backwards scan of a transcript answers — see scanTail. */
 interface TranscriptTail {
-  /** The last `custom-title` entry, if the tail holds one. */
+  /** The last `custom-title` entry, if the transcript holds one. */
   customTitle?: string;
+  /** The last `agent-name` and `ai-title` entries — Claude appends fresh ones on a resume. */
+  agentName?: string;
+  aiTitle?: string;
   /** When the last turn ended, from the `turn_duration` entry Claude writes at every end. */
   turnEndedAt?: number;
 }
 
+/** What is left of a transcript's scan once every entry it looks for has been found. */
+function scanComplete(tail: TranscriptTail): boolean {
+  return (
+    tail.customTitle !== undefined &&
+    tail.agentName !== undefined &&
+    tail.aiTitle !== undefined &&
+    tail.turnEndedAt !== undefined
+  );
+}
+
+/** Only a line naming one of the entry types is worth parsing — most of a transcript is not. */
+const TAIL_ENTRY_TYPES = ['"custom-title"', '"agent-name"', '"ai-title"', '"turn_duration"'];
+
+/** Reads the entries in one stretch of a transcript from the end, into what is still unknown. */
+function readTailEntries(lines: string[], sessionId: string, tail: TranscriptTail): void {
+  for (let i = lines.length - 1; i >= 0 && !scanComplete(tail); i--) {
+    const line = lines[i];
+    if (!TAIL_ENTRY_TYPES.some((type) => line.includes(type))) {
+      continue;
+    }
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (tail.customTitle === undefined && entry.type === "custom-title" && entry.sessionId === sessionId) {
+      tail.customTitle = nonEmptyString(entry.customTitle);
+    } else if (tail.agentName === undefined && entry.type === "agent-name") {
+      tail.agentName = nonEmptyString(entry.agentName);
+    } else if (tail.aiTitle === undefined && entry.type === "ai-title") {
+      tail.aiTitle = nonEmptyString(entry.aiTitle);
+    } else if (
+      tail.turnEndedAt === undefined &&
+      entry.type === "system" &&
+      entry.subtype === "turn_duration" &&
+      entry.isSidechain !== true &&
+      // Written as well when the turn returns with subagents still running in the background
+      // — the case the Stop hook holds its marker back for, so this must not end it either.
+      !(typeof entry.pendingBackgroundAgentCount === "number" && entry.pendingBackgroundAgentCount > 0)
+    ) {
+      const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
+      tail.turnEndedAt = Number.isNaN(ms) ? undefined : ms;
+    }
+  }
+}
+
 /**
- * Reads just the transcript's tail once and answers both questions that live at the end of the
- * file: the custom-title (appended at the true end, potentially well past extractTitle's head
- * window) and when the last turn ended. One pass because both are read on every listing, and a
- * listing runs for every session of the repository.
+ * The last scan of each transcript, by path: a listing runs for every session of the
+ * repository and on every change to any of them, so all but the one being written to are
+ * answered from here, and that one is only read from where the last scan left off.
+ */
+const scanCache = new Map<string, { size: number; tail: TranscriptTail }>();
+
+/**
+ * Reads the transcript backwards for the entries that can sit anywhere in it and of which the
+ * *last* one counts: the custom-title (Claude's own `/rename`, and what our rename appends),
+ * the agent-name and ai-title Claude re-appends on a resume, and when the last turn ended.
+ * Backwards, so it stops as soon as it has them all — and to the beginning of the file where a
+ * session has none of them, since a rename made 300 KB of transcript ago is still the name.
+ * Only lines naming one of those types are parsed, most of a transcript being tool output.
  *
- * Both take the *last* occurrence, so the scan runs backwards and stops as soon as it has them.
  * Claude writes a `turn_duration` entry when a turn ends whichever way it ended — the one after
  * an interrupted turn is what the Stop hook never reports, and what AgentSessionInfo.turnEndedAt
  * exists for. Sidechain entries are a subagent's own turns, not the session's.
+ *
+ * A file scanned before is only read from a chunk below where that scan ended, and what the
+ * new stretch does not hold is taken from the old answer: the entries below the overlap were
+ * all seen then, and the overlap covers a line the earlier read may have caught half-written.
  */
 async function scanTail(filePath: string, sessionId: string): Promise<TranscriptTail> {
   const tail: TranscriptTail = {};
@@ -294,34 +373,38 @@ async function scanTail(filePath: string, sessionId: string): Promise<Transcript
   try {
     handle = await fs.promises.open(filePath, "r");
     const { size } = await handle.stat();
-    const start = Math.max(0, size - TITLE_SCAN_BYTE_LIMIT);
-    const buffer = Buffer.alloc(size - start);
-    await handle.read(buffer, 0, buffer.length, start);
-    const lines = buffer.toString("utf8").split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      let entry: Record<string, unknown>;
-      try {
-        entry = JSON.parse(lines[i]) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      if (tail.customTitle === undefined && entry.type === "custom-title" && entry.sessionId === sessionId) {
-        tail.customTitle = nonEmptyString(entry.customTitle);
-      } else if (
-        tail.turnEndedAt === undefined &&
-        entry.type === "system" &&
-        entry.subtype === "turn_duration" &&
-        entry.isSidechain !== true
-      ) {
-        const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
-        tail.turnEndedAt = Number.isNaN(ms) ? undefined : ms;
-      }
-      if (tail.customTitle !== undefined && tail.turnEndedAt !== undefined) {
-        break;
-      }
+    const cached = scanCache.get(filePath);
+    if (cached?.size === size) {
+      return cached.tail;
     }
+    const previous = cached && cached.size < size ? cached : undefined;
+    const floor = previous ? Math.max(0, previous.size - TITLE_SCAN_BYTE_LIMIT) : 0;
+    let end = size;
+    // The bytes before the first newline of the chunk above: the rest of a line this chunk
+    // ends in the middle of. Kept as bytes rather than text so a character cut in two survives.
+    let carry = Buffer.alloc(0);
+    while (end > floor && !scanComplete(tail)) {
+      const start = Math.max(floor, end - TITLE_SCAN_BYTE_LIMIT);
+      const buffer = Buffer.alloc(end - start);
+      await handle.read(buffer, 0, buffer.length, start);
+      let chunk = Buffer.concat([buffer, carry]);
+      if (start > floor) {
+        const cut = chunk.indexOf(10);
+        carry = cut === -1 ? chunk : chunk.subarray(0, cut);
+        chunk = cut === -1 ? Buffer.alloc(0) : chunk.subarray(cut + 1);
+      }
+      readTailEntries(chunk.toString("utf8").split("\n"), sessionId, tail);
+      end = start;
+    }
+    if (previous) {
+      tail.customTitle ??= previous.tail.customTitle;
+      tail.agentName ??= previous.tail.agentName;
+      tail.aiTitle ??= previous.tail.aiTitle;
+      tail.turnEndedAt ??= previous.tail.turnEndedAt;
+    }
+    scanCache.set(filePath, { size, tail });
   } catch (error) {
-    console.error("[meezeek] claude transcript tail scan failed:", error);
+    console.error("[meezeek] claude transcript scan failed:", error);
   } finally {
     await handle?.close();
   }

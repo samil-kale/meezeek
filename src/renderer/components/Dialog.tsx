@@ -245,7 +245,10 @@ export function Dialogs() {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         // Capture phase and swallowed here, so dismissing the question can't double as an
-        // ESC keystroke for the terminal that had focus before it opened.
+        // ESC keystroke for the terminal that had focus before it opened. On `window` rather
+        // than `document`: the dialogs a question is asked from listen there in the capture
+        // phase too, and `stopPropagation` does not stop listeners on the same node — one
+        // keystroke would answer the question and close the dialog under it.
         event.preventDefault();
         event.stopPropagation();
         if (dialog.kind === "confirm") {
@@ -255,8 +258,8 @@ export function Dialogs() {
         }
       }
     };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [dialog]);
 
   if (!dialog) {

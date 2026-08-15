@@ -1,6 +1,6 @@
 import { createByteThresholdCheck } from "../../main/session-ready";
 import type { AgentDefinition } from "../agent";
-import { prepareOpencodeSpawn } from "./server";
+import { ensureServer, prepareOpencodeSpawn, runningServer, stopServer } from "./server";
 import { openServerRegistry } from "./server-registry";
 import { resolveOpencodeUrlPrefix } from "./session-urls";
 import { opencodeSessionProvider } from "./sessions";
@@ -20,11 +20,21 @@ export const opencodeAgent: AgentDefinition = {
    * alternative, deleting whatever appeared while the question ran, would also catch a session
    * the user started themselves in the meantime.
    */
-  askArgs: (question) => ["run", "--title", ASK_TITLE, question],
+  askArgs: ["run", "--title", ASK_TITLE],
   cleanupAsk: async (executable, cwd) => {
-    const sessions = await opencodeSessionProvider.list(executable, cwd);
-    for (const session of sessions.filter((candidate) => candidate.title === ASK_TITLE)) {
-      await opencodeSessionProvider.remove(executable, cwd, session.id).catch(() => undefined);
+    // The listing starts a server where none is up. One started here belongs to no
+    // preparation, so it is ended here as well — left running, it would outlive the project.
+    const running = await runningServer(executable, cwd);
+    const server = running ?? (await ensureServer(executable, cwd));
+    try {
+      const sessions = await opencodeSessionProvider.list(executable, cwd);
+      for (const session of sessions.filter((candidate) => candidate.title === ASK_TITLE)) {
+        await opencodeSessionProvider.remove(executable, cwd, session.id).catch(() => undefined);
+      }
+    } finally {
+      if (!running) {
+        await stopServer(cwd, server);
+      }
     }
   },
   prepareApp: openServerRegistry,

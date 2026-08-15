@@ -137,10 +137,11 @@ export interface AgentDefinition {
   installUrl?: string;
   /**
    * Args that put one question to the agent without a terminal, answered on stdout and then
-   * over. Omitted for an agent that cannot be asked anything (the shell), which is what keeps
-   * it out of the jobs that use this.
+   * over. The question itself arrives on stdin, so these name the mode and nothing else (see
+   * `suggestCommands` for why it is not an argument). Omitted for an agent that cannot be
+   * asked anything (the shell), which is what keeps it out of the jobs that use this.
    */
-  askArgs?: (question: string) => string[];
+  askArgs?: string[];
   /**
    * Args that hand one command to this agent *in a terminal*, ending when it does. Only the
    * shell has it, and only a saved command that asked for a shell uses it — one otherwise

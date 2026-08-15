@@ -395,7 +395,11 @@ function getWindowedLineStrings(lineIndex: number, terminal: Terminal): [string[
     if (isContinuation(terminal, lineIndex) && currentContent[0] !== " ") {
       length = 0;
       rows = 0;
-      while (terminal.buffer.active.getLine(--topIdx) && length < 2048 && ++rows <= MAX_WINDOW_ROWS) {
+      // The caps are checked before the step, so `topIdx` never names a row that was not read:
+      // `startLineIndex` is what every match is mapped back to cells from.
+      while (length < 2048 && rows < MAX_WINDOW_ROWS && terminal.buffer.active.getLine(topIdx - 1)) {
+        topIdx--;
+        rows++;
         [content, offset] = readLine(terminal, topIdx);
         length += content.length;
         lines.push(content);

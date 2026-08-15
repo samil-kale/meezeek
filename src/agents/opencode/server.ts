@@ -191,6 +191,8 @@ export class OpencodeServer {
 
 interface ServerEntry {
   executable: string;
+  /** Started with an environment of its own — the context plugin's — rather than bare. */
+  configured: boolean;
   server: Promise<OpencodeServer>;
 }
 
@@ -208,7 +210,9 @@ export async function ensureServer(
   env?: Record<string, string>
 ): Promise<OpencodeServer> {
   const existing = servers.get(cwd);
-  if (existing?.executable === executable) {
+  // A server started bare (a listing with no tab behind it) does not serve a caller bringing
+  // the plugin's environment: the plugin loads at startup, so that one is replaced.
+  if (existing?.executable === executable && (!env || existing.configured)) {
     try {
       const server = await existing.server;
       if (server.running) {
@@ -220,8 +224,20 @@ export async function ensureServer(
   }
   disposeQuietly(existing);
   const started = OpencodeServer.start(executable, cwd, env);
-  servers.set(cwd, { executable, server: started });
+  servers.set(cwd, { executable, configured: env !== undefined, server: started });
   return started;
+}
+
+/**
+ * Ends a server that was started for one job and belongs to no preparation — provided it is
+ * still the one this repository runs on, and not a replacement a spawn has since put there.
+ */
+export async function stopServer(cwd: string, server: OpencodeServer): Promise<void> {
+  const entry = servers.get(cwd);
+  if (entry && (await entry.server.catch(() => undefined)) === server) {
+    servers.delete(cwd);
+    server.dispose();
+  }
 }
 
 /**

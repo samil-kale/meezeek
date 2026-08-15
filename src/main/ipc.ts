@@ -343,7 +343,7 @@ export function registerIpc({
     }
     const { executable, agent } = askable;
     try {
-      const found = await suggestCommands(project.path, executable, agent.askArgs!(suggestQuestion()));
+      const found = await suggestCommands(project.path, executable, agent.askArgs!, suggestQuestion());
       const existing = (await readCommands(project.path)) ?? [];
       const merged = mergeCommands(existing, found);
       const added = merged.length - existing.length;

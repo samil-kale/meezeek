@@ -34,6 +34,12 @@ const MAX_OUTPUT = 600;
  */
 const MAX_BUFFER = 64 * 1024 * 1024;
 
+/**
+ * What `read` answers for a file that is there but does not parse — the one `patch` must not
+ * write over, since it would replace whatever the user has in there with only our key.
+ */
+const UNREADABLE: ProjectFile = {};
+
 function file(root: string): string {
   return path.join(root, FILE);
 }
@@ -56,13 +62,16 @@ async function read(root: string): Promise<ProjectFile | null> {
     return JSON.parse(content) as ProjectFile;
   } catch {
     // There is a file, it just isn't ours to read. Not nothing, but nothing usable.
-    return {};
+    return UNREADABLE;
   }
 }
 
 /** Writes one key, keeping every other the file already holds. */
 async function patch(root: string, changes: Partial<ProjectFile>): Promise<void> {
   const content = (await read(root)) ?? {};
+  if (content === UNREADABLE) {
+    throw new Error(`${FILE} is not valid JSON`);
+  }
   await fs.writeFile(file(root), `${JSON.stringify({ ...content, ...changes }, undefined, 2)}\n`, "utf8");
 }
 
@@ -207,11 +216,21 @@ function parseSuggestions(reply: string): ProjectCommand[] {
  * Asks an agent what this project can run, and answers with the commands it named. Runs
  * without a terminal — the wand is a button in the sidebar, not a session — so the agent gets
  * one question and one shot at replying.
+ *
+ * The question goes in on stdin, never as an argument: an npm-installed CLI is a `.cmd` shim
+ * on win32, which `resolveCommand` routes through cmd.exe, and cmd.exe neither honours the
+ * `\"` node escapes a quote with nor carries an argument past a newline — the prompt arrived
+ * cut off at its first line, and a line holding quotes and `&&` was run rather than passed.
  */
-export function suggestCommands(root: string, executable: string, args: string[]): Promise<ProjectCommand[]> {
+export function suggestCommands(
+  root: string,
+  executable: string,
+  args: string[],
+  question: string
+): Promise<ProjectCommand[]> {
   const { command, args: resolved } = resolveCommand(executable, args);
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       command,
       resolved,
       { cwd: root, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8", timeout: SUGGEST_TIMEOUT_MS },
@@ -223,6 +242,10 @@ export function suggestCommands(root: string, executable: string, args: string[]
         resolve(parseSuggestions(stdout));
       }
     );
+    // A CLI that exits before reading (not installed, wrong version) closes the pipe under
+    // the write; that surfaces in the callback above, not here.
+    child.stdin?.on("error", () => undefined);
+    child.stdin?.end(question);
   });
 }
 
