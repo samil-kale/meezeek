@@ -740,3 +740,21 @@ binding and label can't drift apart.
   typecheck is there because esbuild only bundles: an unimported identifier is a global to it, so it
   drops the unused export and the app dies on load with a `ReferenceError` a `tsc` run would have
   named at the import.
+
+## Releasing
+
+When asked for a release, run it — no need to re-derive these steps first:
+
+```
+npm version patch   # or minor / major
+git push && git push --tags
+```
+
+`npm version` bumps `package.json` and tags in one step, so the two can't drift apart. The tag
+push triggers `.github/workflows/build.yml`, which builds all three platforms and publishes to a
+GitHub Release with its own `GITHUB_TOKEN` — the repo is public so `electron-updater`
+(`src/main/auto-update.ts`) can read releases without a token of its own.
+
+Windows and Linux run from the AppImage auto-install on the next quit — never forced, since a
+terminal tab is a live agent session (see "Do not restart the app yourself"). macOS and the
+`.deb` build can't self-replace, so they only get a notice linking to the release page.
