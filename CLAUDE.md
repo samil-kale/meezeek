@@ -235,9 +235,10 @@ Each of these was paid for once and measured; the numbers are in the comment at 
 - `readStatus` runs `git --no-optional-locks status`. Without it, writing the index back is itself
   a filesystem event, which schedules the refresh that writes it again. Do not solve that with
   another entry in `isIgnoredEvent`.
-- `src/main/event-loop-monitor.ts` is wired up and off unless `NODE_DEBUG` names it:
-  `NODE_DEBUG=meezeek-perf npm start` writes stalls to `event-loop.log` in `userData`.
-  `countActivity` stays at its call sites either way.
+- `src/main/event-loop-monitor.ts` runs in every session and writes stalls to `event-loop.log` in
+  `userData`, and nowhere else — the app is normally started from a shortcut, where a console line
+  goes nowhere anyway. A stall is noticed while working rather than while looking for it, which is
+  why it is not behind a switch. The file is rewritten at every start.
 
 ## Saved commands
 

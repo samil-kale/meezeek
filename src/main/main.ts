@@ -166,7 +166,6 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    // Only when NODE_DEBUG asks for it; see startEventLoopMonitor.
     startEventLoopMonitor(path.join(app.getPath("userData"), "event-loop.log"));
     // Up front rather than on the first repository: forking it costs a moment, and every
     // project that opens below is about to ask it something.

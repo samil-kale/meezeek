@@ -1,12 +1,5 @@
 import * as fs from "node:fs";
-import * as util from "node:util";
 
-/**
- * What switches this on: `NODE_DEBUG=meezeek-perf npm start`. Node's own mechanism for a
- * diagnostic that is off in normal runs — `util.debuglog` hands back a no-op until its section
- * is named, and `enabled` says so before anything has been set up.
- */
-const DEBUG_SECTION = "meezeek-perf";
 /**
  * How often the loop is sampled. A keystroke on its way to a pty waits in the same queue as
  * this timer, so how late the timer runs is how late the keystroke would be.
@@ -44,19 +37,14 @@ function tally(): string {
 
 /**
  * Records how long the main process's event loop is blocked and what was running when it was.
- * Writes to a file rather than only to the console: the app is normally started from a
- * shortcut, where stdout goes nowhere.
+ * Writes to a file and nowhere else: the app is normally started from a shortcut, where stdout
+ * goes nowhere, and a line in the console is one more thing the loop being measured has to do.
  *
- * Does nothing unless `NODE_DEBUG` names this monitor: it is what the git and terminal layers
- * were measured with rather than something a normal run needs, and a sample every 20ms for the
- * lifetime of the window is not worth paying while nothing is being investigated. Everything it
- * reads is still collected — `countActivity` stays where it is, so the tally is right again the
- * moment it is switched back on.
+ * Runs in every session rather than behind a switch: a stall is noticed while working, not while
+ * looking for it, and by the time it is worth investigating the run that produced it is over.
+ * A sample every 20ms is the price, and it is paid whether or not anything is being measured.
  */
 export function startEventLoopMonitor(logFile: string): void {
-  if (!util.debuglog(DEBUG_SECTION).enabled) {
-    return;
-  }
   try {
     fs.writeFileSync(logFile, `# meezeek event loop, from ${new Date().toISOString()}\n`);
   } catch (error) {
@@ -64,7 +52,6 @@ export function startEventLoopMonitor(logFile: string): void {
     return;
   }
   const append = (line: string): void => {
-    console.log(`[meezeek] ${line}`);
     fs.appendFile(logFile, `${new Date().toISOString().slice(11, 23)} ${line}\n`, () => undefined);
   };
 
