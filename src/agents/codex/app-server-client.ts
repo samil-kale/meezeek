@@ -8,8 +8,7 @@ import { resolveCommand } from "../../main/pty";
  * request, and tears it down. Timed against a real install: ~300-500 ms end to end, almost all
  * of it the process's own startup (config/discovery), the request itself answering in single-
  * digit milliseconds — acceptable for the rare, user-triggered actions this is for (rename,
- * delete). See "Not needed / deliberately not used" and "Sessions" in codex.md for why this
- * stays one-shot rather than a server meezeek keeps running: the same `$CODEX_HOME` SQLite state
+ * delete). Stays one-shot rather than a server meezeek keeps running: the same `$CODEX_HOME` SQLite state
  * every repository's Codex shares does not tolerate concurrent first-time startup (measured: 2
  * of 6 parallel cold starts against a fresh `CODEX_HOME` failed outright).
  */

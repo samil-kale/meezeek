@@ -92,7 +92,7 @@ async function parseSessionMeta(filePath: string): Promise<SessionMeta | undefin
 /**
  * What a listing needs from a rollout's body: the first real prompt from its head, and,
  * backwards from the end, the last turn boundary — `task_complete`/`turn_aborted` cover a normal
- * end and an interrupted one alike (see "Sessions" in codex.md), the net under the Stop hook the
+ * end and an interrupted one alike, the net under the Stop hook the
  * same way Claude's `turn_duration` is. Cached by path and size for the same reason Claude's
  * scan is: a listing runs for every session on every change to any of them.
  */
@@ -333,8 +333,7 @@ export const codexSessionProvider: SessionProvider = {
 
   /**
    * The only writer of a Codex thread's name is the app-server RPC Codex's own `/rename` uses
-   * internally — there is no CLI command and no rollout entry the picker reads as a name (see
-   * "Sessions" in codex.md).
+   * internally — there is no CLI command and no rollout entry the picker reads as a name.
    */
   async rename(executable: string, cwd: string, sessionId: string, title: string): Promise<void> {
     const trimmed = title.trim();
