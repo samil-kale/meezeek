@@ -2,11 +2,12 @@ import { isAgentInstalled } from "../main/terminal-session";
 import type { AgentId, AgentInfo } from "../shared/types";
 import type { AgentDefinition } from "./agent";
 import { claudeAgent } from "./claude";
+import { codexAgent } from "./codex";
 import { opencodeAgent } from "./opencode";
 import { shellAgent } from "./shell";
 
 /** Registration order; also the order of the "new terminal" menu. */
-export const AGENTS: AgentDefinition[] = [claudeAgent, opencodeAgent, shellAgent];
+export const AGENTS: AgentDefinition[] = [claudeAgent, opencodeAgent, codexAgent, shellAgent];
 
 /**
  * Every agent's one-time setup, before the first project opens — see AgentDefinition.prepareApp.

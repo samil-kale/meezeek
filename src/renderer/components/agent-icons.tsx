@@ -62,6 +62,38 @@ function OpencodeIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Codex CLI's own icon, not OpenAI's company mark: a terminal prompt inside a circle, the way
+ * terminaltrove.com lists it. No first-party SVG exists for it — the npm package, the GitHub
+ * repo and the VS Code extension carry only the plain OpenAI logo or no graphic at all — so this
+ * redraws that listing's glyph in the same stroke style as `ShellIcon` rather than embedding a
+ * rasterised copy. Measured, not estimated: a circle of r=6 centered at (8, 8) is the bbox this
+ * is built from, so extent 13.4 (diameter plus the 1.4 stroke) and center (8, 8) both fall out of
+ * that directly — the chevron and underscore sit well inside the circle and add nothing to it.
+ * Drawn `LARGER`, like Claude's mark: a plain outline circle reads smaller than the filled marks
+ * beside it at the same measured extent.
+ */
+function CodexIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="13"
+      height="13"
+      viewBox={fitIcon(13.4 / LARGER, 8, 8, 16)}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={fitStroke(13.4 / LARGER, 16, 1.4)}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6" />
+      <path d="M5.8 5.7L8.3 8l-2.5 2.3" />
+      <path d="M9 10.5h2.3" />
+    </svg>
+  );
+}
+
 /** No upstream icon exists for the plain shell, so this is the familiar prompt glyph. */
 function ShellIcon({ className }: { className?: string }) {
   return (
@@ -90,6 +122,8 @@ export function AgentIcon({ agentId, className }: AgentIconProps) {
       return <ClaudeIcon className={className} />;
     case "opencode":
       return <OpencodeIcon className={className} />;
+    case "codex":
+      return <CodexIcon className={className} />;
     case "shell":
       return <ShellIcon className={className} />;
   }

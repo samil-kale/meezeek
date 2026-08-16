@@ -5,7 +5,7 @@ import { AgentIcon } from "./agent-icons";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { TerminalHost } from "./TerminalHost";
-import { BranchIcon, CloseIcon, CommentIcon, PlusIcon, QuestionIcon, SpinnerIcon } from "./icons";
+import { BranchIcon, CloseIcon, CommentIcon, ExclamationIcon, PlusIcon, QuestionIcon, SpinnerIcon } from "./icons";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
 const RESIZE_DEBOUNCE_MS = 100;
@@ -307,7 +307,7 @@ export const TerminalsPane = memo(function TerminalsPane({
           {tabs.map((tab) => (
           <div
             key={tab.tabId}
-            className={`terminal-tab${tab.tabId === activeId ? " active" : ""}${tab.status === "stopped" || tab.status === "error" ? " inactive" : ""}${tab.status === "missing" ? " unavailable" : ""}`}
+            className={`terminal-tab${tab.tabId === activeId ? " active" : ""}${tab.status === "stopped" ? " inactive" : ""}`}
             onClick={() => setActiveId(tab.tabId)}
             onDoubleClick={() => tab.hasSession && void askRename(tab)}
             // Keeps the terminal focused across the whole right-click interaction: without
@@ -326,13 +326,17 @@ export const TerminalsPane = memo(function TerminalsPane({
             title={tabTooltip(tab)}
           >
             {/* What this session is doing takes the agent icon's place rather than claiming room
-                of its own — the tab is as wide as its label and nothing more. Three states of
-                one thing, in the order of how much they say. A standing question outranks
-                working, because such a session is precisely *not* working and nothing moves
-                until it is answered; working outranks finished, since a turn that started after
-                the last one ended is the newer truth, and the mark is still there underneath for
-                when it stops. */}
-            {waitingTabIds.includes(tab.tabId) ? (
+                of its own — the tab is as wide as its label and nothing more. In the order of
+                how much they say: a tab whose agent cannot even start, or whose process ended on
+                its own rather than at the user's own request, outranks everything else — none of
+                the other three can ever be true for it. Of the rest, a standing question outranks
+                working, because such a session is precisely *not* working and nothing moves until
+                it is answered; working outranks finished, since a turn that started after the
+                last one ended is the newer truth, and the mark is still there underneath for when
+                it stops. */}
+            {tab.status === "missing" || tab.status === "error" ? (
+              <ExclamationIcon className="terminal-tab-icon session-mark session-mark-error" />
+            ) : waitingTabIds.includes(tab.tabId) ? (
               <QuestionIcon className="terminal-tab-icon session-mark" />
             ) : tab.busy ? (
               <SpinnerIcon className="terminal-tab-icon session-mark spinning" />

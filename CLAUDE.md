@@ -440,12 +440,16 @@ ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` 
   `touch`es an empty file named after the session id: `UserPromptSubmit` into `<agentDir>/busy/`,
   `Stop` into `<agentDir>/finished/`, and `Notification` (`permission_prompt|elicitation_dialog`)
   plus `PreToolUse` (`AskUserQuestion`) into `<agentDir>/waiting/` — `watchMarkers` picks them up
-  (both halves in `hooks.ts`, either side of `markerDir`). The busy hook shares `UserPromptSubmit`
+  (`src/main/marker-watch.ts`, shared with Codex below). The busy hook shares `UserPromptSubmit`
   with the command printing the context file, so it must stay **silent** — anything it writes gets
   appended to the prompt — and must exit 0 regardless, since a failing hook there can hold the
   prompt back. `AskUserQuestion` needs its own hook since it's a *tool*, not a Notification event;
   `idle_prompt` is deliberately not matched, since it fires after a turn ends, which the bubble
   already covers.
+- Codex hooks land the same three markers the same way — `UserPromptSubmit` into `busy/`, `Stop`
+  into `finished/`, `PermissionRequest` (an approval is about to be asked) and `PreToolUse` matched
+  to `request_user_input` (a question tool is about to run) into `waiting/`. What Claude Code
+  doesn't need: Codex only *runs* a hook it has decided to trust — see "Codex's hook trust" below.
 
 **There is no "answered" signal from either agent** — buying one would cost a hook process per tool
 call — so a question clears on exactly two things: the tab being looked at (`markSeen`, alongside
@@ -467,6 +471,11 @@ listing reports it as `AgentSessionInfo.turnEndedAt`, from the same tail scan `c
 needs, and `reconcile` is the one place it's read. It only ever *ends* a turn still believed
 running, and only when newer than the busy that started it. It leaves no mark: reaching us this way
 means the user cut it short in that tab.
+
+Codex has the identical gap for the identical reason — no hook fires on an interrupt either — and
+closes it the identical way: its own rollout records `task_complete`/`turn_aborted` at every turn
+end regardless of how it ended, and `AgentSessionInfo.turnEndedAt` is read from that scan too
+(`src/agents/codex/sessions.ts`).
 
 Reusing the Stop hook is the point: it already carries the `background_tasks` guard, so a turn that
 only launched a subagent and returned isn't "finished" — a guess from the TUI's output would lose
@@ -509,10 +518,11 @@ renderer's.
 
 - `executable`, `args`, `env`, `versionArgs` — how to start it, and how to tell "not installed" from
   a spawn that failed for another reason
-- `askArgs` — one question, answered on stdout, no terminal (`claude -p`, `opencode run`); an agent
-  without it is no candidate for anything that asks. A background question mustn't leave a session
-  behind, or it returns as a tab next start: Claude Code takes `--no-session-persistence`, opencode
-  titles the run and deletes it in `cleanupAsk`
+- `askArgs` — one question, answered on stdout, no terminal (`claude -p`, `opencode run`, `codex
+  exec --ephemeral`); an agent without it is no candidate for anything that asks. A background
+  question mustn't leave a session behind, or it returns as a tab next start: Claude Code takes
+  `--no-session-persistence`, opencode titles the run and deletes it in `cleanupAsk`, Codex's
+  `--ephemeral` skips writing the session at all
 - `runArgs` — one command run *in* a terminal, ending when it does; saved commands use it, only the
   shell has it
 - `sessions` — listing, resume args, rename, delete, optional `watch`
@@ -550,6 +560,41 @@ project opens, since opening one asks the agent for its session listing, which a
 server. Nothing out there waits on it — `OpencodeServer.start` holds the promise itself, since only
 it knows which calls mustn't overtake it.
 
+### Codex's hook trust
+
+Codex only *runs* a hook it has decided to trust: a sha256 over a normalized form of its event
+name, matcher and command, checked against a `trusted_hash` it reads back from its own config.
+Handed an unknown hash, an interactive session opens on a blocking "Hooks need review" screen
+instead of the chat — Codex's own answer to a hook being able to run commands outside the sandbox.
+
+`src/agents/codex/hooks.ts` reproduces that hash and hands it in alongside the hook itself, via
+`-c`, so the screen never appears — verified end to end against a real install, including through
+`node-pty → cmd.exe /d /s /c → codex.cmd`, not just derived from source. Reproducing a private,
+unversioned serialization is a real trade-off: if a future Codex release changes it, the hook shows
+"Modified" instead of "Trusted" and the screen reappears once, the same as it would for a user who
+hand-edited their own config — not silent, not a crash, but worth re-checking against
+`hooks/src/engine/discovery.rs::hook_hash` in Codex's own source if it ever happens.
+
+Two things only found by testing the actual spawn path, not by reading source: `-c key=value`'s
+*key* is split on every literal `.` before any TOML parsing runs, so passing the trust key as the
+key (it contains one, from `config.toml`) silently corrupts it — no error, no warning, the hash
+just never applies. Everything — every hook definition and its trust entry — has to go inside the
+*value* of one combined `-c hooks={…}` argument instead, where a real TOML parser handles the
+quoted key correctly. And that one argument has to be built from TOML **literal** strings (`'…'`),
+not basic strings (`"…"`) — the same reasoning `powershellSingleQuote`/`shellSingleQuote` already
+apply to their own shells (see "Cross-platform requirement"): a form that needs no escaping over
+one that does, since escaping a value already carrying a Windows path and an embedded `"` through
+`cmd.exe`'s own re-quoting is exactly the kind of nested quoting that goes wrong.
+
+Also why there's no persistent `codex app-server` the way there's a persistent opencode server
+above: `$CODEX_HOME`'s SQLite state db is machine-wide, same as opencode's, and starting six
+`codex app-server` processes in parallel against a *fresh* `CODEX_HOME` crashed two of them
+outright — the identical `database is locked` race `server-registry.ts` exists to solve for
+opencode, reproduced rather than avoided. Rename and delete go through a short-lived
+`codex app-server` JSON-RPC call instead (`src/agents/codex/app-server-client.ts`, one process per
+call, ~300–500 ms measured) — cheap enough for actions a user triggers rarely, and it never starts
+two at once.
+
 ## Never touch the user's agent configuration
 
 Everything meezeek generates lives under its own `userData` and is pointed at from outside:
@@ -567,6 +612,10 @@ Everything meezeek generates lives under its own `userData` and is pointed at fr
   like the window; `system` takes the terminal's colours, the `--vscode-*` ones xterm was handed.
   Layered on top of the tui config opencode already loaded, so a user with that variable set keeps
   their own file.
+- Codex: `-c key=value` overrides, layered on top of the user's `config.toml` for that one process
+  only — verified nothing is written back (`config.toml` diffed before/after several runs,
+  byte-identical). `~/.codex/config.toml` and `~/.codex/hooks.json` are never read, written or
+  replaced.
 
 ## Files other processes read
 
@@ -577,7 +626,7 @@ fails outright rather than returning partial data.
 
 The one file crossing the other way — Claude Code's Stop hook writing into `finished/` — sits
 outside that rule, since it carries nothing: the *filename* is the whole message, nothing a reader
-could catch half-written.
+could catch half-written. Codex's marker hooks the same way.
 
 ## Cross-platform requirement
 

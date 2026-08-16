@@ -305,6 +305,20 @@ export function QuestionIcon(props: IconProps) {
   );
 }
 
+/**
+ * A tab whose agent cannot start at all — sits in the same mark slot as the question mark and
+ * the spinner, so it is drawn in the same family of shape, not a circle-and-cross like a
+ * `SeverityIcon`. Its own color, not `--vscode-focusBorder`: see `.session-mark-error`.
+ */
+export function ExclamationIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={9.95} cy={7.86}>
+      <path d="M8 3.2v6.3" />
+      <circle cx="8" cy="12.1" r="0.42" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
 /** A session answered and nobody has looked yet — on its tab and on its project's row. */
 export function CommentIcon(props: IconProps) {
   return (

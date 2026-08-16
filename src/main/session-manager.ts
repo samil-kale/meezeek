@@ -584,7 +584,7 @@ export class ProjectSessionManager {
         onStatusChange: (status) => {
           tab.status = status;
           this.callbacks.onStatus(this.project.id, tabId, status);
-          if (status === "stopped" || status === "error") {
+          if (status === "stopped" || status === "error" || status === "missing") {
             this.scheduleReconcile(runtime);
             // A process that is gone is not working on anything, whatever the agent last said:
             // a CLI killed mid-turn never gets to report its end, and the spinner would turn
@@ -596,7 +596,10 @@ export class ProjectSessionManager {
               this.postTabs();
             }
             // Safety net: the CLI may exit before ever producing enough output to cross the
-            // heuristic above — don't leave the bar stuck up forever.
+            // heuristic above — don't leave the bar stuck up forever. `markInstalled` can report
+            // "missing" here too (found not installed exactly when this tab tried to start): no
+            // process is ever spawned for it, so neither this status change nor any output would
+            // otherwise follow to release the indicator startSession acquired.
             hideIndicator();
           }
         }

@@ -771,10 +771,6 @@ option {
   text-decoration: line-through;
 }
 
-.terminal-tab.unavailable {
-  color: var(--vscode-errorForeground);
-}
-
 /* What a session is doing: the spinner while a turn runs, the question mark while it waits on
    an answer, the speech bubble once one finished out of sight. One rule for all three and for
    both places they appear — a tab and its project's row — in the colour everything here that
@@ -786,6 +782,13 @@ option {
 .session-mark {
   flex: none;
   color: var(--vscode-focusBorder);
+}
+
+/* A tab whose agent cannot start at all is not a fourth turn-lifecycle state, so it does not
+   share the blue above — red is the one colour Dark Modern already names for this meaning
+   (`--vscode-errorForeground`), the same one a dialog's own error text uses. */
+.session-mark-error {
+  color: var(--vscode-errorForeground);
 }
 
 .terminal-tab-icon {

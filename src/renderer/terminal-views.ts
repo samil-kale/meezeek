@@ -288,6 +288,18 @@ export function attachTerminal(projectId: string, tabId: string, agentId: AgentI
   });
   container.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    if (agentId === "shell") {
+      // A plain shell never turns on xterm's mouse reporting, so unlike the agent CLIs below,
+      // nothing reads the right click on its own — meezeek has to supply the usual terminal
+      // convention itself: copy a selection, or paste when there is none.
+      const selection = view.term.getSelection();
+      if (selection) {
+        void navigator.clipboard.writeText(selection);
+      } else {
+        void pasteClipboard(view.term);
+      }
+      return;
+    }
     // Only the image case: both CLIs act on the right mouse button themselves through xterm's
     // mouse reporting (Claude Code pastes, opencode copies the selection), and handling plain
     // text here too would risk clobbering an opencode copy. Neither can paste an image out of

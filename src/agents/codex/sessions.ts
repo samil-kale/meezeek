@@ -1,0 +1,407 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as readline from "node:readline";
+import type { AgentSessionInfo, SessionProvider } from "../agent";
+import { deleteThread, renameThread } from "./app-server-client";
+
+/**
+ * Codex's own config root — never overridden by meezeek (see CLAUDE.md's "never touch the
+ * user's agent configuration"), so this is the same location Codex itself resolves to.
+ */
+function codexHome(): string {
+  return process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+}
+
+function sessionsRoot(): string {
+  return path.join(codexHome(), "sessions");
+}
+
+/** Codex's own name index — `{id, thread_name, updated_at}` lines, last one per id wins. */
+function sessionIndexFile(): string {
+  return path.join(codexHome(), "session_index.jsonl");
+}
+
+const TITLE_MAX_LENGTH = 60;
+/** A rollout's `session_meta` line is always first; a few KB is generous headroom for it alone. */
+const META_SCAN_BYTE_LIMIT = 8 * 1024;
+/** Same budget as Claude's scan for the same reason: bounds a pathological single line. */
+const TAIL_SCAN_BYTE_LIMIT = 256 * 1024;
+
+interface SessionMeta {
+  sessionId: string;
+  cwd: string;
+  source: string;
+}
+
+/** Reads only the first line of a rollout — `session_meta` is always written there, never later. */
+async function readSessionMeta(filePath: string): Promise<SessionMeta | undefined> {
+  const stream = fs.createReadStream(filePath, { encoding: "utf8", end: META_SCAN_BYTE_LIMIT });
+  const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return undefined;
+      }
+      if (entry.type !== "session_meta") {
+        return undefined;
+      }
+      const payload = entry.payload as Record<string, unknown> | undefined;
+      const sessionId = nonEmptyString(payload?.session_id);
+      const cwd = nonEmptyString(payload?.cwd);
+      const source = nonEmptyString(payload?.source);
+      if (!sessionId || !cwd) {
+        return undefined;
+      }
+      return { sessionId, cwd, source: source ?? "" };
+    }
+  } catch (error) {
+    console.error("[meezeek] codex session_meta read failed:", error);
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+  return undefined;
+}
+
+/**
+ * A rollout's own record of its creation time and, backwards from the end, the last turn
+ * boundary — `task_complete`/`turn_aborted` cover a normal end and an interrupted one alike (see
+ * "Sessions" in codex.md), the net under the Stop hook the same way Claude's `turn_duration` is.
+ * Cached by path and size for the same reason Claude's scan is: a listing runs for every session
+ * on every change to any of them.
+ */
+interface TailInfo {
+  createdAt?: number;
+  turnEndedAt?: number;
+  /** The first real user prompt — Codex assigns no title of its own, so this stands in for one. */
+  firstPrompt?: string;
+}
+
+const tailCache = new Map<string, { size: number; tail: TailInfo }>();
+
+function scanComplete(tail: TailInfo): boolean {
+  return tail.createdAt !== undefined && tail.turnEndedAt !== undefined && tail.firstPrompt !== undefined;
+}
+
+const ENTRY_TYPES = ['"task_complete"', '"turn_aborted"', '"user_message"', '"role":"user"'];
+
+function readTailEntries(lines: string[], tail: TailInfo): void {
+  // Forwards for the first prompt (the earliest one is the answer), backwards for everything
+  // else that only the *last* occurrence answers — one pass either way, stopping once every
+  // field this stretch could still supply has been found.
+  for (const line of lines) {
+    if (tail.firstPrompt !== undefined || !ENTRY_TYPES.some((type) => line.includes(type))) {
+      continue;
+    }
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const prompt = extractUserPrompt(entry);
+    if (prompt !== undefined) {
+      tail.firstPrompt = truncateTitle(prompt);
+    }
+  }
+  for (let i = lines.length - 1; i >= 0 && (tail.turnEndedAt === undefined || tail.createdAt === undefined); i--) {
+    const line = lines[i];
+    if (!ENTRY_TYPES.some((type) => line.includes(type))) {
+      continue;
+    }
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (tail.turnEndedAt === undefined) {
+      const payload = entry.payload as Record<string, unknown> | undefined;
+      if (payload?.type === "task_complete" || payload?.type === "turn_aborted") {
+        const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
+        if (!Number.isNaN(ms)) {
+          tail.turnEndedAt = ms;
+        }
+      }
+    }
+  }
+}
+
+/** A real typed prompt, not the `<environment_context>`/`<skills_instructions>` blocks Codex injects. */
+function extractUserPrompt(entry: Record<string, unknown>): string | undefined {
+  const payload = entry.payload as Record<string, unknown> | undefined;
+  if (entry.type === "event_msg" && payload?.type === "user_message") {
+    return nonEmptyString(payload.message);
+  }
+  if (entry.type === "response_item" && payload?.role === "user") {
+    const content = payload.content as { type?: unknown; text?: unknown }[] | undefined;
+    const text = content?.find((part) => part.type === "input_text" && typeof part.text === "string")?.text as
+      | string
+      | undefined;
+    if (text && !text.startsWith("<")) {
+      return text;
+    }
+  }
+  return undefined;
+}
+
+async function scanTail(filePath: string): Promise<TailInfo> {
+  const tail: TailInfo = {};
+  let handle: fs.promises.FileHandle | undefined;
+  try {
+    handle = await fs.promises.open(filePath, "r");
+    const { size } = await handle.stat();
+    const cached = tailCache.get(filePath);
+    if (cached?.size === size) {
+      return cached.tail;
+    }
+    // createdAt is a session's own first timestamp — never changes once written, so a session
+    // that has already been scanned once keeps that answer regardless of how much has grown.
+    tail.createdAt = cached?.tail.createdAt;
+    if (tail.createdAt === undefined) {
+      const head = await readFirstTimestamp(handle, size);
+      tail.createdAt = head;
+    }
+    const previous = cached && cached.size < size ? cached : undefined;
+    const floor = previous ? Math.max(0, previous.size - TAIL_SCAN_BYTE_LIMIT) : 0;
+    let end = size;
+    let carry = Buffer.alloc(0);
+    while (end > floor && !scanComplete(tail)) {
+      const start = Math.max(floor, end - TAIL_SCAN_BYTE_LIMIT);
+      const buffer = Buffer.alloc(end - start);
+      await handle.read(buffer, 0, buffer.length, start);
+      let chunk = Buffer.concat([buffer, carry]);
+      if (start > floor) {
+        const cut = chunk.indexOf(10);
+        carry = cut === -1 ? chunk : chunk.subarray(0, cut);
+        chunk = cut === -1 ? Buffer.alloc(0) : chunk.subarray(cut + 1);
+      }
+      readTailEntries(chunk.toString("utf8").split("\n"), tail);
+      end = start;
+    }
+    if (previous) {
+      tail.turnEndedAt ??= previous.tail.turnEndedAt;
+      tail.firstPrompt ??= previous.tail.firstPrompt;
+    }
+    tailCache.set(filePath, { size, tail });
+  } catch (error) {
+    console.error("[meezeek] codex rollout scan failed:", error);
+  } finally {
+    await handle?.close();
+  }
+  return tail;
+}
+
+/** The rollout's own first timestamped line — a far more stable "created" signal than mtime. */
+async function readFirstTimestamp(handle: fs.promises.FileHandle, size: number): Promise<number | undefined> {
+  const buffer = Buffer.alloc(Math.min(size, META_SCAN_BYTE_LIMIT));
+  await handle.read(buffer, 0, buffer.length, 0);
+  const firstLine = buffer.toString("utf8").split("\n")[0];
+  try {
+    const entry = JSON.parse(firstLine) as Record<string, unknown>;
+    const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
+    return Number.isNaN(ms) ? undefined : ms;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `{id -> name}`, the last `session_index.jsonl` line per id — small file, read whole each time. */
+async function readSessionNames(): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  let text: string;
+  try {
+    text = await fs.promises.readFile(sessionIndexFile(), "utf8");
+  } catch {
+    return names;
+  }
+  for (const line of text.split("\n")) {
+    if (!line.trim()) {
+      continue;
+    }
+    try {
+      const entry = JSON.parse(line) as { id?: unknown; thread_name?: unknown };
+      const id = nonEmptyString(entry.id);
+      const name = nonEmptyString(entry.thread_name);
+      if (id) {
+        // Last entry wins — a rename appends rather than replacing, an unset name is still an
+        // entry (Codex writes one on every name change including clearing it back to none).
+        if (name) {
+          names.set(id, name);
+        } else {
+          names.delete(id);
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return names;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function truncateTitle(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > TITLE_MAX_LENGTH ? `${normalized.slice(0, TITLE_MAX_LENGTH - 1)}…` : normalized;
+}
+
+/** Every `.jsonl` rollout under `sessions/`, three levels deep (`YYYY/MM/DD`). */
+async function listRolloutFiles(): Promise<string[]> {
+  const files: string[] = [];
+  const root = sessionsRoot();
+  for (const year of await safeReaddir(root)) {
+    for (const month of await safeReaddir(path.join(root, year))) {
+      for (const day of await safeReaddir(path.join(root, year, month))) {
+        const dayDir = path.join(root, year, month, day);
+        for (const name of await safeReaddir(dayDir)) {
+          if (name.endsWith(".jsonl")) {
+            files.push(path.join(dayDir, name));
+          }
+        }
+      }
+    }
+  }
+  return files;
+}
+
+async function safeReaddir(dir: string): Promise<string[]> {
+  try {
+    return await fs.promises.readdir(dir);
+  } catch {
+    return [];
+  }
+}
+
+/** win32 paths are case-insensitive; Codex itself lower-cases them for its own `cwd` matching. */
+function samePath(a: string, b: string): boolean {
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+export const codexSessionProvider: SessionProvider = {
+  async list(_executable: string, cwd: string): Promise<AgentSessionInfo[]> {
+    try {
+      const files = await listRolloutFiles();
+      const names = await readSessionNames();
+      const entries = await Promise.all(
+        files.map(async (filePath): Promise<AgentSessionInfo | undefined> => {
+          const meta = await readSessionMeta(filePath);
+          // `exec`/`mcp`/subagent runs are never interactive sessions of this repository's
+          // tabs — only `cli` is, matching what Codex's own `/resume` picker shows by default.
+          if (!meta || meta.source !== "cli" || !samePath(meta.cwd, cwd)) {
+            return undefined;
+          }
+          const [tail, stat] = await Promise.all([scanTail(filePath), fs.promises.stat(filePath)]);
+          const title = names.get(meta.sessionId) ?? tail.firstPrompt ?? "";
+          return {
+            id: meta.sessionId,
+            title,
+            updatedAt: stat.mtimeMs,
+            createdAt: tail.createdAt ?? stat.mtimeMs,
+            turnEndedAt: tail.turnEndedAt
+          };
+        })
+      );
+      const sessions = entries.filter((entry): entry is AgentSessionInfo => entry !== undefined);
+      sessions.sort((a, b) => a.createdAt - b.createdAt);
+      return sessions;
+    } catch (error) {
+      console.error("[meezeek] codex session listing failed:", error);
+      return [];
+    }
+  },
+
+  resumeArgs(sessionId: string): string[] {
+    return ["resume", sessionId];
+  },
+
+  async remove(executable: string, cwd: string, sessionId: string): Promise<void> {
+    await deleteThread(executable, cwd, sessionId);
+  },
+
+  /**
+   * The only writer of a Codex thread's name is the app-server RPC Codex's own `/rename` uses
+   * internally — there is no CLI command and no rollout entry the picker reads as a name (see
+   * "Sessions" in codex.md).
+   */
+  async rename(executable: string, cwd: string, sessionId: string, title: string): Promise<void> {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      throw new Error("title must be non-empty");
+    }
+    await renameThread(executable, cwd, sessionId, trimmed);
+  },
+
+  /**
+   * Watches today's rollout folder for new/changed sessions and the name index for renames.
+   * Two-stage like Claude's: the day's folder (and the month's, and the year's) may not exist
+   * yet, and `fs.watch` throws on a missing directory. Not scoped to `cwd` — there is no
+   * per-repository folder to watch, unlike Claude's — `list()` filters by cwd on every read.
+   */
+  watch(_executable: string, _cwd: string, onChange: () => void): () => void {
+    let stopped = false;
+    const watchers: fs.FSWatcher[] = [];
+    const armed = new Set<string>();
+
+    const closeAll = (): void => {
+      for (const watcher of watchers) {
+        watcher.close();
+      }
+      watchers.length = 0;
+      armed.clear();
+    };
+
+    const arm = (dir: string, onEvent: (filename: string | null) => void): void => {
+      if (stopped || armed.has(dir)) {
+        return;
+      }
+      try {
+        const watcher = fs.watch(dir, (_type, filename) => onEvent(filename));
+        watchers.push(watcher);
+        armed.add(dir);
+      } catch {
+        // Doesn't exist yet — the parent's own watch below re-checks once it's created.
+      }
+    };
+
+    // A day changes at most once every 24h; re-resolving the chain on every poll is cheap and
+    // keeps this correct across midnight without a timer of its own.
+    const rearm = (): void => {
+      if (stopped) {
+        return;
+      }
+      closeAll();
+      const root = sessionsRoot();
+      const now = new Date();
+      const year = String(now.getFullYear());
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const dayDir = path.join(root, year, month, day);
+      arm(root, () => rearm());
+      arm(path.join(root, year), () => rearm());
+      arm(path.join(root, year, month), () => rearm());
+      arm(dayDir, (filename) => {
+        if (filename === null || filename.endsWith(".jsonl")) {
+          onChange();
+        }
+      });
+      arm(codexHome(), (filename) => {
+        if (filename === "session_index.jsonl") {
+          onChange();
+        }
+      });
+    };
+    rearm();
+
+    return () => {
+      stopped = true;
+      closeAll();
+    };
+  }
+};

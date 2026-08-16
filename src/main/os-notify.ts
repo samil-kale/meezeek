@@ -97,6 +97,31 @@ export function writePosixScript(file: string, contents: string): void {
   fs.writeFileSync(file, contents.replace(/\r\n/g, "\n"));
 }
 
+/**
+ * Builds a hook command that prints a file's contents on stdout — the context file, for the
+ * `UserPromptSubmit` hook whose plain stdout an agent appends to the prompt. Shared by Claude
+ * Code and Codex: both treat a hook's non-JSON stdout the same way, so the same script does for
+ * either.
+ *
+ * Which shell a hook runs under on win32 is environment-dependent — PowerShell, cmd.exe and Git
+ * Bash were all observed for Claude Code's own hooks — so builtins like `type` are unreliable. An
+ * explicit `powershell -File` invocation is parsed identically by all three.
+ */
+export function buildReadFileCommand(storageDir: string, scriptName: string, targetFile: string): string {
+  if (process.platform !== "win32") {
+    return `cat ${shellSingleQuote(targetFile)}`;
+  }
+  const scriptFile = path.join(storageDir, `${scriptName}.ps1`);
+  // Quoted the literal way in both shells: every path we generate has the user's own name in
+  // it, and a "$" in that would otherwise be read as a variable rather than as a character.
+  fs.writeFileSync(
+    scriptFile,
+    WIN_BOM +
+      `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\nGet-Content -Raw ${powershellSingleQuote(targetFile)}\n`
+  );
+  return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
+}
+
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
