@@ -6,7 +6,7 @@ import type { Project, TerminalOutput, TerminalStatus } from "../shared/types";
 import { startAutoUpdate } from "./auto-update";
 import { countActivity, startEventLoopMonitor } from "./event-loop-monitor";
 import { startGitProcess, stopGitProcess } from "./git-client";
-import { registerIpc } from "./ipc";
+import { registerIpc, sweepTempFiles } from "./ipc";
 import { ProjectStore } from "./projects";
 import { RepositoryManager } from "./repository";
 import { SessionManagerRegistry } from "./session-manager";
@@ -174,6 +174,7 @@ if (!app.requestSingleInstanceLock()) {
     // Before a project opens, since opening one is what asks an agent for its sessions: what
     // a run that was killed left running is taken down here. See AgentDefinition.prepareApp.
     prepareAgents(app.getPath("userData"));
+    sweepTempFiles();
     registerIpc({ store, settings, accounts, repositories, sessions, send, openProject, openWorkspace });
     createWindow();
     startAutoUpdate((severity, message) => send("app:notice", { severity, message }));

@@ -56,6 +56,10 @@ export interface IpcDeps {
 
 const MISSING_REPOSITORY: RepositoryState = { ...EMPTY_REPOSITORY_STATE, error: "Project not found" };
 
+const TEMP_FILE_NAME = /^meezeek-(\d+)-/;
+/** A pasted path is meant to be read within the turn it was typed into — a day is generous. */
+const TEMP_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 /** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
 async function writeTempFile(name: string, data: Buffer): Promise<string> {
   const file = path.join(os.tmpdir(), `meezeek-${Date.now()}-${path.basename(name)}`);
@@ -63,6 +67,34 @@ async function writeTempFile(name: string, data: Buffer): Promise<string> {
   // ptys' output and the keystrokes on their way to them for as long as the disk takes.
   await fs.promises.writeFile(file, data);
   return file;
+}
+
+/**
+ * Clears what writeTempFile left behind: nothing marks one of its files as "already read", so
+ * without this they sit in the OS temp directory forever. Run once at startup rather than after
+ * each paste — the file may still be read a moment later, and a session cut short must not take
+ * it with it. The write time is in the name already, so this costs one `readdir`, no `stat`.
+ */
+export function sweepTempFiles(): void {
+  void (async () => {
+    const dir = os.tmpdir();
+    let names: string[];
+    try {
+      names = await fs.promises.readdir(dir);
+    } catch {
+      return;
+    }
+    const cutoff = Date.now() - TEMP_FILE_MAX_AGE_MS;
+    await Promise.all(
+      names.map(async (name) => {
+        const match = TEMP_FILE_NAME.exec(name);
+        if (!match || Number(match[1]) >= cutoff) {
+          return;
+        }
+        await fs.promises.unlink(path.join(dir, name)).catch(() => undefined);
+      })
+    );
+  })();
 }
 
 export function registerIpc({
