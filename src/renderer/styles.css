@@ -1432,8 +1432,9 @@ option {
   overflow-y: auto;
 }
 
-/* The Info tab's values, laid out the same way the Shortcuts tab's rows are. */
-.settings-info {
+/* The Info and Shortcuts tabs, laid out the same way. */
+.settings-info,
+.settings-shortcuts {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1453,12 +1454,6 @@ option {
   width: 110px;
   flex: none;
   color: var(--vscode-descriptionForeground);
-}
-
-.settings-shortcuts {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 /* The field a name is typed into, with its label above it. */

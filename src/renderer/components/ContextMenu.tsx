@@ -39,7 +39,14 @@ export function ContextMenu({ x, y, entries, onClose, className }: ContextMenuPr
     element.style.top = `${Math.max(0, Math.min(y, window.innerHeight - height))}px`;
   }, [x, y]);
 
+  // Held in a ref: callers pass an inline arrow, and re-attaching three capture listeners on
+  // every parent render (a repository or tab push, while a menu stands) is not worth avoiding
+  // per call site.
+  const close = useRef(onClose);
+  close.current = onClose;
+
   useEffect(() => {
+    const onClose = (): void => close.current();
     const onMouseDown = (event: MouseEvent): void => {
       if (!menu.current?.contains(event.target as Node)) {
         onClose();
@@ -62,7 +69,7 @@ export function ContextMenu({ x, y, entries, onClose, className }: ContextMenuPr
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div ref={menu} className={`context-menu${className ? ` ${className}` : ""}`} style={{ left: x, top: y }}>
