@@ -50,7 +50,7 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Stacked above the branch bar, newest at the bottom, each dismissed by clicking it. */
+/** Stacked over the window's bottom right corner, newest at the bottom, each dismissed by clicking it. */
 export function Notices() {
   const notices = useSyncExternalStore(subscribe, () => shown);
   if (notices.length === 0) {

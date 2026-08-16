@@ -45,8 +45,6 @@ export class TerminalSession {
   private process: IPty | undefined;
   private status: TerminalStatus = "missing";
   private intentionalStop = false;
-  private installed = false;
-  private pendingDims: { cols: number; rows: number } | undefined;
 
   constructor(
     private readonly executable: string,
@@ -63,20 +61,9 @@ export class TerminalSession {
     this.callbacks.onStatusChange(status);
   }
 
+  /** Settled before the first `ensureStarted`: only a "ready" session ever spawns. */
   markInstalled(installed: boolean): void {
-    this.installed = installed;
-    if (!installed) {
-      this.setStatus("missing");
-      return;
-    }
-    this.setStatus("ready");
-    // The view may have reported its dimensions while the version check was still
-    // running — start with those now instead of waiting for the next resize.
-    if (this.pendingDims) {
-      const { cols, rows } = this.pendingDims;
-      this.pendingDims = undefined;
-      this.start(cols, rows);
-    }
+    this.setStatus(installed ? "ready" : "missing");
   }
 
   /**
@@ -96,10 +83,6 @@ export class TerminalSession {
         // The exit handler is on its way and is what sets the status; there is nothing to do
         // for a size the process will never draw at.
       }
-      return;
-    }
-    if (!this.installed) {
-      this.pendingDims = { cols, rows };
       return;
     }
     this.start(cols, rows);

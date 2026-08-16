@@ -133,17 +133,31 @@ async function readHead(cwd: string, header: string): Promise<HeadState> {
  * commit-hash lists — this tree has no commit graph to hand them to, so `--count` turns
  * `rev-list --left-right` into the two numbers the row wants instead of lines to parse.
  */
+/**
+ * Remembered per commit pair: two hashes name two fixed histories, so their count can never
+ * change — and readRefs runs on every refresh, which would otherwise spend one process per
+ * diverged branch each time. Only a successful count is kept.
+ */
+const trackCounts = new Map<string, { ahead: number; behind: number }>();
+
 async function readTrackCount(
   cwd: string,
   head: string,
   upstreamHead: string
 ): Promise<{ ahead: number; behind: number } | undefined> {
+  const key = `${cwd}\0${head}...${upstreamHead}`;
+  const cached = trackCounts.get(key);
+  if (cached) {
+    return cached;
+  }
   const result = await git(cwd, ["rev-list", "--left-right", "--count", `${head}...${upstreamHead}`]);
   if (result.code !== 0) {
     return undefined;
   }
   const [ahead, behind] = result.stdout.trim().split(/\s+/).map(Number);
-  return { ahead: ahead || 0, behind: behind || 0 };
+  const track = { ahead: ahead || 0, behind: behind || 0 };
+  trackCounts.set(key, track);
+  return track;
 }
 
 /**
@@ -463,19 +477,6 @@ export function pull(cwd: string): Promise<GitActionResult> {
  */
 export function push(cwd: string, remote: string, branch: string, setUpstream: boolean): Promise<GitActionResult> {
   return runNetwork(cwd, setUpstream ? ["push", "--set-upstream", remote, branch] : ["push"]);
-}
-
-/**
- * `--force-with-lease` rather than `--force`, like GitHub Desktop: a push that would overwrite
- * commits the remote picked up since the last fetch is refused instead of dropping them.
- */
-export function forcePush(cwd: string, remote: string, branch: string): Promise<GitActionResult> {
-  return runNetwork(cwd, ["push", "--force-with-lease", remote, branch]);
-}
-
-/** `git pull --rebase`, whatever the repository's own pull.rebase says. */
-export function pullRebase(cwd: string): Promise<GitActionResult> {
-  return runNetwork(cwd, ["pull", "--rebase"]);
 }
 
 /**

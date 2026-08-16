@@ -1,8 +1,10 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 /** One entry of a context menu; an action without a `run` renders disabled. */
 export interface ContextMenuAction {
   label: string;
+  /** Leads the label, e.g. an agent's icon in the new-session menu. */
+  icon?: ReactNode;
   run?: () => void;
 }
 
@@ -17,9 +19,11 @@ interface ContextMenuProps {
   y: number;
   entries: ContextMenuEntry[];
   onClose: () => void;
+  /** Appended to "context-menu", for a caller that needs its own look on top of the shared one. */
+  className?: string;
 }
 
-export function ContextMenu({ x, y, entries, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, entries, onClose, className }: ContextMenuProps) {
   const menu = useRef<HTMLDivElement>(null);
 
   // Anchored at the pointer like VS Code, then clamped so a menu opened near an edge
@@ -61,7 +65,7 @@ export function ContextMenu({ x, y, entries, onClose }: ContextMenuProps) {
   }, [onClose]);
 
   return (
-    <div ref={menu} className="context-menu" style={{ left: x, top: y }}>
+    <div ref={menu} className={`context-menu${className ? ` ${className}` : ""}`} style={{ left: x, top: y }}>
       {entries.map((entry, index) =>
         entry === SEPARATOR ? (
           <div key={index} className="context-menu-separator" />
@@ -76,6 +80,7 @@ export function ContextMenu({ x, y, entries, onClose }: ContextMenuProps) {
               }
             }}
           >
+            {entry.icon}
             {entry.label}
           </div>
         )

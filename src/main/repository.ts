@@ -265,20 +265,6 @@ export class Repository {
     return this.state.remotes[0]?.name;
   }
 
-  /** Rewrites what the remote has. Only offered after a rebase left the branch diverged. */
-  forcePush(): Promise<GitActionResult> {
-    return this.runAction(() => {
-      if (!this.remote || this.state.detached) {
-        return Promise.resolve({ ok: false, error: "There is no branch to push here" });
-      }
-      return git.forcePush(this.project.path, this.remote, this.state.head);
-    });
-  }
-
-  pullRebase(): Promise<GitActionResult> {
-    return this.runAction(() => git.pullRebase(this.project.path));
-  }
-
   /** Points the remote somewhere else and re-reads the urls, since only this changes them. */
   setRemoteUrl(remote: string, url: string): Promise<GitActionResult> {
     return this.runAction(async () => {

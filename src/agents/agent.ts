@@ -132,9 +132,6 @@ export interface AgentDefinition {
   displayName: string;
   /** Resolved at spawn time, since the shell's executable depends on the platform. */
   executable(): string;
-  args?: string[];
-  /** Defaults, not overrides — a variable the user already has set wins (see spawnAgentProcess). */
-  env?: Record<string, string>;
   /**
    * Args that make the executable report its version, used to tell "not installed" from a
    * spawn that failed for another reason. Omitted for agents that always exist (the shell).

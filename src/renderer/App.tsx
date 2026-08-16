@@ -415,21 +415,19 @@ export function App() {
    * key exists precisely so a project nobody has clicked into is not missed.
    */
   const showNeedsAttention = useCallback(() => {
-    const onScreen = (projectId: string, tabId: string): boolean =>
-      projectId === activeProjectId && activeTabs[projectId] === tabId;
-    const collect = (field: "waitingAt" | "finishedAt"): { projectId: string; tab: TerminalDescriptor }[] =>
-      Object.entries(tabs)
-        .flatMap(([projectId, list]) =>
-          list
-            .filter((tab) => tab[field] !== undefined && !onScreen(projectId, tab.tabId))
-            .map((tab) => ({ projectId, tab }))
-        )
+    // Through `waitingTabs`/`markedTabs`, so the "not the tab on screen" rule stays in one place.
+    const collect = (
+      of: (projectId: string) => TerminalDescriptor[],
+      field: "waitingAt" | "finishedAt"
+    ): { projectId: string; tab: TerminalDescriptor }[] =>
+      Object.keys(tabs)
+        .flatMap((projectId) => of(projectId).map((tab) => ({ projectId, tab })))
         .sort((a, b) => (a.tab[field] ?? 0) - (b.tab[field] ?? 0));
-    const next = collect("waitingAt")[0] ?? collect("finishedAt")[0];
+    const next = collect(waitingTabs, "waitingAt")[0] ?? collect(markedTabs, "finishedAt")[0];
     if (next) {
       showTab(next.projectId, next.tab.tabId);
     }
-  }, [tabs, activeProjectId, activeTabs, showTab]);
+  }, [tabs, waitingTabs, markedTabs, showTab]);
 
   /** Ctrl/Cmd+Shift+./, — the active project's tabs, one over from where it is now. */
   const cycleTab = useCallback(

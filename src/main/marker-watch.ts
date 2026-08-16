@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { powershellSingleQuote, shellSingleQuote, WIN_BOM, writePosixScript } from "./os-notify";
 
 /**
  * Where a hook drops its markers, and where meezeek watches for them, shared by every agent
@@ -21,6 +22,71 @@ const MARKER_SWEEP_MS = 2000;
 
 export function markerDir(storageDir: string, kind: Marker): string {
   return path.join(storageDir, kind);
+}
+
+/**
+ * The lines that turn a hook payload's session id into a marker file, in each shell. Written
+ * once for every hook of every agent, so the one thing that has to be exactly right — that
+ * nothing but a session id can ever become a filename — is written once. `$json` must be in
+ * scope, holding the parsed payload (win32) or its raw text (sh).
+ */
+export function markPowershell(dir: string): string {
+  return `  # Matched before it is used as a path: the id is a uuid and nothing else may become
+  # a filename here. -Force so a session that reaches this twice overwrites its own marker
+  # rather than erroring - the file is empty, there is nothing in it to lose.
+  $id = [string]$json.session_id
+  if ($id -match '^[0-9a-fA-F-]+$') {
+    New-Item -ItemType File -Force -Path (Join-Path ${powershellSingleQuote(dir)} $id) -ErrorAction SilentlyContinue | Out-Null
+  }`;
+}
+
+export function markPosix(dir: string): string {
+  return `# Only the uuid characters are captured, so nothing else can ever become a filename below.
+id=$(printf '%s' "$json" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F-]*\\)".*/\\1/p')
+# touch rather than a ">" redirection: ":" is a special built-in, and POSIX has a failed
+# redirection on one of those end the whole shell - which would take whatever follows with it
+# the one time the directory is missing.
+if [ -n "$id" ]; then
+  touch ${shellSingleQuote(dir)}/"$id" 2>/dev/null || true
+fi`;
+}
+
+/**
+ * The hook command shared by every marker hook without a guard of its own: read the JSON
+ * payload off stdin, touch a file named after its session id in the `kind` directory, then run
+ * `notifyCommand` if one was given. Always exits 0 — a hook on UserPromptSubmit that fails can
+ * hold the prompt back, and none of these has anything to report by exit code. `id` names the
+ * script file, since two hooks of one agent must not share one.
+ */
+export function buildMarkCommand(storageDir: string, id: string, kind: Marker, notifyCommand: string | undefined): string {
+  const marks = markerDir(storageDir, kind);
+  fs.mkdirSync(marks, { recursive: true });
+  if (process.platform === "win32") {
+    const scriptFile = path.join(storageDir, `${id}.ps1`);
+    fs.writeFileSync(
+      scriptFile,
+      WIN_BOM +
+        `try {
+  $json = [Console]::In.ReadToEnd() | ConvertFrom-Json
+${markPowershell(marks)}
+} catch {}
+${notifyCommand ?? ""}
+exit 0
+`
+    );
+    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
+  }
+  const scriptFile = path.join(storageDir, `${id}.sh`);
+  writePosixScript(
+    scriptFile,
+    `#!/bin/sh
+json=$(cat)
+${markPosix(marks)}
+${notifyCommand ?? ""}
+exit 0
+`
+  );
+  return `sh "${scriptFile}"`;
 }
 
 /**

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { WIN_BOM } from "./os-notify";
 
 /** Collapses the burst of chunks a single command's output arrives in into one write. */
 const WRITE_DEBOUNCE_MS = 250;
@@ -12,7 +13,7 @@ const MAX_LOG_CHARS = 500_000;
 const LOG_TRUNCATION_NOTE = "... [earlier output dropped, showing most recent]\n";
 // PowerShell 5.1's Get-Content decodes BOM-less files as ANSI, so on win32 the context file
 // needs a UTF-8 BOM or non-ASCII output gets garbled on its way into the prompt.
-const CONTEXT_FILE_BOM = process.platform === "win32" ? "﻿" : "";
+const CONTEXT_FILE_BOM = process.platform === "win32" ? WIN_BOM : "";
 
 /**
  * Replaces a file's contents without ever holding it open for writing. Everything written here

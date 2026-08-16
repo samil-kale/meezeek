@@ -52,9 +52,11 @@ export function createModifierGatedLinkProvider(
   onActivate: (text: string) => void,
   resolveWrapped?: WrappedUrlResolver
 ): ILinkProvider {
+  // Built once: provideLinks runs on every render while the pointer is over the terminal.
+  const rex = new RegExp(regex.source, (regex.flags || "") + "g");
   return {
     provideLinks(bufferLineNumber, callback) {
-      callback(computeLinks(bufferLineNumber, terminal, regex, onActivate, resolveWrapped));
+      callback(computeLinks(bufferLineNumber, terminal, rex, onActivate, resolveWrapped));
     }
   };
 }
@@ -62,11 +64,10 @@ export function createModifierGatedLinkProvider(
 function computeLinks(
   y: number,
   terminal: Terminal,
-  regex: RegExp,
+  rex: RegExp,
   onActivate: (text: string) => void,
   resolveWrapped?: WrappedUrlResolver
 ): ILink[] {
-  const rex = new RegExp(regex.source, (regex.flags || "") + "g");
   const [lines, startLineIndex, offsets] = getWindowedLineStrings(y - 1, terminal);
   const line = lines.join("");
 

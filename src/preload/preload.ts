@@ -42,8 +42,6 @@ const api: MeezeekApi = {
     fetch: (projectId) => ipcRenderer.invoke("repo:fetch", projectId),
     pull: (projectId) => ipcRenderer.invoke("repo:pull", projectId),
     push: (projectId) => ipcRenderer.invoke("repo:push", projectId),
-    forcePush: (projectId) => ipcRenderer.invoke("repo:force-push", projectId),
-    pullRebase: (projectId) => ipcRenderer.invoke("repo:pull-rebase", projectId),
     setRemoteUrl: (projectId, remote, url) => ipcRenderer.invoke("repo:set-remote-url", projectId, remote, url),
     createBranch: (projectId, name, startPoint) =>
       ipcRenderer.invoke("repo:create-branch", projectId, name, startPoint),

@@ -560,12 +560,12 @@ export class ProjectSessionManager {
     // nothing the agent itself would have been started with applies to it.
     const args = tab.executable
       ? (tab.runArgs ?? [])
-      : [...(agent.args ?? []), ...(preparation?.args ?? []), ...resumeArgs, ...(tab.runArgs ?? [])];
+      : [...(preparation?.args ?? []), ...resumeArgs, ...(tab.runArgs ?? [])];
 
     const session = new TerminalSession(
       tab.executable ?? executable,
       tab.cwd ?? this.project.path,
-      { ...agent.env, ...preparation?.env },
+      preparation?.env,
       {
         onOutput: (data) => {
           this.callbacks.onOutput(this.project.id, tabId, data);
@@ -677,7 +677,8 @@ export class ProjectSessionManager {
       this.sessions.delete(tab.tabId);
     }
 
-    const { agent, executable } = this.runtimeFor(tab.agentId);
+    const runtime = this.runtimeFor(tab.agentId);
+    const { agent, executable } = runtime;
     if (!agent.sessions) {
       return;
     }
@@ -687,7 +688,6 @@ export class ProjectSessionManager {
       // reconcile match a tab we already spliced out.
       this.detachedTabs.push(tab);
       try {
-        const runtime = this.runtimeFor(tab.agentId);
         // A reconcile already underway listed before this tab was detached and cannot match
         // it; `reconcile` would hand back that very promise. Let it finish, then run one that
         // sees the tab — or its session outlives the tab and is back on the next start.
@@ -820,6 +820,11 @@ export class ProjectSessionManager {
   }
 
   private scheduleReconcile(runtime: AgentRuntime, delayMs = RECONCILE_DEBOUNCE_MS): void {
+    // Nothing to list for an agent without sessions (the shell) — and its output arrives per
+    // chunk, so this would otherwise re-arm a timer for a no-op on every line of a build.
+    if (!runtime.agent.sessions) {
+      return;
+    }
     runtime.reconcileRetriesLeft = RECONCILE_MAX_RETRIES;
     // Only tabs whose label is unsettled need the mid-output reconcile; elsewhere the debounce
     // alone keeps the extra session listings out of a turn. A stand-in title counts as

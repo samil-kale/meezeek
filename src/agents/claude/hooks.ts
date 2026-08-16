@@ -1,43 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { markerDir } from "../../main/marker-watch";
-import {
-  buildNotifyCommand,
-  buildReadFileCommand,
-  powershellSingleQuote,
-  shellSingleQuote,
-  WIN_BOM,
-  writePosixScript
-} from "../../main/os-notify";
+import { buildMarkCommand, markerDir, markPosix, markPowershell } from "../../main/marker-watch";
+import { buildNotifyCommand, buildReadFileCommand, WIN_BOM, writePosixScript } from "../../main/os-notify";
 import type { NotificationSettings } from "../../shared/types";
 
 export { watchMarkers } from "../../main/marker-watch";
-
-/**
- * The lines that turn the payload's session id into a marker file, in each shell. Shared by
- * both hooks so the one thing that has to be exactly right — that nothing but a session id can
- * ever become a filename — is written once. `$json` (win32) / `$json` (sh) must be in scope.
- */
-function markPowershell(dir: string): string {
-  return `  # Matched before it is used as a path: the id is a uuid and nothing else may become
-  # a filename here. -Force so a session that reaches this twice overwrites its own marker
-  # rather than erroring - the file is empty, there is nothing in it to lose.
-  $id = [string]$json.session_id
-  if ($id -match '^[0-9a-fA-F-]+$') {
-    New-Item -ItemType File -Force -Path (Join-Path ${powershellSingleQuote(dir)} $id) -ErrorAction SilentlyContinue | Out-Null
-  }`;
-}
-
-function markPosix(dir: string): string {
-  return `# Only the uuid characters are captured, so nothing else can ever become a filename below.
-id=$(printf '%s' "$json" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F-]*\\)".*/\\1/p')
-# touch rather than a ">" redirection: ":" is a special built-in, and POSIX has a failed
-# redirection on one of those end the whole shell - which would take whatever follows with it
-# the one time the directory is missing.
-if [ -n "$id" ]; then
-  touch ${shellSingleQuote(dir)}/"$id" 2>/dev/null || true
-fi`;
-}
 
 /**
  * Builds the UserPromptSubmit hook that records the session as working: the other end of the
@@ -46,35 +13,11 @@ fi`;
  *
  * It shares UserPromptSubmit with the command that prints the context file, whose stdout is
  * appended to the prompt, so this one has to stay **silent**; and it must exit 0 whatever
- * happens, since a non-zero UserPromptSubmit hook can hold the prompt back.
+ * happens, since a non-zero UserPromptSubmit hook can hold the prompt back — both of which
+ * `buildMarkCommand` guarantees.
  */
 function buildBusyCommand(storageDir: string): string {
-  const marks = markerDir(storageDir, "busy");
-  fs.mkdirSync(marks, { recursive: true });
-  if (process.platform === "win32") {
-    const scriptFile = path.join(storageDir, "busy.ps1");
-    fs.writeFileSync(
-      scriptFile,
-      WIN_BOM +
-        `try {
-  $json = [Console]::In.ReadToEnd() | ConvertFrom-Json
-${markPowershell(marks)}
-} catch {}
-exit 0
-`
-    );
-    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
-  }
-  const scriptFile = path.join(storageDir, "busy.sh");
-  writePosixScript(
-    scriptFile,
-    `#!/bin/sh
-json=$(cat)
-${markPosix(marks)}
-exit 0
-`
-  );
-  return `sh "${scriptFile}"`;
+  return buildMarkCommand(storageDir, "busy", "busy", undefined);
 }
 
 /**
@@ -156,32 +99,7 @@ ${notifyCommand ?? ""}
  * shared file would have the second overwrite the first.
  */
 function buildWaitingCommand(storageDir: string, id: string, notifyCommand: string | undefined): string {
-  const marks = markerDir(storageDir, "waiting");
-  fs.mkdirSync(marks, { recursive: true });
-  if (process.platform === "win32") {
-    const scriptFile = path.join(storageDir, `${id}.ps1`);
-    fs.writeFileSync(
-      scriptFile,
-      WIN_BOM +
-        `try {
-  $json = [Console]::In.ReadToEnd() | ConvertFrom-Json
-${markPowershell(marks)}
-} catch {}
-${notifyCommand ?? ""}
-`
-    );
-    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
-  }
-  const scriptFile = path.join(storageDir, `${id}.sh`);
-  writePosixScript(
-    scriptFile,
-    `#!/bin/sh
-json=$(cat)
-${markPosix(marks)}
-${notifyCommand ?? ""}
-`
-  );
-  return `sh "${scriptFile}"`;
+  return buildMarkCommand(storageDir, id, "waiting", notifyCommand);
 }
 
 /**

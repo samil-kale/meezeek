@@ -1,15 +1,6 @@
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { markerDir } from "../../main/marker-watch";
-import {
-  buildNotifyCommand,
-  buildReadFileCommand,
-  powershellSingleQuote,
-  shellSingleQuote,
-  WIN_BOM,
-  writePosixScript
-} from "../../main/os-notify";
+import { buildMarkCommand } from "../../main/marker-watch";
+import { buildNotifyCommand, buildReadFileCommand } from "../../main/os-notify";
 import type { NotificationSettings } from "../../shared/types";
 
 /**
@@ -144,9 +135,7 @@ function buildHooksArg(entries: HookEntry[]): string {
  * busy, full stop.
  */
 function buildBusyCommand(storageDir: string): string {
-  const marks = markerDir(storageDir, "busy");
-  fs.mkdirSync(marks, { recursive: true });
-  return buildMarkCommand(storageDir, "busy", marks, undefined);
+  return buildMarkCommand(storageDir, "busy", "busy", undefined);
 }
 
 /**
@@ -157,9 +146,7 @@ function buildBusyCommand(storageDir: string): string {
  * actually over.
  */
 function buildStopCommand(storageDir: string, notifyCommand: string | undefined): string {
-  const marks = markerDir(storageDir, "finished");
-  fs.mkdirSync(marks, { recursive: true });
-  return buildMarkCommand(storageDir, "stop", marks, notifyCommand);
+  return buildMarkCommand(storageDir, "stop", "finished", notifyCommand);
 }
 
 /**
@@ -170,60 +157,7 @@ function buildStopCommand(storageDir: string, notifyCommand: string | undefined)
  * wording. `id` names the script file, since the two callers must not share one.
  */
 function buildWaitingCommand(storageDir: string, id: string, notifyCommand: string | undefined): string {
-  const marks = markerDir(storageDir, "waiting");
-  fs.mkdirSync(marks, { recursive: true });
-  return buildMarkCommand(storageDir, id, marks, notifyCommand);
-}
-
-/**
- * The command line shared by every marker hook: read the JSON payload off stdin, pull
- * `session_id` out of it, touch a file named after it in `marks`, then run `notifyCommand` if
- * one was given. Only the marker directory and the optional notify step differ between callers.
- */
-function buildMarkCommand(storageDir: string, id: string, marks: string, notifyCommand: string | undefined): string {
-  if (process.platform === "win32") {
-    const scriptFile = path.join(storageDir, `${id}.ps1`);
-    fs.writeFileSync(
-      scriptFile,
-      WIN_BOM +
-        `try {
-  $json = [Console]::In.ReadToEnd() | ConvertFrom-Json
-${markPowershell(marks)}
-} catch {}
-${notifyCommand ?? ""}
-`
-    );
-    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`;
-  }
-  const scriptFile = path.join(storageDir, `${id}.sh`);
-  writePosixScript(
-    scriptFile,
-    `#!/bin/sh
-json=$(cat)
-${markPosix(marks)}
-${notifyCommand ?? ""}
-`
-  );
-  return `sh "${scriptFile}"`;
-}
-
-/**
- * The lines that turn the payload's session id into a marker file, in each shell — the same
- * approach as the Claude module's, matched before it is used as a path so nothing but a session
- * id can ever become a filename.
- */
-function markPowershell(dir: string): string {
-  return `  $id = [string]$json.session_id
-  if ($id -match '^[0-9a-fA-F-]+$') {
-    New-Item -ItemType File -Force -Path (Join-Path ${powershellSingleQuote(dir)} $id) -ErrorAction SilentlyContinue | Out-Null
-  }`;
-}
-
-function markPosix(dir: string): string {
-  return `id=$(printf '%s' "$json" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F-]*\\)".*/\\1/p')
-if [ -n "$id" ]; then
-  touch ${shellSingleQuote(dir)}/"$id" 2>/dev/null || true
-fi`;
+  return buildMarkCommand(storageDir, id, "waiting", notifyCommand);
 }
 
 /**

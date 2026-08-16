@@ -32,10 +32,31 @@ interface SessionMeta {
   sessionId: string;
   cwd: string;
   source: string;
+  /** The line's own timestamp — a far more stable "created" signal than mtime. */
+  createdAt?: number;
 }
+
+/**
+ * Cached by path once read: `session_meta` never changes, and a listing runs for every rollout
+ * on the machine on every change to any of them. A failed read is not cached — a rollout that
+ * has only just been created can still be empty the first time it is seen.
+ */
+const metaCache = new Map<string, SessionMeta>();
 
 /** Reads only the first line of a rollout — `session_meta` is always written there, never later. */
 async function readSessionMeta(filePath: string): Promise<SessionMeta | undefined> {
+  const cached = metaCache.get(filePath);
+  if (cached) {
+    return cached;
+  }
+  const meta = await parseSessionMeta(filePath);
+  if (meta) {
+    metaCache.set(filePath, meta);
+  }
+  return meta;
+}
+
+async function parseSessionMeta(filePath: string): Promise<SessionMeta | undefined> {
   const stream = fs.createReadStream(filePath, { encoding: "utf8", end: META_SCAN_BYTE_LIMIT });
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
   try {
@@ -56,7 +77,8 @@ async function readSessionMeta(filePath: string): Promise<SessionMeta | undefine
       if (!sessionId || !cwd) {
         return undefined;
       }
-      return { sessionId, cwd, source: source ?? "" };
+      const createdAt = Date.parse(nonEmptyString(entry.timestamp) ?? "");
+      return { sessionId, cwd, source: source ?? "", createdAt: Number.isNaN(createdAt) ? undefined : createdAt };
     }
   } catch (error) {
     console.error("[meezeek] codex session_meta read failed:", error);
@@ -68,14 +90,13 @@ async function readSessionMeta(filePath: string): Promise<SessionMeta | undefine
 }
 
 /**
- * A rollout's own record of its creation time and, backwards from the end, the last turn
- * boundary — `task_complete`/`turn_aborted` cover a normal end and an interrupted one alike (see
- * "Sessions" in codex.md), the net under the Stop hook the same way Claude's `turn_duration` is.
- * Cached by path and size for the same reason Claude's scan is: a listing runs for every session
- * on every change to any of them.
+ * What a listing needs from a rollout's body: the first real prompt from its head, and,
+ * backwards from the end, the last turn boundary — `task_complete`/`turn_aborted` cover a normal
+ * end and an interrupted one alike (see "Sessions" in codex.md), the net under the Stop hook the
+ * same way Claude's `turn_duration` is. Cached by path and size for the same reason Claude's
+ * scan is: a listing runs for every session on every change to any of them.
  */
 interface TailInfo {
-  createdAt?: number;
   turnEndedAt?: number;
   /** The first real user prompt — Codex assigns no title of its own, so this stands in for one. */
   firstPrompt?: string;
@@ -83,18 +104,43 @@ interface TailInfo {
 
 const tailCache = new Map<string, { size: number; tail: TailInfo }>();
 
-function scanComplete(tail: TailInfo): boolean {
-  return tail.createdAt !== undefined && tail.turnEndedAt !== undefined && tail.firstPrompt !== undefined;
+const TURN_END_TYPES = ['"task_complete"', '"turn_aborted"'];
+const PROMPT_TYPES = ['"user_message"', '"role":"user"'];
+
+/** The last turn boundary in `lines`, if any — read backwards, since only the last one counts. */
+function readTurnEnd(lines: string[]): number | undefined {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!TURN_END_TYPES.some((type) => line.includes(type))) {
+      continue;
+    }
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const payload = entry.payload as Record<string, unknown> | undefined;
+    if (payload?.type === "task_complete" || payload?.type === "turn_aborted") {
+      const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
+      if (!Number.isNaN(ms)) {
+        return ms;
+      }
+    }
+  }
+  return undefined;
 }
 
-const ENTRY_TYPES = ['"task_complete"', '"turn_aborted"', '"user_message"', '"role":"user"'];
-
-function readTailEntries(lines: string[], tail: TailInfo): void {
-  // Forwards for the first prompt (the earliest one is the answer), backwards for everything
-  // else that only the *last* occurrence answers — one pass either way, stopping once every
-  // field this stretch could still supply has been found.
-  for (const line of lines) {
-    if (tail.firstPrompt !== undefined || !ENTRY_TYPES.some((type) => line.includes(type))) {
+/**
+ * The first real prompt, read forwards from the head: Codex writes its injected context blocks
+ * first, so it sits a few lines in — never in the tail, which is why it is not looked for there
+ * (the tail is read newest chunk first, and its first prompt would be a later one's).
+ */
+async function readFirstPrompt(handle: fs.promises.FileHandle, size: number): Promise<string | undefined> {
+  const buffer = Buffer.alloc(Math.min(size, TAIL_SCAN_BYTE_LIMIT));
+  await handle.read(buffer, 0, buffer.length, 0);
+  for (const line of buffer.toString("utf8").split("\n")) {
+    if (!PROMPT_TYPES.some((type) => line.includes(type))) {
       continue;
     }
     let entry: Record<string, unknown>;
@@ -105,30 +151,10 @@ function readTailEntries(lines: string[], tail: TailInfo): void {
     }
     const prompt = extractUserPrompt(entry);
     if (prompt !== undefined) {
-      tail.firstPrompt = truncateTitle(prompt);
+      return truncateTitle(prompt);
     }
   }
-  for (let i = lines.length - 1; i >= 0 && (tail.turnEndedAt === undefined || tail.createdAt === undefined); i--) {
-    const line = lines[i];
-    if (!ENTRY_TYPES.some((type) => line.includes(type))) {
-      continue;
-    }
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (tail.turnEndedAt === undefined) {
-      const payload = entry.payload as Record<string, unknown> | undefined;
-      if (payload?.type === "task_complete" || payload?.type === "turn_aborted") {
-        const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
-        if (!Number.isNaN(ms)) {
-          tail.turnEndedAt = ms;
-        }
-      }
-    }
-  }
+  return undefined;
 }
 
 /** A real typed prompt, not the `<environment_context>`/`<skills_instructions>` blocks Codex injects. */
@@ -159,18 +185,15 @@ async function scanTail(filePath: string): Promise<TailInfo> {
     if (cached?.size === size) {
       return cached.tail;
     }
-    // createdAt is a session's own first timestamp — never changes once written, so a session
-    // that has already been scanned once keeps that answer regardless of how much has grown.
-    tail.createdAt = cached?.tail.createdAt;
-    if (tail.createdAt === undefined) {
-      const head = await readFirstTimestamp(handle, size);
-      tail.createdAt = head;
-    }
+    // The first prompt never changes once written, so a session that has already been scanned
+    // once keeps that answer regardless of how much has grown; only one that had none yet
+    // (just created, nothing typed) looks again.
+    tail.firstPrompt = cached?.tail.firstPrompt ?? (await readFirstPrompt(handle, size));
     const previous = cached && cached.size < size ? cached : undefined;
     const floor = previous ? Math.max(0, previous.size - TAIL_SCAN_BYTE_LIMIT) : 0;
     let end = size;
     let carry = Buffer.alloc(0);
-    while (end > floor && !scanComplete(tail)) {
+    while (end > floor && tail.turnEndedAt === undefined) {
       const start = Math.max(floor, end - TAIL_SCAN_BYTE_LIMIT);
       const buffer = Buffer.alloc(end - start);
       await handle.read(buffer, 0, buffer.length, start);
@@ -180,13 +203,10 @@ async function scanTail(filePath: string): Promise<TailInfo> {
         carry = cut === -1 ? chunk : chunk.subarray(0, cut);
         chunk = cut === -1 ? Buffer.alloc(0) : chunk.subarray(cut + 1);
       }
-      readTailEntries(chunk.toString("utf8").split("\n"), tail);
+      tail.turnEndedAt = readTurnEnd(chunk.toString("utf8").split("\n"));
       end = start;
     }
-    if (previous) {
-      tail.turnEndedAt ??= previous.tail.turnEndedAt;
-      tail.firstPrompt ??= previous.tail.firstPrompt;
-    }
+    tail.turnEndedAt ??= previous?.tail.turnEndedAt;
     tailCache.set(filePath, { size, tail });
   } catch (error) {
     console.error("[meezeek] codex rollout scan failed:", error);
@@ -194,20 +214,6 @@ async function scanTail(filePath: string): Promise<TailInfo> {
     await handle?.close();
   }
   return tail;
-}
-
-/** The rollout's own first timestamped line — a far more stable "created" signal than mtime. */
-async function readFirstTimestamp(handle: fs.promises.FileHandle, size: number): Promise<number | undefined> {
-  const buffer = Buffer.alloc(Math.min(size, META_SCAN_BYTE_LIMIT));
-  await handle.read(buffer, 0, buffer.length, 0);
-  const firstLine = buffer.toString("utf8").split("\n")[0];
-  try {
-    const entry = JSON.parse(firstLine) as Record<string, unknown>;
-    const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
-    return Number.isNaN(ms) ? undefined : ms;
-  } catch {
-    return undefined;
-  }
 }
 
 /** `{id -> name}`, the last `session_index.jsonl` line per id — small file, read whole each time. */
@@ -303,7 +309,7 @@ export const codexSessionProvider: SessionProvider = {
             id: meta.sessionId,
             title,
             updatedAt: stat.mtimeMs,
-            createdAt: tail.createdAt ?? stat.mtimeMs,
+            createdAt: meta.createdAt ?? stat.mtimeMs,
             turnEndedAt: tail.turnEndedAt
           };
         })

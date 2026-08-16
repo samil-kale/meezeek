@@ -56,7 +56,6 @@ Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for
   ctrl-clicking a path in a terminal. `DiffDialog` and `SettingsDialog` are deliberately not part
   of `Dialog.tsx`: that file is for questions, built around a form with two buttons
 - git commands go in an ordinary terminal tab, not a console of the pane's own
-- the branch bar is the window's bottom strip
 - panes between all of that are draggable (`src/renderer/components/Sash.tsx`)
 
 ## Nothing starts without git and an agent
@@ -113,9 +112,8 @@ cloned, everything goes back through the CLI.
 Every action goes through `Repository.runAction`, one at a time per repository, refreshing after —
 two actions would race for the same index lock. Discarding and ignoring go through it too, since a
 discard context menu doesn't know a fetch is running and `git restore` wants the same lock. The
-renderer mirrors this in `App`'s `branchAction`: one project's tree stops offering actions while one
-runs, and `BranchBar` says what's happening instead of naming HEAD. `BranchActions.run` is the one
-way in — a view asks its own question first (it knows the remote, the branch, the file count), then
+renderer mirrors this in `App`'s `branchAction`: one project's tree and sync buttons stop offering
+actions while one runs, and the progress bar shows it. `BranchActions.run` is the one way in — a view asks its own question first (it knows the remote, the branch, the file count), then
 hands over a label and the call.
 
 Two things the tree needs cost no extra git process. `readRefs` asks `for-each-ref` for `%(symref)`
@@ -163,15 +161,15 @@ Each repository also fetches by itself every ten minutes (GitHub Desktop's inter
 on failure — a remote with no credentials entered would otherwise notice six times an hour for
 something nobody asked. A fetch the user pressed a button for reports like anything else.
 
-The branch bar's one button follows GitHub Desktop: publish a branch the remote's never seen, then
-pull what came in, then push what went out, then fetch when the two agree. Right-clicking opens the
-rest — fetch, pull, pull with rebase, push, force push. Force push is `--force-with-lease`, refusing
-rather than dropping commits the remote picked up since the last fetch — the one entry that asks
-before it runs.
+The branches header carries three buttons — fetch, pull, push — and push doubles as GitHub Desktop's
+"publish" for a branch the remote's never seen (`--set-upstream`). Pull with rebase and force push
+were offered once and taken out with the old branch bar; a rebase and its force push are exactly
+the kind of command that belongs in an agent's terminal, where the conflict is visible.
 
 ### The diff
 
-A diff is read with `-w`, synthesised for an untracked file (git has nothing to compare). The view
+A diff is read with `--ignore-all-space` only while the dialog's whitespace toggle is on, and
+synthesised for an untracked file (git has nothing to compare). The view
 reads its own file for shown lines on demand. A hunk header with a non-empty gap above it gets an
 unfold button; opening it asks `repo:file-lines` for exactly those lines — context lines are
 identical in both versions, so the working tree is the only source and git isn't run again. The end
@@ -301,15 +299,16 @@ list, insertion index off the event, the strip below the last row). The wand slo
 behind the last command running the same tool (`mergeCommands`); a drag outranks that, since it only
 decides where something *new* lands.
 
-The wand beside `+` asks an agent to fill the list — the first installed one with `askArgs` (claude,
-then opencode), given `SUGGEST_PROMPT`. That prompt is deliberately concrete about where commands
-hide, since a model told only "find the commands" answers with what it'd type in a generic project
-of that kind. It also asks for the *start* command, the one nobody writes down. The reply is
-expected as a JSON array, read as the first bracketed run in it, since "answer with nothing but"
-still tends to arrive fenced. No cap on how many come back, but the prompt asks for judgement — the
-commands a developer types, not the lifecycle hooks and CI scripts a `package.json` is half full of
-— and that has to stay unambiguous: saying "prefer what's run by hand" and "list all of them" at
-once let a model pick either. What comes back is added without review — a wrong entry is one
+The wand beside `+` asks an agent to fill the list — the first installed one with `askArgs`, in
+`AGENTS`' own order (claude, opencode, codex), given `SUGGEST_PROMPT`. That prompt is deliberately
+concrete about where commands hide, since a model told only "find the commands" answers with what
+it'd type in a generic project of that kind. It also asks for the *start* command, the one nobody
+writes down. The reply is expected as a JSON array, read as the first bracketed run in it, since
+"answer with nothing but" still tends to arrive fenced. No cap on how many come back, but the
+prompt asks for judgement — the commands a developer types, not the lifecycle hooks and CI scripts
+a `package.json` is half full of — and that has to stay unambiguous: saying "prefer what's run by
+hand" and "list all of them" at once let a model pick either. What comes back is added without
+review — a wrong entry is one
 right-click from deletion.
 
 One `CommandList` serves every project, so anything it starts must name the project it asked about
@@ -359,8 +358,8 @@ message already standing is dropped, not stacked. They sit over the window's bot
 rather than the column with everything else — arriving must not resize panes underneath — and only
 the messages themselves take the pointer.
 
-Not a notice: a status — a tab colored for an uninstalled agent, the progress bar, the branch bar's
-name. Those are conditions a view draws for as long as they hold.
+Not a notice: a status — a tab colored for an uninstalled agent, the progress bar, the head shown
+next to a project's name. Those are conditions a view draws for as long as they hold.
 
 Nor a *question*. `src/renderer/components/Dialog.tsx` puts both kinds, built like `notify`: a plain
 function anything can call, with one `Dialogs` next to `Notices` drawing whatever's pending.
@@ -440,7 +439,9 @@ ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` 
   `touch`es an empty file named after the session id: `UserPromptSubmit` into `<agentDir>/busy/`,
   `Stop` into `<agentDir>/finished/`, and `Notification` (`permission_prompt|elicitation_dialog`)
   plus `PreToolUse` (`AskUserQuestion`) into `<agentDir>/waiting/` — `watchMarkers` picks them up
-  (`src/main/marker-watch.ts`, shared with Codex below). The busy hook shares `UserPromptSubmit`
+  (`src/main/marker-watch.ts`, shared with Codex below, as is `buildMarkCommand`, the script every
+  unguarded marker hook of either agent is; only Claude Code's Stop hook has a script of its own).
+  The busy hook shares `UserPromptSubmit`
   with the command printing the context file, so it must stay **silent** — anything it writes gets
   appended to the prompt — and must exit 0 regardless, since a failing hook there can hold the
   prompt back. `AskUserQuestion` needs its own hook since it's a *tool*, not a Notification event;
@@ -676,7 +677,7 @@ binding and label can't drift apart.
   waiting, since a tab's process only starts on its first fit; once attached a view stays attached.
 - **The views under `App` are memoized, and `App` hands them stable props.** `App` re-renders on
   every tab and repository push from any project; without `React.memo` on `TerminalsPane`,
-  `ProjectList`, `CommandList`, `GitPane`, `BranchTree`, `BranchBar` and `DiffDialog`, each — branch
+  `ProjectList`, `CommandList`, `GitPane`, `BranchTree` and `DiffDialog`, each — branch
   tree with all its refs, a 5000-line diff — re-renders for a spinner starting elsewhere. Only holds
   while props stay stable: a callback is a `useCallback`, an object a `useMemo`, an empty list a
   shared constant (`NO_TABS`, `NO_IDS`), per-project mark lists keep identity while their ids match

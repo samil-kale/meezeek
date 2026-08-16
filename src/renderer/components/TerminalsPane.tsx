@@ -63,7 +63,7 @@ export const TerminalsPane = memo(function TerminalsPane({
 }: TerminalsPaneProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
   const [starting, setStarting] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const stack = useRef<HTMLDivElement>(null);
@@ -175,15 +175,6 @@ export const TerminalsPane = memo(function TerminalsPane({
     };
   }, [visible, activeId, project.id]);
 
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-    const close = (): void => setMenuOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [menuOpen]);
-
   const createTab = useCallback(
     async (agentId: AgentId) => {
       const descriptor = await window.meezeek.terminals.create(project.id, agentId);
@@ -290,6 +281,12 @@ export const TerminalsPane = memo(function TerminalsPane({
     ];
   };
 
+  const newSessionEntries: ContextMenuEntry[] = agents.map((agent) => ({
+    label: agent.displayName,
+    icon: <AgentIcon agentId={agent.id} className="terminal-tab-icon" />,
+    run: () => void createTab(agent.id)
+  }));
+
   return (
     <div className={`terminals-pane${visible ? "" : " pane-hidden"}`}>
       <div className="terminal-tabs">
@@ -372,27 +369,18 @@ export const TerminalsPane = memo(function TerminalsPane({
             title="New session"
             onMouseDown={(event) => {
               event.stopPropagation();
-              setMenuOpen((open) => !open);
+              // The context menu's own outside-click handler already closed it by the time
+              // this runs (it listens on the capture phase), so a second click only reopens
+              // when the check below still sees the menu as open from before that happened.
+              if (plusMenu) {
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              setPlusMenu({ x: rect.left, y: rect.bottom + 6 });
             }}
           >
             <PlusIcon />
           </button>
-          {menuOpen && (
-            <div className="menu" onMouseDown={(event) => event.stopPropagation()}>
-              {agents.map((agent) => (
-                <button
-                  key={agent.id}
-                  className="menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    void createTab(agent.id);
-                  }}
-                >
-                  {agent.displayName}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
@@ -412,6 +400,15 @@ export const TerminalsPane = memo(function TerminalsPane({
 
       {tabMenu && (
         <ContextMenu x={tabMenu.x} y={tabMenu.y} entries={tabMenuEntries(tabMenu.tabId)} onClose={closeTabMenu} />
+      )}
+      {plusMenu && (
+        <ContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          entries={newSessionEntries}
+          onClose={() => setPlusMenu(null)}
+          className="new-session-menu"
+        />
       )}
     </div>
   );

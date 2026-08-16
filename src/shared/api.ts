@@ -84,9 +84,6 @@ export interface MeezeekApi {
     pull(projectId: string): Promise<GitActionResult>;
     /** Pushes the current branch, setting its upstream when it has none ("publish"). */
     push(projectId: string): Promise<GitActionResult>;
-    /** `git push --force-with-lease`, for a branch a rebase left diverged from its upstream. */
-    forcePush(projectId: string): Promise<GitActionResult>;
-    pullRebase(projectId: string): Promise<GitActionResult>;
     /** Points a remote somewhere else; the new url is in the next state. */
     setRemoteUrl(projectId: string, remote: string, url: string): Promise<GitActionResult>;
     /** Creates the branch off `startPoint` and switches to it. */

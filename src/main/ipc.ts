@@ -243,8 +243,6 @@ export function registerIpc({
   onRepository("repo:fetch", (repository) => repository.fetch());
   onRepository("repo:pull", (repository) => repository.pull());
   onRepository("repo:push", (repository) => repository.push());
-  onRepository("repo:force-push", (repository) => repository.forcePush());
-  onRepository("repo:pull-rebase", (repository) => repository.pullRebase());
   onRepository("repo:set-remote-url", (repository, remote: string, url: string) =>
     repository.setRemoteUrl(remote, url)
   );

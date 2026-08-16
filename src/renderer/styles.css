@@ -799,38 +799,10 @@ option {
 }
 
 .new-terminal {
-  position: relative;
   display: flex;
   align-items: center;
   flex: none;
   padding: 0 4px;
-}
-
-.menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 10;
-  min-width: 140px;
-  padding: 4px 0;
-  background: var(--vscode-menu-background);
-  color: var(--vscode-menu-foreground);
-  border: 1px solid var(--vscode-menu-border);
-  border-radius: 3px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 40%);
-}
-
-.menu-item {
-  display: block;
-  width: 100%;
-  padding: 5px 12px;
-  text-align: left;
-  font-size: 12px;
-}
-
-.menu-item:hover {
-  background: var(--vscode-menu-selectionBackground);
-  color: var(--vscode-menu-selectionForeground);
 }
 
 /* Anchored at the pointer, so fixed rather than positioned within any pane. */
@@ -850,6 +822,7 @@ option {
 .context-menu-item {
   display: flex;
   align-items: center;
+  gap: 6px;
   height: 2em;
   padding: 0 26px;
   white-space: nowrap;
@@ -865,6 +838,18 @@ option {
 .context-menu-item.disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* The new-session menu's own look — the old dropdown's spacing, kept apart from the tab
+   context menu's wider padding so that one stays untouched. */
+.new-session-menu {
+  min-width: 140px;
+  border-radius: 3px;
+}
+
+.new-session-menu .context-menu-item {
+  height: auto;
+  padding: 5px 12px;
 }
 
 /* VS Code's group separator: a full-width hairline, not a row of its own. */

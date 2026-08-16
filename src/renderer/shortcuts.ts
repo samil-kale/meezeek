@@ -16,6 +16,12 @@ interface ShortcutDef {
   shift: boolean;
   /** `event.key.toLowerCase()` to match. */
   key: string;
+  /**
+   * `event.code` to match as well: with Shift held, `key` is the shifted character, which for a
+   * punctuation key depends on the layout — `Ctrl+Shift+.` reports `:` on a German keyboard, so
+   * the physical key is what such a shortcut is really bound to.
+   */
+  code?: string;
   /** The key as shown to the user, unlowercased. */
   label: string;
 }
@@ -30,15 +36,18 @@ const DEFS: ShortcutDef[] = [
     key: "u",
     label: "U"
   },
-  { id: "nextTab", description: "Next tab", shift: true, key: ".", label: "." },
-  { id: "previousTab", description: "Previous tab", shift: true, key: ",", label: "," },
+  { id: "nextTab", description: "Next tab", shift: true, key: ".", code: "Period", label: "." },
+  { id: "previousTab", description: "Previous tab", shift: true, key: ",", code: "Comma", label: "," },
   { id: "newShellTab", description: "New shell tab", shift: true, key: "t", label: "T" }
 ];
 
 export function matchesShortcut(event: KeyboardEvent, id: ShortcutId): boolean {
   const def = DEFS.find((entry) => entry.id === id);
   return (
-    def !== undefined && isModifierHeld(event) && event.shiftKey === def.shift && event.key.toLowerCase() === def.key
+    def !== undefined &&
+    isModifierHeld(event) &&
+    event.shiftKey === def.shift &&
+    (event.key.toLowerCase() === def.key || (def.code !== undefined && event.code === def.code))
   );
 }
 

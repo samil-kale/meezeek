@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ThemedToken } from "shiki/core";
 import type { DiffLine, FileDiff, ImageDiff } from "../../shared/types";
 import { highlightDiff } from "../diff-highlight";
@@ -19,6 +19,7 @@ interface DiffViewProps {
 
 /** Context lines a gap was filled with, keyed by the index of the hunk header it sits above. */
 type OpenedGaps = Record<number, DiffLine[]>;
+const NO_GAPS: OpenedGaps = {};
 
 /**
  * One style object per colour, shared by every token drawn in it: a diff holds tens of
@@ -89,15 +90,11 @@ export function DiffView({
   /** One token list per line of the diff, once the grammar has been loaded and run. */
   const [colored, setColored] = useState<(ThemedToken[] | undefined)[]>([]);
   const [highlighting, setHighlighting] = useState(false);
-  const [opened, setOpened] = useState<OpenedGaps>({});
-  /** The diff on screen, for a gap that was still being read when it was replaced. */
-  const current = useRef(diff);
-
   // A gap belongs to the diff it was opened in — a reload, or another file, closes it again.
-  useEffect(() => {
-    current.current = diff;
-    setOpened({});
-  }, [diff]);
+  // Keyed to that diff rather than reset in an effect, so the render that first sees a new
+  // diff never splices the old one's lines into it (and never starts colouring that mix).
+  const [opened, setOpened] = useState<{ of: FileDiff | null; gaps: OpenedGaps }>({ of: null, gaps: NO_GAPS });
+  const gaps = opened.of === diff ? opened.gaps : NO_GAPS;
 
   /** Where the hunk headers sit in the diff git reported, in order. */
   const hunkIndices = useMemo(
@@ -107,15 +104,15 @@ export function DiffView({
 
   /** The diff as it is on screen: what git reported, with the opened gaps filled in. */
   const shown = useMemo<FileDiff | null>(() => {
-    if (!diff || Object.keys(opened).length === 0) {
+    if (!diff || gaps === NO_GAPS) {
       return diff;
     }
     const lines: DiffLine[] = [];
     diff.lines.forEach((line, index) => {
-      lines.push(...(opened[index] ?? []), line);
+      lines.push(...(gaps[index] ?? []), line);
     });
     return { ...diff, lines };
-  }, [diff, opened]);
+  }, [diff, gaps]);
 
   // Colors arrive after the diff itself: bringing up the highlighter and its grammar is
   // asynchronous, so the diff is on screen as plain text first and repaints once. Opening a
@@ -162,19 +159,23 @@ export function DiffView({
       const header = diff.lines[index];
       const offset = (header.oldLine ?? 1) - (header.newLine ?? 1);
       const texts = await window.meezeek.repository.fileLines(projectId, diff.path, from, to);
-      // Reading them took a moment, and in it the file on screen may have become another one —
-      // or the same one reloaded. `index` then points into a diff these lines are not from.
-      if (texts.length === 0 || current.current !== diff) {
+      if (texts.length === 0) {
         return;
       }
+      // Reading them took a moment, and in it the file on screen may have become another one —
+      // or the same one reloaded. Recorded against the diff they were read for, so `index`
+      // never points into a diff these lines are not from.
       setOpened((current) => ({
-        ...current,
-        [index]: texts.map((text, line) => ({
-          type: "context" as const,
-          oldLine: from + line + offset,
-          newLine: from + line,
-          text
-        }))
+        of: diff,
+        gaps: {
+          ...(current.of === diff ? current.gaps : NO_GAPS),
+          [index]: texts.map((text, line) => ({
+            type: "context" as const,
+            oldLine: from + line + offset,
+            newLine: from + line,
+            text
+          }))
+        }
       }));
     },
     [diff, projectId]
@@ -199,7 +200,7 @@ export function DiffView({
       // Copied per line: `source` is one binding shared by every closure below, and the click
       // comes long after the loop has moved it on to the last hunk.
       const at = source;
-      const gap = line.type === "hunk" && !opened[at] ? gapBefore(diff.lines, at) : undefined;
+      const gap = line.type === "hunk" && !gaps[at] ? gapBefore(diff.lines, at) : undefined;
       return (
         <div key={index} className={`diff-line ${line.type}`}>
           {gap ? (
@@ -225,7 +226,7 @@ export function DiffView({
         </div>
       );
     });
-  }, [diff, shown, opened, colored, hunkIndices, openGap]);
+  }, [diff, shown, gaps, colored, hunkIndices, openGap]);
 
   // Empty while one is being read, and nothing that says so: the one progress bar under the
   // tab strip is what reports that.

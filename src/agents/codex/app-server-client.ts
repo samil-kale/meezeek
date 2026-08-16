@@ -31,7 +31,8 @@ async function callAppServer(executable: string, cwd: string, request: RpcReques
 
   return new Promise((resolve, reject) => {
     let nextId = 1;
-    const pending = new Map<number, { method: string; resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+    /** Request id -> method, to tell the initialize reply from the actual request's. */
+    const pending = new Map<number, string>();
     let stderr = "";
     let settled = false;
 
@@ -76,8 +77,8 @@ async function callAppServer(executable: string, cwd: string, request: RpcReques
       if (typeof message.id !== "number") {
         return; // A server-pushed notification, not a response to anything meezeek asked.
       }
-      const waiting = pending.get(message.id);
-      if (!waiting) {
+      const method = pending.get(message.id);
+      if (!method) {
         return;
       }
       pending.delete(message.id);
@@ -85,9 +86,8 @@ async function callAppServer(executable: string, cwd: string, request: RpcReques
         finish(() => reject(new Error(String(message.error?.message ?? "codex app-server request failed"))));
         return;
       }
-      if (waiting.method === "initialize") {
-        const id = send(request.method, request.params);
-        pending.set(id, { method: request.method, resolve, reject });
+      if (method === "initialize") {
+        pending.set(send(request.method, request.params), request.method);
       } else {
         finish(() => resolve(message.result));
       }
@@ -96,7 +96,7 @@ async function callAppServer(executable: string, cwd: string, request: RpcReques
     const initId = send("initialize", {
       clientInfo: { name: "meezeek", title: "meezeek", version: "0" }
     });
-    pending.set(initId, { method: "initialize", resolve, reject });
+    pending.set(initId, "initialize");
   });
 }
 

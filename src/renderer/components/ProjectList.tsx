@@ -176,7 +176,7 @@ export const ProjectList = memo(function ProjectList({
             <span className="project-item-main">
               <span className="project-item-label">{project.name}</span>
               {/* Where the repository stands, next to what a command runs with in the list below
-                  and drawn the same way: context for the row, not part of its name. The branch bar
+                  and drawn the same way: context for the row, not part of its name. The git pane
                   says it for the project on screen only, and an agent switching a branch in a
                   terminal is exactly what one wants to see on a project that is not. */}
               {headOf(project.id) && <span className="project-extra">({headOf(project.id)})</span>}
