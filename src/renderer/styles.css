@@ -1131,7 +1131,12 @@ option {
 }
 
 /* The diff, over the whole window. Modal like the question dialogs, and dimmed the same way,
-   but its own component: this asks nothing, it shows a file. */
+   but its own component: this asks nothing, it shows a file.
+   `inset: 0` so the dim covers the title bar evenly — offsetting the overlay itself instead
+   left the title bar half-dimmed, a visible seam. The dialog's own clearance from the title bar
+   is `padding-top` instead, and it has to be at least the title bar's 35px: anything less lets
+   its bar reach under the platform's window controls, which the overlay can't draw above no
+   matter its z-index — they're the browser chrome, not page content. */
 .diff-overlay {
   position: fixed;
   inset: 0;
@@ -1139,7 +1144,7 @@ option {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 35px 24px 24px;
   background: rgb(0 0 0 / 40%);
 }
 
