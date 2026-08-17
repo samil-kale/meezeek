@@ -651,6 +651,62 @@ option {
   min-width: 0;
 }
 
+/* One project's split: 1–4 `.terminal-pane` cells side by side, `Sash`-composed by
+   `TerminalsPane` per preset — see "Split view" in CLAUDE.md. Row direction, since
+   every preset's first divider is a vertical one; a preset that stacks two panes wraps them in
+   its own nested column instead of changing this. */
+.panes-grid {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* A preset that stacks two panes puts them in one of these inside the row above; the sized one
+   carries its width inline, the other fills what is left. */
+.panes-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* One pane: its own tab strip and its own terminal stack, exactly what `.terminals-pane` used
+   to hold directly before it could hold more than one. Relative so `.drag-over`'s own overlay
+   below can anchor to its box. A pane a divider sizes carries that one dimension inline; `min-*:
+   0` is what lets a sized neighbour push the others below their content. */
+.terminal-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The pane, or the column, that takes whatever room the sized ones leave. */
+.terminal-pane.fill,
+.panes-column.fill {
+  flex: 1;
+}
+
+/* The pane a dragged tab would land in — only ever seen with more than one pane, since a tab
+   is only draggable once there is another pane to drop it on.
+   Same technique `.terminal-host.drag-over::after` below uses for a file dragged over a
+   terminal, and for the same two reasons: an overlay rather than a border on the pane itself,
+   since a border shrinks the box its children measure — and unlike that one, a plain inset
+   box-shadow was tried here first and looked broken, its top edge painted *behind* the tab
+   strip's own opaque background rather than over it. `.terminal-pane` has no inset of its own to
+   compensate for, so this one needs none of the negative insets that rule does. */
+.terminal-pane.drag-over::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--vscode-focusBorder);
+  /* Above `.terminal-host`'s own layers, the same reason that rule states for itself. */
+  z-index: 10;
+  pointer-events: none;
+}
+
 .terminal-tabs {
   position: relative;
   display: flex;
@@ -758,6 +814,18 @@ option {
   color: var(--vscode-tab-activeForeground);
   background: var(--vscode-tab-activeBackground);
   box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+}
+
+/* The layout picker, at the strip's far end: the same box as `.new-terminal` beside it, pushed
+   against the right edge by the auto margin — the strip's tabs only ever grow as far as their
+   own width (`flex: 0 1 auto`), so without it the button would sit right behind the +. */
+.layout-toggle {
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-left: auto;
+  /* More on the right than the + keeps: this one stands against the pane edge, not beside a tab. */
+  padding: 0 12px 0 4px;
 }
 
 .terminal-tab-label {
@@ -898,11 +966,11 @@ option {
   content: "";
   position: absolute;
   /* Negates the host's inset above, so the frame lands on the pane's own edges — what is being
-     pointed at is the pane that takes the drop, not the terminal inside it. The right is one
-     pixel short of that: three of these edges border another view, but the right one is the
-     window's own, and a line lying exactly on it is not drawn (the window frame is there).
-     One pixel in, it is, and against 6px of gutter nobody can tell it from flush. */
-  inset: -6px -5px -6px -6px;
+     pointed at is the pane that takes the drop, not the terminal inside it. Right and bottom are
+     one pixel short of that: top and left border another view, but the right and bottom edges
+     are the window's own, and a line lying exactly on it is not drawn (the window frame is
+     there). One pixel in, it is, and against 6px of gutter nobody can tell it from flush. */
+  inset: -6px -5px -5px -6px;
   /* 1px, like every other line that points at something: the drop indicator between two rows,
      the active tab's underline, the sash while it is dragged. */
   border: 1px solid var(--vscode-focusBorder);
@@ -1235,13 +1303,15 @@ option {
   flex: none;
 }
 
-/* The line the drag shows, centred in the hit area. Drawn on its own instead of filling the
-   whole 4px so it stays as thin as the project list's drop indicator. */
+/* The line between the two panes it sizes, centred in the hit area — always drawn, the same 1px
+   `--vscode-panel-border` every other pane boundary in the window uses, so a sash reads as a
+   divider even at rest and not only while it is being touched. Drawn on its own instead of
+   filling the whole 4px hit area so it stays as thin as the project list's drop indicator. */
 .sash::before {
   content: "";
   position: absolute;
-  background: transparent;
-  /* Fades in when the sash is grabbed and back out when it is let go. */
+  background: var(--vscode-panel-border);
+  /* Fades to the drag/highlight color and back, not to and from nothing. */
   transition: background 0.1s linear;
 }
 
@@ -1271,10 +1341,19 @@ option {
   height: 1px;
 }
 
-/* Only while it is actually being dragged — deliberately not on hover, which would leave the
-   line standing whenever the pointer came to rest anywhere near a pane border. */
+/* Only while it is actually being dragged — deliberately not on hover, which would recolor the
+   line whenever the pointer came to rest anywhere near a pane border. */
 .sash.dragging::before {
   background: var(--vscode-sash-hoverBorder);
+}
+
+/* A tab is being dragged across the split — the same `--vscode-focusBorder` the panes highlight
+   with, so the seam between two highlighted panes reads as part of the same drop target rather
+   than a plain border sitting between them. Not the resize color above: that means "grab me",
+   this means "something is happening here", the same distinction the panes draw with their own
+   two states. */
+.sash.highlighted::before {
+  background: var(--vscode-focusBorder);
 }
 
 /* Shared bits ---------------------------------------------------------------------------- */

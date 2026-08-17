@@ -20,6 +20,15 @@ export const codexAgent: AgentDefinition = {
     const watchers: (() => void)[] = [];
     try {
       args = setupCodexHooks(paths.agentDir, "Codex", paths.notifications, path.basename(cwd), paths.contextFile);
+      // Codex's own syntax-theme accents (status line, code highlighting) default to a fixed
+      // RGB theme (catppuccin) picked by a light/dark guess, ignoring the terminal's own ANSI
+      // palette entirely. "ansi" is the one bundled theme that emits plain named ANSI colors
+      // instead — verified end to end: with this override, the status line's model name and cwd
+      // path render in exactly meezeek's configured ansiYellow/ansiGreen instead of a hardcoded
+      // catppuccin tan/green. The key is `tui.theme`, not `tui_theme` — that's the Rust struct
+      // field name, but `-c`'s dotted path follows the TOML layout (`[tui]\ntheme = "..."`,
+      // `codex-rs/config/src/types.rs`), and only the dotted form actually takes effect.
+      args.push("-c", "tui.theme=ansi");
       // Same shape as Claude's: a hook is a process of its own and cannot call back into
       // meezeek, so each end of a turn — and the point part-way through where it stops for an
       // answer — leaves a marker file behind, and these are what pick them up.

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { AgentId } from "../../shared/types";
-import { attachTerminal } from "../terminal-views";
+import { attachTerminal, hasTerminal } from "../terminal-views";
 
 interface TerminalHostProps {
   projectId: string;
@@ -22,13 +22,19 @@ interface TerminalHostProps {
  * DOM, a character measurement — for each of them, before the first paint, was most of what the
  * window did while coming up. Nothing is lost by waiting: a tab's process is only started by
  * its first fit, which needs the view, and output for a view that does not exist is dropped by
- * `terminal-views` for a tab that cannot have produced any. Once attached it stays attached.
+ * `terminal-views` for a tab that cannot have produced any.
+ *
+ * Once attached it stays attached — to a container that is in the tree. A tab moved into another
+ * pane of the split, or whose pane the preset put somewhere else, gets a fresh host mounted for
+ * it, and its xterm follows at once whether or not it is the active tab there: left in the old,
+ * unmounted container it would keep taking output into a node with no layout, which is exactly
+ * what the `visibility` rule below exists to prevent for a hidden tab.
  */
 export function TerminalHost({ projectId, tabId, agentId, active, visible }: TerminalHostProps) {
   const container = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (active && visible && container.current) {
+    if (container.current && ((active && visible) || hasTerminal(projectId, tabId))) {
       attachTerminal(projectId, tabId, agentId, container.current);
     }
   }, [projectId, tabId, agentId, active, visible]);

@@ -6,8 +6,12 @@ import { useCallback, useRef, useState, type PointerEvent } from "react";
  * every project sees the same one.
  */
 const STORAGE_PREFIX = "meezeek.layout.";
-/** How long after the last resize a pane size is written to storage. */
-const PERSIST_MS = 300;
+/**
+ * How long after the last resize a pane size is written to storage. Exported for the terminal
+ * split's dividers, which keep their own kind of size (`useDividerFraction`) but settle a drag
+ * on the same clock.
+ */
+export const PERSIST_MS = 300;
 
 /**
  * The floor every pane shares, per direction. A pane here is either a column beside the
@@ -84,6 +88,12 @@ interface SashProps {
    */
   reverse?: boolean;
   onResize: (size: number) => void;
+  /**
+   * Drawn the way `dragging` below draws it, but driven from outside: the terminal split uses
+   * this while a tab is dragged across the grid, so the seam between panes reads as part of the
+   * same drop target they are, not a dead gap between two highlighted ones.
+   */
+  highlighted?: boolean;
 }
 
 /**
@@ -91,7 +101,7 @@ interface SashProps {
  * and lets the rest of the container absorb the difference, so of the two sides only one ever
  * carries a size of its own.
  */
-export function Sash({ orientation, size, min, minOther, reverse, onResize }: SashProps) {
+export function Sash({ orientation, size, min, minOther, reverse, onResize, highlighted }: SashProps) {
   const vertical = orientation === "vertical";
   const drag = useRef<{ origin: number; size: number; total: number } | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
@@ -153,7 +163,7 @@ export function Sash({ orientation, size, min, minOther, reverse, onResize }: Sa
 
   return (
     <div
-      className={`sash ${orientation}${dragging ? " dragging" : ""}`}
+      className={`sash ${orientation}${dragging ? " dragging" : ""}${highlighted ? " highlighted" : ""}`}
       onPointerDown={begin}
       onPointerMove={move}
       onPointerUp={end}

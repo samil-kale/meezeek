@@ -58,6 +58,74 @@ Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for
 - git commands go in an ordinary terminal tab, not a console of the pane's own
 - panes between all of that are draggable (`src/renderer/components/Sash.tsx`)
 
+## Split view
+
+One project's terminals can be split into up to four panes, each with a tab strip and terminal
+stack of its own — VS Code's editor groups, cut down to **five fixed presets** (single, two
+columns, three columns, two columns with the right one split, 2×2) picked from a menu on the first
+pane's strip, not a freely nestable tree: nobody splits into a dozen, and a fixed set is one
+`switch` in `TerminalsPane` instead of a tree, a generic sash composition and a "which pane did
+you mean" for every action. `src/renderer/pane-layout.ts` holds the model and every rule about it;
+`TerminalsPane` lays the panes out; `Pane` is one of them, the strip-and-stack that
+`TerminalsPane` used to be by itself. The first pane carries what belongs to the project rather
+than to a pane — the git toggle, the layout menu, the one progress bar — so the single-pane case
+looks exactly as it did.
+
+- **The layout lives in `App`, not in `TerminalsPane`** (`layouts: Record<projectId,
+  ProjectLayout>`): preset, focused pane, which pane each tab is in, each pane's active tab. Not
+  for tidiness — three things outside the pane need it: the tab shortcuts (Ctrl+Shift+./, cycle
+  the *focused pane's* tabs; a new tab lands there), and `markedTabs`/`waitingTabs`/`seen`,
+  which leave out "the tab on screen" — with a split, that is one tab *per pane*
+  (`visibleTabIds`), and two views applying that rule would be two chances to disagree.
+- **A tab belongs to exactly one pane**, assigned lazily: a tab nobody has placed goes to
+  whichever pane is focused when it is first seen (`normalizeLayout` writes that down so it stops
+  following the focus), a moved tab (dragged onto a pane, or "Move to …" in its context menu) is
+  written explicitly. There is one xterm per tab (`terminal-views`), so the same tab in two
+  panes at once is deliberately not a thing.
+- **`normalizeLayout` is the one place a layout is reconciled with the tab list**, run in an
+  effect on every push. It tells "closed" from "not created yet" by the previous list: a pane's
+  active tab that has left the list picks its neighbour (VS Code's rule), one that was never in
+  it is left alone, since a tab just activated can be ahead of its own push. `tabPane` entries
+  for tabs in neither list are kept on purpose — see persistence.
+- **Dividers are fractions, not pixels** (`useDividerFraction`): a pixel size is only right for
+  the room it was dragged in, and a split has to stay proportional as the window, the sidebar or
+  the git pane change that room. `renderGrid` multiplies the share by `.panes-grid`'s live
+  measurement on every render, so an even split needs no rescaling and no "was this ever
+  dragged" — the default *is* the even split. The measurement is seeded synchronously in a
+  `useLayoutEffect` (a `ResizeObserver` callback is asynchronous by spec), so a project restored
+  straight into a split paints its first frame right. A drag comes back from `Sash` in pixels and
+  is turned into a share of the same room, through the same bounds.
+- **What survives a restart**: the preset, the focused pane, the divider shares, and which pane
+  each tab is in — that last keyed by **session id**, not tab id (`serializeLayout`; the
+  descriptor carries `sessionId` for exactly this). A tab created during a run is `new-N`, an id
+  handed out from zero at every start; it comes back, if at all, under its agent's session id,
+  which is what a restored tab uses as its tab id anyway. Only tabs with a session are written, so
+  the file never names an id the next run could give to a different tab, and never grows past
+  the tabs that exist. **Not** persisted: each pane's active tab (a stale one — a session
+  deleted between runs — would leave its pane waiting for a tab that never comes; a pane opening
+  on its most recently used session is what the single strip always did) and any focus frame (a
+  frame around the focused pane was tried and taken out; the only frame is the drag-over one,
+  drawn the way a file dragged over a terminal is).
+- **Two things about writing it back**, both learned the hard way: the layout is loaded on
+  first sight of a project (`layoutOf`), not when the project list arrives, because a tab push
+  can beat that list and a layout built for it would have overwritten the restore; and nothing is
+  written for a project until its bootstrap has once reported not starting (`settledProjects`),
+  because tabs arrive agent by agent while it lists sessions and a write in that window, trimmed
+  to what had arrived, would drop every pane whose session came later — permanently, if the app
+  was quit before the rest came.
+- **A tab moved between panes gets a new host** (`TerminalHost` remounts under the other pane),
+  so `attachTerminal` moves the existing xterm element rather than calling `open()` again — which
+  silently no-ops once opened — and `TerminalHost` attaches an existing view whether or not the
+  tab is active there, so it never sits in an unmounted container taking output.
+- **Keyboard focus follows the focused pane** (`Pane`'s `focused` prop): only that pane focuses
+  its terminal when the project comes on screen or its selection changes — with every pane doing
+  it, the last one would win, and a tab closed elsewhere would pull the cursor away. Separate from
+  the refit, since a focus change alone must not resize the pty. Clicking anywhere in a pane
+  focuses it, in the capture phase — xterm stops mousedown from bubbling once a TUI turns on mouse
+  tracking.
+- The layout preset icons in `icons.tsx` were drawn without the `getBBox` audit the file calls
+  for; re-measure them before trusting their extent.
+
 ## Nothing starts without git and an agent
 
 `src/main/requirements.ts` checks both before anything opens: git via `git.isAvailable()`, and
@@ -277,9 +345,10 @@ environment, so a saved command's terminal shares the lazy spawn, output batchin
 every other tab.
 
 A tab opened from outside the terminals pane — a saved command's, or a project row's shell — is
-brought to front through `openedTabId`, applied once per tab id and then remembered. Not on every
-render: the tab list changes on every status update, and re-applying a selection would drag the
-user back out of whatever they moved to.
+brought to front through `App.showTab`, which activates it in the pane it lives in (the focused
+one, for a tab never placed) — a one-off write into the layout, not a prop the pane re-applies:
+the tab list changes on every status update, and re-applying a selection would drag the user back
+out of whatever they moved to.
 
 Because a saved command's process ends every run, `TerminalSession` tells the two apart by exit
 code: `stopped` for a clean one (or anything meezeek killed), `error` only for a process that failed
@@ -485,7 +554,7 @@ same for the two marking a question. Anything sitting in the directories at star
 *without* being reported — those turns ended before this window existed.
 
 State lives as `TerminalDescriptor.busy`, `waitingAt` and `finishedAt`, per tab in the main process
-like `hasSession`, so a closed tab takes it along. `finishedAt` is a time, not a flag, since the
+like `sessionId`, so a closed tab takes it along. `finishedAt` is a time, not a flag, since the
 project row's mark opens the oldest one first, and `setTurn` writes both at once — ending a turn is
 exactly "stop spinning, leave the mark." Two halves keep it honest:
 
@@ -502,8 +571,9 @@ exactly "stop spinning, leave the mark." Two halves keep it honest:
   while you're looking elsewhere.
 
 `App` holds every project's tabs for the same reason it holds repository states: the project list
-needs all of them at once, while a `TerminalsPane` only knows its own. A pane still owns its
-selection, reported up through `onActiveTab`.
+needs all of them at once, while a `TerminalsPane` only knows its own. The selection lives there
+too, one per pane of the split (see "Split view") — a pane asks for a change through
+`onActivateTab` rather than owning it.
 
 Left deliberately unmarked: saved-command tabs (see "Saved commands").
 
@@ -722,6 +792,17 @@ binding and label can't drift apart.
   swaps them back for that agent alone. Observed, not derived — if opencode's colours ever look
   wrong the other way, take this back out. Only matters because of `"theme": "system"` in
   `tui-config.ts`.
+- Codex doesn't adopt the terminal's palette on its own the way opencode's `"theme": "system"`
+  does — its default is a fixed RGB syntax theme (`catppuccin-mocha`/`-latte`, picked by an OSC
+  10/11 background query this terminal never answers, so it always lands on the dark one) applied
+  to the status line and code highlighting alike, ignoring meezeek's ANSI palette entirely.
+  `-c tui.theme=ansi`, added in `src/agents/codex/index.ts` alongside the hooks argument, switches
+  Codex to its one bundled theme that emits plain named ANSI colors instead of RGB — verified end
+  to end: the status line's model name and cwd path render in exactly meezeek's configured
+  ansiYellow/ansiGreen with the override, a hardcoded tan/green without it. The config key is
+  `tui.theme`, not `tui_theme` — the latter is the Rust struct field name, but `-c`'s dotted path
+  follows the TOML layout instead (`[tui]\ntheme = "..."`, `codex-rs/config/src/types.rs`), and
+  only the dotted form actually takes effect.
 - Measurements are shared, not invented per view: a bar along an edge is 35px, the tab strip's
   height — title bar, both sidebar headers (`.sidebar-header`) and the diff dialog's bar all use it.
   Same for the 22px action button and the 1px `--vscode-panel-border` between panes. Check the

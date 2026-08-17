@@ -1,25 +1,77 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { AgentId, AgentInfo, Project, TerminalDescriptor } from "../../shared/types";
-import { disposeTerminal, fitTerminal, focusTerminal, refitTerminal, setRevealHandler } from "../terminal-views";
-import { AgentIcon } from "./agent-icons";
-import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
-import { prompt } from "./Dialog";
-import { TerminalHost } from "./TerminalHost";
-import { BranchIcon, CloseIcon, CommentIcon, ExclamationIcon, PlusIcon, QuestionIcon, SpinnerIcon } from "./icons";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { AgentInfo, Project, TerminalDescriptor } from "../../shared/types";
+import { disposeTerminal, setRevealHandler } from "../terminal-views";
+import { PANE_IDS, layoutStorageKey } from "../pane-layout";
+import type { PaneId, ProjectLayout, SplitPreset } from "../pane-layout";
+import { MIN_PANE_HEIGHT, MIN_PANE_WIDTH, PERSIST_MS, Sash } from "./Sash";
+import { Pane, type PaneChrome } from "./Pane";
 
-/** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
-const RESIZE_DEBOUNCE_MS = 100;
-/** What VS Code's own tab rename accepts. */
-const MAX_TITLE_LENGTH = 50;
-
-/** ISO 8601 date/time, space instead of "T", local time, seconds precision. */
-function formatIso(ms: number): string {
-  const date = new Date(ms);
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+/**
+ * A divider's position as a *share* of the room it divides, not a pixel count — `usePaneSize`'s
+ * unit, which is right for a sidebar, is wrong here. A size stored in pixels is only ever
+ * correct for the container it was dragged against; a split has to stay proportional when the
+ * window, the sidebar or the git pane change the room it has, and keeping a pixel size in step
+ * with that meant rescaling every stored value on every resize — bookkeeping that could drift
+ * from an even split for reasons it never saw. A fraction needs none of it: `renderGrid`
+ * multiplies it by `.panes-grid`'s own current measurement on every render, so a divider nobody
+ * has dragged is an exact even split at any size (the default alone does that — nothing has to
+ * know whether it was ever touched), and a dragged one stays exactly the share it was set to. A
+ * drag reports itself in pixels, the only unit `Sash` deals in, and is turned back into a
+ * fraction of the room it was dragged against before it gets here — see `divider` below.
+ *
+ * Restored on the next start, under the project like the layout itself (`layoutStorageKey`).
+ * Anything but a fraction strictly between 0 and 1 is ignored on both ends: read back, since
+ * the value is a file the user can edit, and written, since a room too small for two minimum
+ * panes has no valid share to store.
+ */
+function useDividerFraction(projectId: string, name: string, initial: number): [number, (fraction: number) => void] {
+  const storageKey = layoutStorageKey(projectId, `divider.${name}`);
+  const [fraction, setFraction] = useState(() => {
+    const stored = Number(localStorage.getItem(storageKey));
+    return Number.isFinite(stored) && stored > 0 && stored < 1 ? stored : initial;
+  });
+  // Stored once the drag has settled rather than per pointer move, on `usePaneSize`'s own clock
+  // and for its reason: the write is synchronous, and a drag delivers a size per move.
+  const persist = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const set = useCallback(
+    (next: number) => {
+      if (!(next > 0 && next < 1)) {
+        return;
+      }
+      setFraction(next);
+      clearTimeout(persist.current);
+      persist.current = setTimeout(() => localStorage.setItem(storageKey, String(next)), PERSIST_MS);
+    },
+    [storageKey]
   );
+  return [fraction, set];
+}
+
+/**
+ * The pixel size a divider is rendered at: `fraction` of `containerSize`, floored at `min` and
+ * capped so the pane on the other side keeps `minOther` — the same bounds `Sash` applies to a
+ * drag, applied here to a stored share too, since a share stored against a wider room can ask
+ * for more than a narrower one has. `null` while the grid has not been measured yet gives
+ * `min`, corrected the moment `gridSize` arrives — see the `useLayoutEffect` below for why that
+ * is before the first paint, not one after it.
+ */
+function clampPixels(pixels: number, min: number, minOther: number, containerSize: number): number {
+  return Math.min(Math.max(pixels, min), Math.max(min, containerSize - minOther));
+}
+
+function pixelsFor(fraction: number, min: number, minOther: number, containerSize: number | null): number {
+  return containerSize === null ? min : clampPixels(Math.round(containerSize * fraction), min, minOther, containerSize);
+}
+
+/** The tabs of a pane that has none — one shared instance, so an empty pane's prop is stable. */
+const NO_PANE_TABS: TerminalDescriptor[] = [];
+
+/** `next` unless `previous` already holds the same tabs — then that one, identity and all. */
+function sameTabs(previous: TerminalDescriptor[] | undefined, next: TerminalDescriptor[]): TerminalDescriptor[] {
+  if (next.length === 0) {
+    return NO_PANE_TABS;
+  }
+  return previous && previous.length === next.length && previous.every((tab, i) => tab === next[i]) ? previous : next;
 }
 
 interface TerminalsPaneProps {
@@ -30,24 +82,26 @@ interface TerminalsPaneProps {
   /** Whether the git pane beside this one is open; the button in the strip shows which. */
   gitOpen: boolean;
   onToggleGit: () => void;
-  /** Anything slow outside this pane — a branch command, a diff being read — for the one bar. */
+  /** Anything slow in this project — an agent starting, a branch command, a diff being read — for the one bar. */
   externalBusy: boolean;
   /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
   onOpenDiff: (projectId: string, path: string) => void;
-  /**
-   * A tab opened from outside this pane — a shell from the project's row, a saved command's own
-   * terminal, a session the project row's mark points at — to be brought to the front once the
-   * host reports it. The nonce is what makes asking for the *same* tab twice work.
-   */
-  openedTab: { tabId: string; nonce: number } | null;
-  /** Which tab is in front, so App can tell a finished session that was seen from one that wasn't. */
-  onActiveTab: (projectId: string, tabId: string | null) => void;
+  /** This project's split state — preset, focus, and which pane every tab and its selection live in. */
+  layout: ProjectLayout;
+  onActivateTab: (projectId: string, tabId: string, paneId?: PaneId) => void;
+  onFocusPane: (projectId: string, paneId: PaneId) => void;
+  onPresetChange: (projectId: string, preset: SplitPreset) => void;
   /** Tabs whose finished turn is still waiting to be looked at — App decides, this draws it. */
   markedTabIds: string[];
   /** Tabs stopped mid-turn on an unanswered question — decided in App for the same reason. */
   waitingTabIds: string[];
 }
 
+/**
+ * One project's terminals: its panes, laid out by its preset, with a `Sash` between each pair.
+ * The panes themselves are `Pane`; this is what decides how many there are, how big, and which
+ * tabs each one holds — see "Split view" in CLAUDE.md.
+ */
 export const TerminalsPane = memo(function TerminalsPane({
   project,
   tabs,
@@ -56,72 +110,27 @@ export const TerminalsPane = memo(function TerminalsPane({
   onToggleGit,
   externalBusy,
   onOpenDiff,
-  openedTab,
-  onActiveTab,
+  layout,
+  onActivateTab,
+  onFocusPane,
+  onPresetChange,
   markedTabIds,
   waitingTabIds
 }: TerminalsPaneProps) {
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
-  const stack = useRef<HTMLDivElement>(null);
-  const strip = useRef<HTMLDivElement>(null);
+  /** Which pane a dragged tab is over right now, if any — what decides which dividers border it. */
+  const [dragOverPane, setDragOverPane] = useState<PaneId | null>(null);
   const knownTabs = useRef<TerminalDescriptor[]>([]);
-  /** The last request this pane was told to act on, so each one brings a tab up exactly once. */
-  const opened = useRef<number | null>(null);
-  /** Whether onStartupProgress has fired; the initial query must not overwrite a push. */
-  const progressPushed = useRef(false);
 
   useEffect(() => {
-    void (async () => {
-      const [available, isStarting] = await Promise.all([
-        window.meezeek.agents.list(),
-        window.meezeek.terminals.starting(project.id)
-      ]);
-      setAgents(available);
-      if (!progressPushed.current) {
-        setStarting(isStarting);
-      }
-    })();
-  }, [project.id]);
-
-  // App is what holds the tabs, and it is the half that can tell "this session finished while
-  // its terminal was in front of the user" from "it finished out of sight".
-  useEffect(() => onActiveTab(project.id, activeId), [onActiveTab, project.id, activeId]);
-
-  useEffect(
-    () =>
-      window.meezeek.terminals.onStartupProgress(({ projectId, show }) => {
-        if (projectId === project.id) {
-          progressPushed.current = true;
-          setStarting(show);
-        }
-      }),
-    [project.id]
-  );
-
-  // VS Code scrolls its tab strip horizontally with the vertical wheel. Registered by hand
-  // because preventDefault needs a non-passive listener, which React's onWheel isn't.
-  useEffect(() => {
-    const element = strip.current;
-    if (!element) {
-      return;
-    }
-    const onWheel = (event: WheelEvent): void => {
-      // Scrolling moves the tab the menu was opened on out from under it.
-      setTabMenu(null);
-      if (event.deltaY !== 0) {
-        event.preventDefault();
-        element.scrollLeft += event.deltaY;
-      }
-    };
-    element.addEventListener("wheel", onWheel, { passive: false });
-    return () => element.removeEventListener("wheel", onWheel);
+    void window.meezeek.agents.list().then(setAgents);
   }, []);
 
-  // Keeps the selection and the xterm instances in sync with the tabs the host reports.
+  // Ctrl+clicking a changed file in a terminal opens that file's diff over everything.
+  useEffect(() => setRevealHandler(project.id, (path) => onOpenDiff(project.id, path)), [project.id, onOpenDiff]);
+
+  // The xterm instances live outside React, keyed by tab id — a tab gone for good (not just
+  // moved to another pane) is where they are let go of.
   useEffect(() => {
     const previous = knownTabs.current;
     knownTabs.current = tabs;
@@ -131,285 +140,255 @@ export const TerminalsPane = memo(function TerminalsPane({
         disposeTerminal(project.id, tab.tabId);
       }
     }
-    if (activeId && !ids.has(activeId)) {
-      // Same rule as VS Code: hand over to the nearest neighbour on the right, or — if the
-      // closed tab was the rightmost one — on the left.
-      const index = previous.findIndex((tab) => tab.tabId === activeId);
-      setActiveId(tabs[Math.min(index, tabs.length - 1)]?.tabId ?? null);
-    } else if (!activeId && tabs.length > 0) {
-      // On first load, open the session the user last worked in.
-      const mostRecent = [...tabs].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-      setActiveId(mostRecent.tabId);
-    }
-  }, [tabs, activeId, project.id]);
+  }, [tabs, project.id]);
 
-  // Refit whenever the terminal becomes the visible one: while its pane was hidden it had no
-  // layout, so its last measured size is stale. The resize is also what starts its process.
-  useEffect(() => {
-    if (visible && activeId) {
-      fitTerminal(project.id, activeId);
-      focusTerminal(project.id, activeId);
-    }
-  }, [visible, activeId, project.id]);
+  // Every possible divider's own share of its container — declared unconditionally, since
+  // hooks cannot follow which preset happens to be active. Only the ones the current preset
+  // actually renders a Sash for ever change or get read.
+  const [cols2Fraction, setCols2Fraction] = useDividerFraction(project.id, "cols2", 1 / 2);
+  const [cols3AFraction, setCols3AFraction] = useDividerFraction(project.id, "cols3-a", 1 / 3);
+  // Of what is left once "a" has its third — half of it, so all three come out even.
+  const [cols3BFraction, setCols3BFraction] = useDividerFraction(project.id, "cols3-b", 1 / 2);
+  const [splitRightColFraction, setSplitRightColFraction] = useDividerFraction(project.id, "split-right-col", 1 / 2);
+  const [splitRightRowFraction, setSplitRightRowFraction] = useDividerFraction(project.id, "split-right-row", 1 / 2);
+  const [gridColFraction, setGridColFraction] = useDividerFraction(project.id, "grid2x2-col", 1 / 2);
+  const [gridRowAFraction, setGridRowAFraction] = useDividerFraction(project.id, "grid2x2-row-a", 1 / 2);
+  const [gridRowBFraction, setGridRowBFraction] = useDividerFraction(project.id, "grid2x2-row-b", 1 / 2);
 
-  useEffect(() => {
-    const element = stack.current;
+  const gridRef = useRef<HTMLDivElement>(null);
+  /**
+   * `.panes-grid`'s own last measured size — what every divider's fraction is multiplied by in
+   * `renderGrid`. Nothing here ever writes a divider's own stored value: a fraction already
+   * means the same thing at any size, so keeping it in step with a resize is `renderGrid` simply
+   * running again with a new `gridSize`, not something this effect has to do.
+   *
+   * `useLayoutEffect`, not `useEffect`, and seeded with a synchronous `getBoundingClientRect()`
+   * rather than waiting on the observer's own first callback: that callback is inherently
+   * asynchronous (part of the spec, not an implementation detail to work around), so a plain
+   * effect would let the browser paint once with `gridSize` still null before correcting itself.
+   * Measuring synchronously here means React has the real number *before* that first paint, so a
+   * project whose persisted preset is already "cols2" the moment it opens shows an even split
+   * immediately rather than flashing the wrong one first.
+   */
+  const [gridSize, setGridSize] = useState<{ width: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const element = gridRef.current;
     if (!element) {
       return;
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // xterm follows the pane at once — dragging a sash would otherwise leave a strip of empty
-    // background until the debounce fires. Only the pty resize waits, since it repaints the CLI.
-    const observer = new ResizeObserver(() => {
-      if (!visible || !activeId) {
-        return;
+    const seed = element.getBoundingClientRect();
+    if (seed.width > 0 && seed.height > 0) {
+      setGridSize({ width: seed.width, height: seed.height });
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      // Zero while this project's tab is hidden (`display: none`) — not a real size.
+      if (width > 0 && height > 0) {
+        setGridSize({ width, height });
       }
-      refitTerminal(project.id, activeId);
-      clearTimeout(timer);
-      timer = setTimeout(() => fitTerminal(project.id, activeId), RESIZE_DEBOUNCE_MS);
     });
     observer.observe(element);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, [visible, activeId, project.id]);
+    return () => observer.disconnect();
+  }, []);
 
-  const createTab = useCallback(
-    async (agentId: AgentId) => {
-      const descriptor = await window.meezeek.terminals.create(project.id, agentId);
-      setActiveId(descriptor.tabId);
-    },
-    [project.id]
+  // Everything a `Pane` takes is kept stable across renders that do not change it, or its memo
+  // would be switched off — a focus change, a spinner starting in another pane, a resize of the
+  // grid all re-render this component, and none of them should re-render a pane they leave alone.
+  const onPresetChangeHere = useCallback(
+    (preset: SplitPreset) => onPresetChange(project.id, preset),
+    [onPresetChange, project.id]
   );
+  const chrome = useMemo<PaneChrome>(
+    () => ({ gitOpen, onToggleGit, showProgress: externalBusy, onPresetChange: onPresetChangeHere }),
+    [gitOpen, onToggleGit, externalBusy, onPresetChangeHere]
+  );
+  const onActivate = useCallback(
+    (paneId: PaneId, tabId: string) => onActivateTab(project.id, tabId, paneId),
+    [onActivateTab, project.id]
+  );
+  const onFocus = useCallback((paneId: PaneId) => onFocusPane(project.id, paneId), [onFocusPane, project.id]);
 
-  /**
-   * Selects a tab someone else opened, once it has arrived in the list. Only once per request:
-   * the value stays set afterwards, and the list changes for every status update — without
-   * this the selection would jump back while the user is somewhere else. Keyed by the nonce
-   * rather than the tab id, because the *same* tab can be asked for twice: a session the mark
-   * already took the user to can finish again while they are elsewhere.
-   */
-  useEffect(() => {
-    if (!openedTab || opened.current === openedTab.nonce || !tabs.some((tab) => tab.tabId === openedTab.tabId)) {
-      return;
+  // Left as `over` clears whatever pane it names, and only that one: a stale "left" arriving
+  // after the pointer has already crossed into its neighbour must not blank the new one out.
+  const onDragOverChange = useCallback((paneId: PaneId, over: boolean) => {
+    setDragOverPane((current) => (over ? paneId : current === paneId ? null : current));
+  }, []);
+
+  // Each pane's tabs, in the project's own order — by identity where the answer did not change,
+  // for the same reason `App` does that for the mark lists it hands down. Keyed on the two
+  // fields `paneOf` reads rather than the layout: the focused pane only matters for a tab not in
+  // `tabPane` yet (the one render between its push arriving and `normalizeLayout` writing its
+  // entry), and a selection change must not hand every pane a fresh list.
+  const { tabPane, focusedPane } = layout;
+  const paneTabsRef = useRef<Partial<Record<PaneId, TerminalDescriptor[]>>>({});
+  const paneTabs = useMemo(() => {
+    const next: Partial<Record<PaneId, TerminalDescriptor[]>> = {};
+    for (const paneId of PANE_IDS) {
+      next[paneId] = sameTabs(
+        paneTabsRef.current[paneId],
+        tabs.filter((tab) => (tabPane[tab.tabId] ?? focusedPane) === paneId)
+      );
     }
-    opened.current = openedTab.nonce;
-    setActiveId(openedTab.tabId);
-  }, [openedTab, tabs]);
+    paneTabsRef.current = next;
+    return next;
+  }, [tabs, tabPane, focusedPane]);
 
-  const closeTabs = useCallback(
-    (tabIds: string[]) => void window.meezeek.terminals.close(project.id, tabIds),
-    [project.id]
+  const renderPane = (paneId: PaneId, size: { width?: number; height?: number }, first: boolean) => (
+    <Pane
+      key={paneId}
+      projectId={project.id}
+      paneId={paneId}
+      preset={layout.preset}
+      tabs={paneTabs[paneId] ?? NO_PANE_TABS}
+      activeTabId={layout.activeTab[paneId] ?? null}
+      agents={agents}
+      visible={visible}
+      focused={layout.focusedPane === paneId}
+      width={size.width}
+      height={size.height}
+      onActivate={onActivate}
+      onFocus={onFocus}
+      markedTabIds={markedTabIds}
+      waitingTabIds={waitingTabIds}
+      chrome={first ? chrome : undefined}
+      dragOver={dragOverPane === paneId}
+      onDragOverChange={onDragOverChange}
+    />
   );
 
-  const closeTabMenu = useCallback(() => setTabMenu(null), []);
+  // Highlighted only while the dragged tab is over one of the panes this particular divider
+  // actually borders — not every divider in the grid, which read as "everything is a target"
+  // rather than pointing at the one pane that is.
+  const divider = (
+    orientation: "vertical" | "horizontal",
+    pixels: number,
+    min: number,
+    minOther: number,
+    containerSize: number | null,
+    commit: (fraction: number) => void,
+    adjacent: PaneId[]
+  ) => (
+    <Sash
+      orientation={orientation}
+      size={pixels}
+      min={min}
+      minOther={minOther}
+      // A drag reports itself in pixels — turned back into a fraction of the same room
+      // `pixelsFor` measured it against, and through the same bounds, so the two never disagree
+      // about what "half" means and a share never gets stored that the room cannot show.
+      onResize={(next) => {
+        if (containerSize !== null && containerSize > 0) {
+          commit(clampPixels(next, min, minOther, containerSize) / containerSize);
+        }
+      }}
+      highlighted={dragOverPane !== null && adjacent.includes(dragOverPane)}
+    />
+  );
 
-  // Ctrl+clicking a changed file in a terminal opens that file's diff over everything.
-  useEffect(() => setRevealHandler(project.id, (path) => onOpenDiff(project.id, path)), [project.id, onOpenDiff]);
-
-  const askRename = useCallback(
-    async (tab: TerminalDescriptor) => {
-      const answer = await prompt({
-        title: "Rename session",
-        label: "Name",
-        value: tab.title,
-        confirmLabel: "Rename",
-        maxLength: MAX_TITLE_LENGTH
-      });
-      if (answer !== null && answer.value !== tab.title) {
-        void window.meezeek.terminals.rename(project.id, tab.tabId, answer.value);
+  const renderGrid = () => {
+    const width = gridSize?.width ?? null;
+    const height = gridSize?.height ?? null;
+    switch (layout.preset) {
+      case "single":
+        return renderPane("a", {}, true);
+      case "cols2": {
+        const a = pixelsFor(cols2Fraction, MIN_PANE_WIDTH, MIN_PANE_WIDTH, width);
+        return (
+          <>
+            {renderPane("a", { width: a }, true)}
+            {divider("vertical", a, MIN_PANE_WIDTH, MIN_PANE_WIDTH, width, setCols2Fraction, ["a", "b"])}
+            {renderPane("b", {}, false)}
+          </>
+        );
       }
-    },
-    [project.id]
-  );
-
-  const agentName = (agentId: AgentId): string =>
-    agents.find((agent) => agent.id === agentId)?.displayName ?? agentId;
-
-  /** Agents label their tab with the session title; a shell tab has no session to name. */
-  const tabLabel = (tab: TerminalDescriptor): string => {
-    if (tab.title) {
-      return tab.title;
-    }
-    return agents.find((agent) => agent.id === tab.agentId)?.hasSessions === false
-      ? agentName(tab.agentId)
-      : "New session";
-  };
-
-  const tabTooltip = (tab: TerminalDescriptor): string => {
-    const lines =
-      tab.status === "missing"
-        ? [`${agentName(tab.agentId)} was not found — install it and reopen the project`]
-        : [`${agentName(tab.agentId)}${tab.title ? `: ${tab.title}` : ""}`];
-    if (tab.createdAt) {
-      lines.push(`Created: ${formatIso(tab.createdAt)}`);
-    }
-    if (tab.updatedAt) {
-      lines.push(`Updated: ${formatIso(tab.updatedAt)}`);
-    }
-    return lines.join("\n");
-  };
-
-  /**
-   * VS Code's editor tab context menu, reduced to its close actions plus rename. What a close
-   * action would close is what decides whether it is enabled, so "nothing to close" (a
-   * right-click on the only tab, or on the last one) renders it disabled.
-   */
-  const tabMenuEntries = (tabId: string): ContextMenuEntry[] => {
-    const ids = tabs.map((tab) => tab.tabId);
-    const renamable = tabs.find((tab) => tab.tabId === tabId && tab.hasSession);
-    const closeAction = (label: string, targets: string[]): ContextMenuEntry => ({
-      label,
-      run: targets.length > 0 ? () => closeTabs(targets) : undefined
-    });
-    return [
-      closeAction("Close", [tabId]),
-      closeAction(
-        "Close Others",
-        ids.filter((id) => id !== tabId)
-      ),
-      closeAction("Close to the Right", ids.slice(ids.indexOf(tabId) + 1)),
-      closeAction("Close All", ids),
-      SEPARATOR,
-      // A tab whose agent hasn't persisted a session yet has nothing to rename — the host
-      // would just revert the new label, so don't offer it in the first place.
-      {
-        label: "Rename...",
-        run: renamable ? () => void askRename(renamable) : undefined
+      case "cols3": {
+        const a = pixelsFor(cols3AFraction, MIN_PANE_WIDTH, MIN_PANE_WIDTH * 2, width);
+        // "b"'s own fraction is of whatever is left once "a" has taken its share.
+        const remaining = width === null ? null : width - a;
+        const b = pixelsFor(cols3BFraction, MIN_PANE_WIDTH, MIN_PANE_WIDTH, remaining);
+        return (
+          <>
+            {renderPane("a", { width: a }, true)}
+            {divider("vertical", a, MIN_PANE_WIDTH, MIN_PANE_WIDTH * 2, width, setCols3AFraction, ["a", "b"])}
+            {renderPane("b", { width: b }, false)}
+            {divider("vertical", b, MIN_PANE_WIDTH, MIN_PANE_WIDTH, remaining, setCols3BFraction, ["b", "c"])}
+            {renderPane("c", {}, false)}
+          </>
+        );
       }
-    ];
+      case "split-right": {
+        const a = pixelsFor(splitRightColFraction, MIN_PANE_WIDTH, MIN_PANE_WIDTH, width);
+        // The right column takes the grid's full height, so "b" is a fraction of that directly.
+        const b = pixelsFor(splitRightRowFraction, MIN_PANE_HEIGHT, MIN_PANE_HEIGHT, height);
+        return (
+          <>
+            {renderPane("a", { width: a }, true)}
+            {divider(
+              "vertical",
+              a,
+              MIN_PANE_WIDTH,
+              MIN_PANE_WIDTH,
+              width,
+              setSplitRightColFraction,
+              // "a" runs the column's full height, so its right edge borders both of them.
+              ["a", "b", "c"]
+            )}
+            <div className="panes-column fill">
+              {renderPane("b", { height: b }, false)}
+              {divider("horizontal", b, MIN_PANE_HEIGHT, MIN_PANE_HEIGHT, height, setSplitRightRowFraction, [
+                "b",
+                "c"
+              ])}
+              {renderPane("c", {}, false)}
+            </div>
+          </>
+        );
+      }
+      case "grid2x2": {
+        const col = pixelsFor(gridColFraction, MIN_PANE_WIDTH, MIN_PANE_WIDTH, width);
+        // Both columns run the grid's full height, so each is a fraction of that directly.
+        const left = pixelsFor(gridRowAFraction, MIN_PANE_HEIGHT, MIN_PANE_HEIGHT, height);
+        const right = pixelsFor(gridRowBFraction, MIN_PANE_HEIGHT, MIN_PANE_HEIGHT, height);
+        return (
+          <>
+            <div className="panes-column" style={{ width: col }}>
+              {renderPane("a", { height: left }, true)}
+              {divider("horizontal", left, MIN_PANE_HEIGHT, MIN_PANE_HEIGHT, height, setGridRowAFraction, [
+                "a",
+                "c"
+              ])}
+              {renderPane("c", {}, false)}
+            </div>
+            {divider(
+              "vertical",
+              col,
+              MIN_PANE_WIDTH,
+              MIN_PANE_WIDTH,
+              width,
+              setGridColFraction,
+              // The spine between both columns — every pane in the grid touches it on one side.
+              ["a", "b", "c", "d"]
+            )}
+            <div className="panes-column fill">
+              {renderPane("b", { height: right }, false)}
+              {divider("horizontal", right, MIN_PANE_HEIGHT, MIN_PANE_HEIGHT, height, setGridRowBFraction, [
+                "b",
+                "d"
+              ])}
+              {renderPane("d", {}, false)}
+            </div>
+          </>
+        );
+      }
+    }
   };
-
-  const newSessionEntries: ContextMenuEntry[] = agents.map((agent) => ({
-    label: agent.displayName,
-    icon: <AgentIcon agentId={agent.id} className="terminal-tab-icon" />,
-    run: () => void createTab(agent.id)
-  }));
 
   return (
     <div className={`terminals-pane${visible ? "" : " pane-hidden"}`}>
-      <div className="terminal-tabs">
-        {/* Where the git tab used to be, and no longer a tab: it shows a pane of its own
-            beside this one rather than taking its place. */}
-        <button
-          className={`git-toggle${gitOpen ? " active" : ""}`}
-          onClick={onToggleGit}
-          title={gitOpen ? "Hide the repository" : "Show the repository"}
-        >
-          <BranchIcon className="terminal-tab-icon" />
-          <span>Git</span>
-        </button>
-        <div className="terminal-tab-strip" ref={strip}>
-          {tabs.map((tab) => (
-          <div
-            key={tab.tabId}
-            className={`terminal-tab${tab.tabId === activeId ? " active" : ""}${tab.status === "stopped" ? " inactive" : ""}`}
-            onClick={() => setActiveId(tab.tabId)}
-            onDoubleClick={() => tab.hasSession && void askRename(tab)}
-            // Keeps the terminal focused across the whole right-click interaction: without
-            // this, mousedown's default focus handling blurs xterm's textarea (the tab isn't
-            // focusable, so focus falls back to <body>), leaving the user unable to type
-            // after the menu closes until they click the terminal again.
-            onMouseDown={(event) => {
-              if (event.button === 2) {
-                event.preventDefault();
-              }
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setTabMenu({ tabId: tab.tabId, x: event.clientX, y: event.clientY });
-            }}
-            title={tabTooltip(tab)}
-          >
-            {/* What this session is doing takes the agent icon's place rather than claiming room
-                of its own — the tab is as wide as its label and nothing more. In the order of
-                how much they say: a tab whose agent cannot even start, or whose process ended on
-                its own rather than at the user's own request, outranks everything else — none of
-                the other three can ever be true for it. Of the rest, a standing question outranks
-                working, because such a session is precisely *not* working and nothing moves until
-                it is answered; working outranks finished, since a turn that started after the
-                last one ended is the newer truth, and the mark is still there underneath for when
-                it stops. */}
-            {tab.status === "missing" || tab.status === "error" ? (
-              <ExclamationIcon className="terminal-tab-icon session-mark session-mark-error" />
-            ) : waitingTabIds.includes(tab.tabId) ? (
-              <QuestionIcon className="terminal-tab-icon session-mark" />
-            ) : tab.busy ? (
-              <SpinnerIcon className="terminal-tab-icon session-mark spinning" />
-            ) : markedTabIds.includes(tab.tabId) ? (
-              <CommentIcon className="terminal-tab-icon session-mark" />
-            ) : (
-              <AgentIcon agentId={tab.agentId} className="terminal-tab-icon" />
-            )}
-            <span className="terminal-tab-label">{tabLabel(tab)}</span>
-            <button
-              className="icon-button"
-              title={tab.hasSession ? "Close tab and delete its session" : "Close tab"}
-              onClick={(event) => {
-                event.stopPropagation();
-                closeTabs([tab.tabId]);
-              }}
-            >
-              <CloseIcon />
-            </button>
-          </div>
-          ))}
-        </div>
-        {/* The one progress indicator in the window, so everything slow in this project shares
-            it — a starting agent here, and whatever the git pane or an open diff reports. */}
-        {(starting || externalBusy) && (
-          <div className="tab-progress">
-            <div className="tab-progress-bit" />
-          </div>
-        )}
-        <div className="new-terminal">
-          <button
-            className="icon-button"
-            title="New session"
-            onMouseDown={(event) => {
-              event.stopPropagation();
-              // The context menu's own outside-click handler already closed it by the time
-              // this runs (it listens on the capture phase), so a second click only reopens
-              // when the check below still sees the menu as open from before that happened.
-              if (plusMenu) {
-                return;
-              }
-              const rect = event.currentTarget.getBoundingClientRect();
-              setPlusMenu({ x: rect.left, y: rect.bottom + 6 });
-            }}
-          >
-            <PlusIcon />
-          </button>
-        </div>
+      <div className="panes-grid" ref={gridRef}>
+        {renderGrid()}
       </div>
-
-      <div className="terminal-stack" ref={stack}>
-        {tabs.map((tab) => (
-          <TerminalHost
-            key={tab.tabId}
-            projectId={project.id}
-            tabId={tab.tabId}
-            agentId={tab.agentId}
-            active={tab.tabId === activeId}
-            visible={visible}
-          />
-        ))}
-        {tabs.length === 0 && <div className="placeholder">No sessions open.</div>}
-      </div>
-
-      {tabMenu && (
-        <ContextMenu x={tabMenu.x} y={tabMenu.y} entries={tabMenuEntries(tabMenu.tabId)} onClose={closeTabMenu} />
-      )}
-      {plusMenu && (
-        <ContextMenu
-          x={plusMenu.x}
-          y={plusMenu.y}
-          entries={newSessionEntries}
-          onClose={() => setPlusMenu(null)}
-          className="new-session-menu"
-        />
-      )}
     </div>
   );
 });

@@ -248,6 +248,11 @@ function createView(projectId: string, tabId: string, agentId: AgentId): Termina
   return view;
 }
 
+/** Whether this tab has been attached before — its xterm exists, wherever it is mounted now. */
+export function hasTerminal(projectId: string, tabId: string): boolean {
+  return views.has(viewKey(projectId, tabId));
+}
+
 export function attachTerminal(projectId: string, tabId: string, agentId: AgentId, container: HTMLElement): void {
   // Only the first attach of a tab reads the agent — a tab keeps the one it was opened for,
   // and the view it created outlives every mount.
@@ -255,7 +260,17 @@ export function attachTerminal(projectId: string, tabId: string, agentId: AgentI
   if (view.term.element?.parentElement === container) {
     return;
   }
-  view.term.open(container);
+  if (view.term.element) {
+    // The tab moved — dragged into another pane of the split, or its pane's place in the tree
+    // changed with the preset — so React gave it a new container; this is not a first attach.
+    // xterm's own open() silently no-ops once `element` is already set, rather than moving it,
+    // so the terminal would stay attached to the now-detached old container: visible nowhere,
+    // and no resize or refit brings back a node that isn't in the tree. Move the existing DOM
+    // node instead of reopening it.
+    container.appendChild(view.term.element);
+  } else {
+    view.term.open(container);
+  }
 
   // On the container rather than the document: several terminals are mounted at once, and a
   // drop belongs to the one it landed on — which is what the frame says. It only appears for a

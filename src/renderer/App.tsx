@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type { GitActionResult, Project, RepositoryState, TerminalDescriptor } from "../shared/types";
 import { AddRepositoryDialog } from "./components/AddRepositoryDialog";
@@ -22,6 +22,17 @@ import { TerminalsPane } from "./components/TerminalsPane";
 import { disposeProjectTerminals } from "./terminal-views";
 import { GearIcon, PlusIcon } from "./components/icons";
 import { matchesShortcut } from "./shortcuts";
+import {
+  applyPreset,
+  defaultLayout,
+  loadLayout,
+  normalizeLayout,
+  paneOf,
+  saveLayout,
+  serializeLayout,
+  visibleTabIds
+} from "./pane-layout";
+import type { PaneId, ProjectLayout, SplitPreset } from "./pane-layout";
 
 /** A little over `.git-pane-host.sliding`'s 0.15s, so the class outlives the transition. */
 const GIT_SLIDE_MS = 180;
@@ -46,6 +57,20 @@ function diffVersion(state: RepositoryState | undefined, filePath: string): stri
 /** The tabs of a project that has none — one instance, so the pane's props stay identical. */
 const NO_TABS: TerminalDescriptor[] = [];
 const NO_IDS: string[] = [];
+/** A project that has never had a layout of its own — same reason as the two above. */
+const DEFAULT_LAYOUT = defaultLayout();
+
+/**
+ * A project's layout as every writer of `layouts` starts from: what is held already, else what
+ * the last run left on disk. Loaded at first sight rather than up front, because there is no
+ * moment that is reliably "before" — a project's tabs can arrive from the main process before
+ * the project list itself has, and a layout written for them then would have overwritten a
+ * later restore. Reading `localStorage` inside a state updater is fine for the same reason it
+ * would be fine at module level: it is synchronous and gives the same answer every time.
+ */
+function layoutOf(layouts: Record<string, ProjectLayout>, projectId: string): ProjectLayout {
+  return layouts[projectId] ?? loadLayout(projectId);
+}
 
 /** The sessions of one project that are marked, by tab id: finished out of sight, and waiting. */
 interface ProjectMarks {
@@ -71,8 +96,22 @@ export function App() {
    * from them is `finishedAt` — the sessions that finished while nobody was looking.
    */
   const [tabs, setTabs] = useState<Record<string, TerminalDescriptor[]>>({});
-  /** Which tab each pane has in front; a pane still owns its own selection and reports it here. */
-  const [activeTabs, setActiveTabs] = useState<Record<string, string | null>>({});
+  /**
+   * Each project's split state: its preset, which pane is focused, which pane every open tab
+   * belongs to, and each pane's own active tab. Held here rather than in `TerminalsPane` because
+   * the shortcuts below and the marks/seen logic need to know what is on screen across every
+   * pane, not only within one project's own view — see "Split view" in CLAUDE.md.
+   */
+  const [layouts, setLayouts] = useState<Record<string, ProjectLayout>>({});
+  /** The tab list `layouts` was last normalized against, per project — see `normalizeLayout`. */
+  const previousTabsRef = useRef<Record<string, TerminalDescriptor[]>>({});
+  /**
+   * Which projects still have something starting up — a session listing at bootstrap, a CLI
+   * booting — as the main process reports it. Two readers: the active project's progress bar,
+   * and the layout persistence below, which must not write a project's layout before its
+   * bootstrap has listed every agent's sessions (see `settledProjects`).
+   */
+  const [starting, setStarting] = useState<Record<string, boolean>>({});
   /**
    * The branch command in flight, if any, and what to call it while it runs — a checkout can
    * take seconds on a large repository, and deleting on a remote goes to the network.
@@ -150,13 +189,6 @@ export function App() {
   const [addOpen, setAddOpen] = useState(false);
   /** Whether the settings are up; they belong to the window, not to a project. */
   const [settingsOpen, setSettingsOpen] = useState(false);
-  /**
-   * A tab that was just opened from outside its own pane — a shell asked for from a project's
-   * row, the terminal a saved command runs in, or the session a project row's mark points at.
-   * The pane brings it to the front once it arrives. The nonce is what lets the *same* tab be
-   * asked for twice: a session the mark already took the user to can finish again later.
-   */
-  const [openedTab, setOpenedTab] = useState<{ projectId: string; tabId: string; nonce: number } | null>(null);
 
   useEffect(() => {
     const unsubscribers = [
@@ -175,6 +207,9 @@ export function App() {
             ? { ...current, [projectId]: list.map((tab) => (tab.tabId === tabId ? { ...tab, status } : tab)) }
             : current;
         })
+      ),
+      window.meezeek.terminals.onStartupProgress(({ projectId, show }) =>
+        setStarting((current) => (current[projectId] === show ? current : { ...current, [projectId]: show }))
       )
     ];
 
@@ -184,26 +219,105 @@ export function App() {
       setActiveProjectId((current) => current ?? stored[0]?.id ?? null);
       const loaded = await Promise.all(
         stored.map(async (project) => {
-          const [state, list] = await Promise.all([
+          const [state, list, isStarting] = await Promise.all([
             window.meezeek.repository.state(project.id),
-            window.meezeek.terminals.list(project.id)
+            window.meezeek.terminals.list(project.id),
+            window.meezeek.terminals.starting(project.id)
           ]);
-          return [project.id, state, list] as const;
+          return [project.id, state, list, isStarting] as const;
         })
       );
-      // Both were pushed while this was in flight if the project bootstrapped before the window
-      // existed, and what was pushed is newer than what was just fetched.
+      // All three were pushed while this was in flight if the project bootstrapped before the
+      // window existed, and what was pushed is newer than what was just fetched.
       setStates((current) => ({
         ...Object.fromEntries(loaded.map(([id, state]) => [id, state])),
         ...current
       }));
       setTabs((current) => ({ ...Object.fromEntries(loaded.map(([id, , list]) => [id, list])), ...current }));
+      setStarting((current) => ({
+        ...Object.fromEntries(loaded.map(([id, , , isStarting]) => [id, isStarting])),
+        ...current
+      }));
     })();
 
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
   useEffect(() => window.meezeek.onNotice(({ severity, message }) => notify(severity, message)), []);
+
+  /**
+   * Keeps every project's split layout honest against its tab list — a tab closed elsewhere
+   * drops out of whichever pane held it, a pane left with none of its own goes to null, a tab
+   * never assigned a pane settles into whichever was focused when it was first seen. See
+   * `normalizeLayout` for why `previousTabsRef` is what tells "closed" apart from "not created
+   * yet".
+   *
+   * A layout effect, not a passive one: a project's first tabs are also its layout's first
+   * sight (`layoutOf` loads it here), and a passive effect would let the frame before it paint
+   * with `DEFAULT_LAYOUT` — a single pane, for a project restored into a split. Cheap to run
+   * before paint: most pushes change no layout, and a layout that did not change is the same
+   * object, which React does not re-render for.
+   */
+  useLayoutEffect(() => {
+    // Read and advanced here, outside the updater: an updater may run later than it is queued,
+    // and must not carry a side effect of its own.
+    const previousTabs = previousTabsRef.current;
+    previousTabsRef.current = tabs;
+    setLayouts((current) => {
+      let next: Record<string, ProjectLayout> | undefined;
+      for (const projectId of Object.keys(tabs)) {
+        const layout = normalizeLayout(
+          layoutOf(current, projectId),
+          tabs[projectId] ?? NO_TABS,
+          previousTabs[projectId] ?? NO_TABS
+        );
+        if (layout !== current[projectId]) {
+          next ??= { ...current };
+          next[projectId] = layout;
+        }
+      }
+      return next ?? current;
+    });
+  }, [tabs]);
+
+  /**
+   * Persists every project's layout whenever what would be written changes — a tab activated,
+   * a pane focused, a preset switched, `normalizeLayout` above reconciling one against its tabs,
+   * or a tab gaining the session it is persisted under. On `tabs` too, not `layouts` alone: what
+   * goes to disk is keyed by session id (see `serializeLayout`), so a push that only added one to
+   * a tab, or brought a restored tab in late, changes the output without touching the layout.
+   * Compared as the string it would write, since a push during a turn changes `tabs` many times
+   * a minute for a spinner and nothing else.
+   */
+  const savedLayoutsRef = useRef<Record<string, string>>({});
+  /**
+   * Projects whose bootstrap has been seen to finish, at least once. A project's tabs arrive
+   * agent by agent while it bootstraps, and what goes to disk is trimmed to the tabs that exist
+   * (`serializeLayout`) — written during that window, it would drop the pane of every session
+   * whose listing hadn't come yet, and quitting before it did would make that permanent. So
+   * nothing is written for a project until it has once reported not starting; from then on it
+   * is, whatever the indicator says later — a CLI booting is not a listing in flight.
+   */
+  const settledProjects = useRef(new Set<string>());
+  useEffect(() => {
+    for (const [projectId, isStarting] of Object.entries(starting)) {
+      if (!isStarting) {
+        settledProjects.current.add(projectId);
+      }
+    }
+  }, [starting]);
+  useEffect(() => {
+    for (const [projectId, layout] of Object.entries(layouts)) {
+      if (!settledProjects.current.has(projectId)) {
+        continue;
+      }
+      const serialized = serializeLayout(layout, tabs[projectId] ?? NO_TABS);
+      if (savedLayoutsRef.current[projectId] !== serialized) {
+        savedLayoutsRef.current[projectId] = serialized;
+        saveLayout(projectId, serialized);
+      }
+    }
+  }, [layouts, tabs, starting]);
 
   /** What the add-repository dialog ends in, whichever of its tabs produced the project. */
   const projectAdded = useCallback((project: Project) => {
@@ -219,7 +333,11 @@ export function App() {
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
       setStates((current) => forget(current, projectId));
       setTabs((current) => forget(current, projectId));
-      setActiveTabs((current) => forget(current, projectId));
+      setLayouts((current) => forget(current, projectId));
+      setStarting((current) => forget(current, projectId));
+      delete previousTabsRef.current[projectId];
+      delete savedLayoutsRef.current[projectId];
+      settledProjects.current.delete(projectId);
       busyCursor.current = forget(busyCursor.current, projectId);
       // The xterm instances live outside React and outlive the pane that mounted them, so
       // this is where they are let go of — the one moment a project ends for good.
@@ -261,16 +379,58 @@ export function App() {
     []
   );
 
-  /** Shows a tab something outside the terminals pane opened: its project, then the tab. */
-  const showTab = useCallback((projectId: string, tabId: string) => {
-    setActiveProjectId(projectId);
-    setOpenedTab((current) => ({ projectId, tabId, nonce: (current?.nonce ?? 0) + 1 }));
+  /**
+   * A tab becomes the active one of a pane — a click on it, a drag or a context menu moving it
+   * into another pane, or a tab just created. `paneId` pins it to a specific pane (what every one
+   * of those already knows); left out, it resolves through `paneOf` instead, for a tab shown from
+   * outside any pane's own view (a project row's mark, a saved command, `showTab` below) that
+   * belongs wherever it already lives, or the focused pane if it has never been shown before.
+   * Written blindly, whether or not the tab has arrived in `tabs` yet — `normalizeLayout` is what
+   * leaves a pending one alone instead of treating it as closed.
+   */
+  const activateTab = useCallback((projectId: string, tabId: string, paneId?: PaneId) => {
+    setLayouts((current) => {
+      const layout = layoutOf(current, projectId);
+      const target = paneId ?? paneOf(layout, tabId);
+      return {
+        ...current,
+        [projectId]: {
+          ...layout,
+          focusedPane: target,
+          tabPane: layout.tabPane[tabId] === target ? layout.tabPane : { ...layout.tabPane, [tabId]: target },
+          activeTab: { ...layout.activeTab, [target]: tabId }
+        }
+      };
+    });
   }, []);
 
-  /** What a pane reports its own selection through; it stays the owner of it. */
-  const setActiveTab = useCallback((projectId: string, tabId: string | null) => {
-    setActiveTabs((current) => (current[projectId] === tabId ? current : { ...current, [projectId]: tabId }));
+  /** A pane taking focus without its active tab changing — clicking its terminal, not a tab. */
+  const focusPane = useCallback((projectId: string, paneId: PaneId) => {
+    setLayouts((current) => {
+      const layout = layoutOf(current, projectId);
+      return layout.focusedPane === paneId ? current : { ...current, [projectId]: { ...layout, focusedPane: paneId } };
+    });
   }, []);
+
+  /** The layout dropdown: switches a project's preset, redistributing panes that no longer exist. */
+  const setPreset = useCallback(
+    (projectId: string, preset: SplitPreset) => {
+      setLayouts((current) => ({
+        ...current,
+        [projectId]: applyPreset(layoutOf(current, projectId), preset, tabs[projectId] ?? [])
+      }));
+    },
+    [tabs]
+  );
+
+  /** Shows a tab something outside its own pane opened: its project, then the tab itself. */
+  const showTab = useCallback(
+    (projectId: string, tabId: string) => {
+      setActiveProjectId(projectId);
+      activateTab(projectId, tabId);
+    },
+    [activateTab]
+  );
 
   /**
    * A project's sessions that finished a turn nobody has looked at since, oldest first — the
@@ -283,12 +443,12 @@ export function App() {
    */
   const markedTabs = useCallback(
     (projectId: string): TerminalDescriptor[] => {
-      const onScreen = projectId === activeProjectId ? activeTabs[projectId] : undefined;
+      const onScreen = projectId === activeProjectId ? visibleTabIds(layouts[projectId] ?? DEFAULT_LAYOUT) : NO_IDS;
       return (tabs[projectId] ?? [])
-        .filter((tab) => tab.finishedAt !== undefined && tab.tabId !== onScreen)
+        .filter((tab) => tab.finishedAt !== undefined && !onScreen.includes(tab.tabId))
         .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
     },
-    [tabs, activeTabs, activeProjectId]
+    [tabs, layouts, activeProjectId]
   );
 
   /**
@@ -299,12 +459,12 @@ export function App() {
    */
   const waitingTabs = useCallback(
     (projectId: string): TerminalDescriptor[] => {
-      const onScreen = projectId === activeProjectId ? activeTabs[projectId] : undefined;
+      const onScreen = projectId === activeProjectId ? visibleTabIds(layouts[projectId] ?? DEFAULT_LAYOUT) : NO_IDS;
       return (tabs[projectId] ?? [])
-        .filter((tab) => tab.waitingAt !== undefined && tab.tabId !== onScreen)
+        .filter((tab) => tab.waitingAt !== undefined && !onScreen.includes(tab.tabId))
         .sort((a, b) => (a.waitingAt ?? 0) - (b.waitingAt ?? 0));
     },
-    [tabs, activeTabs, activeProjectId]
+    [tabs, layouts, activeProjectId]
   );
 
   /**
@@ -384,21 +544,21 @@ export function App() {
   );
 
   /**
-   * The tab in front of the user has been seen, so the mark on it goes. The main process holds
-   * it but never learns which tab is on screen, which is why this is the renderer's half.
+   * Every tab in front of the user — one per pane — has been seen, so the mark on each goes. The
+   * main process holds the mark but never learns what is on screen, which is why this is the
+   * renderer's half.
    */
   useEffect(() => {
     if (!activeProjectId) {
       return;
     }
-    const onScreen = activeTabs[activeProjectId];
-    const seen = tabs[activeProjectId]?.find(
-      (tab) => tab.tabId === onScreen && (tab.finishedAt !== undefined || tab.waitingAt !== undefined)
-    );
-    if (seen) {
-      window.meezeek.terminals.seen(activeProjectId, seen.tabId);
+    const onScreen = visibleTabIds(layouts[activeProjectId] ?? DEFAULT_LAYOUT);
+    for (const tab of tabs[activeProjectId] ?? []) {
+      if (onScreen.includes(tab.tabId) && (tab.finishedAt !== undefined || tab.waitingAt !== undefined)) {
+        window.meezeek.terminals.seen(activeProjectId, tab.tabId);
+      }
     }
-  }, [activeProjectId, activeTabs, tabs]);
+  }, [activeProjectId, layouts, tabs]);
 
   /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
   const openTerminal = useCallback(
@@ -429,21 +589,22 @@ export function App() {
     }
   }, [tabs, waitingTabs, markedTabs, showTab]);
 
-  /** Ctrl/Cmd+Shift+./, — the active project's tabs, one over from where it is now. */
+  /** Ctrl/Cmd+Shift+./, — the focused pane's own tabs, one over from where it is now. */
   const cycleTab = useCallback(
     (direction: 1 | -1) => {
       if (!activeProjectId) {
         return;
       }
-      const list = tabs[activeProjectId] ?? [];
+      const layout = layouts[activeProjectId] ?? DEFAULT_LAYOUT;
+      const list = (tabs[activeProjectId] ?? []).filter((tab) => paneOf(layout, tab.tabId) === layout.focusedPane);
       if (list.length === 0) {
         return;
       }
-      const at = list.findIndex((tab) => tab.tabId === activeTabs[activeProjectId]);
+      const at = list.findIndex((tab) => tab.tabId === layout.activeTab[layout.focusedPane]);
       const next = list[(at + direction + list.length) % list.length];
-      showTab(activeProjectId, next.tabId);
+      activateTab(activeProjectId, next.tabId, layout.focusedPane);
     },
-    [activeProjectId, tabs, activeTabs, showTab]
+    [activeProjectId, tabs, layouts, activateTab]
   );
 
   /** Ctrl/Cmd+Shift+T — a shell tab in the project on screen, the same as its row's own button. */
@@ -640,11 +801,15 @@ export function App() {
               gitOpen={gitOpen}
               onToggleGit={toggleGit}
               externalBusy={
-                branchAction?.projectId === project.id || (project.id === activeProjectId && (gitBusy || diffBusy))
+                starting[project.id] === true ||
+                branchAction?.projectId === project.id ||
+                (project.id === activeProjectId && (gitBusy || diffBusy))
               }
               onOpenDiff={openDiff}
-              openedTab={openedTab?.projectId === project.id ? openedTab : null}
-              onActiveTab={setActiveTab}
+              layout={layouts[project.id] ?? DEFAULT_LAYOUT}
+              onActivateTab={activateTab}
+              onFocusPane={focusPane}
+              onPresetChange={setPreset}
               markedTabIds={marks[project.id]?.finished ?? NO_IDS}
               waitingTabIds={marks[project.id]?.waiting ?? NO_IDS}
             />

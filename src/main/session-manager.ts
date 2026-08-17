@@ -49,13 +49,7 @@ const INDICATOR_LINGER_MS = 700;
  */
 const SHELL_OPERATOR = /^(?:&&|\|\||[|;&]|\d*>>?|\d*>&\d*|<)$/;
 
-/**
- * `hasSession` is left out here: `sessionId` below is the source of truth for it, and it is
- * derived whenever a tab is posted to the renderer.
- */
-interface TabState extends Omit<TerminalDescriptor, "hasSession"> {
-  /** Agent-native session id; undefined while a fresh tab's CLI hasn't persisted one yet. */
-  sessionId?: string;
+interface TabState extends TerminalDescriptor {
   /** When this tab's pty was spawned — used to claim newly persisted sessions. */
   spawnedAt?: number;
   /** Mirrors AgentSessionInfo.provisionalTitle for this tab's session. */
@@ -161,7 +155,7 @@ function toDescriptor(tab: TabState): TerminalDescriptor {
     finishedAt,
     busy,
     waitingAt,
-    hasSession: sessionId !== undefined
+    sessionId
   };
 }
 

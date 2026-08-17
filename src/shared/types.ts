@@ -326,8 +326,13 @@ export interface TerminalDescriptor {
   /** Session title; "" makes the UI show a placeholder. */
   title: string;
   status: TerminalStatus;
-  /** Whether the agent has persisted a session for this tab yet — nothing to rename if not. */
-  hasSession: boolean;
+  /**
+   * The agent's own id for this tab's session; absent while a fresh tab's CLI hasn't persisted
+   * one yet — nothing to rename then. Equal to `tabId` for a restored tab, and what a tab
+   * created during this run comes back as after a restart, which is why the split layout keys
+   * its persisted pane assignments by it rather than by `tabId`.
+   */
+  sessionId?: string;
   /** Last activity, ms since epoch; absent for tabs without a session. */
   updatedAt?: number;
   /** Creation time, ms since epoch; absent for tabs without a session. */
