@@ -63,6 +63,10 @@ function pixelsFor(fraction: number, min: number, minOther: number, containerSiz
   return containerSize === null ? min : clampPixels(Math.round(containerSize * fraction), min, minOther, containerSize);
 }
 
+/** Every divider's own default share — what an even split is, and what "single" resets back to. */
+const HALF = 1 / 2;
+const THIRD = 1 / 3;
+
 /** The tabs of a pane that has none — one shared instance, so an empty pane's prop is stable. */
 const NO_PANE_TABS: TerminalDescriptor[] = [];
 
@@ -145,15 +149,15 @@ export const TerminalsPane = memo(function TerminalsPane({
   // Every possible divider's own share of its container — declared unconditionally, since
   // hooks cannot follow which preset happens to be active. Only the ones the current preset
   // actually renders a Sash for ever change or get read.
-  const [cols2Fraction, setCols2Fraction] = useDividerFraction(project.id, "cols2", 1 / 2);
-  const [cols3AFraction, setCols3AFraction] = useDividerFraction(project.id, "cols3-a", 1 / 3);
+  const [cols2Fraction, setCols2Fraction] = useDividerFraction(project.id, "cols2", HALF);
+  const [cols3AFraction, setCols3AFraction] = useDividerFraction(project.id, "cols3-a", THIRD);
   // Of what is left once "a" has its third — half of it, so all three come out even.
-  const [cols3BFraction, setCols3BFraction] = useDividerFraction(project.id, "cols3-b", 1 / 2);
-  const [splitRightColFraction, setSplitRightColFraction] = useDividerFraction(project.id, "split-right-col", 1 / 2);
-  const [splitRightRowFraction, setSplitRightRowFraction] = useDividerFraction(project.id, "split-right-row", 1 / 2);
-  const [gridColFraction, setGridColFraction] = useDividerFraction(project.id, "grid2x2-col", 1 / 2);
-  const [gridRowAFraction, setGridRowAFraction] = useDividerFraction(project.id, "grid2x2-row-a", 1 / 2);
-  const [gridRowBFraction, setGridRowBFraction] = useDividerFraction(project.id, "grid2x2-row-b", 1 / 2);
+  const [cols3BFraction, setCols3BFraction] = useDividerFraction(project.id, "cols3-b", HALF);
+  const [splitRightColFraction, setSplitRightColFraction] = useDividerFraction(project.id, "split-right-col", HALF);
+  const [splitRightRowFraction, setSplitRightRowFraction] = useDividerFraction(project.id, "split-right-row", HALF);
+  const [gridColFraction, setGridColFraction] = useDividerFraction(project.id, "grid2x2-col", HALF);
+  const [gridRowAFraction, setGridRowAFraction] = useDividerFraction(project.id, "grid2x2-row-a", HALF);
+  const [gridRowBFraction, setGridRowBFraction] = useDividerFraction(project.id, "grid2x2-row-b", HALF);
 
   const gridRef = useRef<HTMLDivElement>(null);
   /**
@@ -195,9 +199,41 @@ export const TerminalsPane = memo(function TerminalsPane({
   // Everything a `Pane` takes is kept stable across renders that do not change it, or its memo
   // would be switched off — a focus change, a spinner starting in another pane, a resize of the
   // grid all re-render this component, and none of them should re-render a pane they leave alone.
+  /**
+   * Switching to "single" also puts every divider back at its default share — "single" is the
+   * one preset that never renders a `Sash` at all, so it is the natural "start over" point: a
+   * user who wants a clean 50/50 next time they split closes the split first, rather than this
+   * needing a reset action of its own. Switching between two *split* presets leaves every
+   * divider alone — each already keeps its own share independently.
+   */
+  const resetDividerFractions = useCallback(() => {
+    setCols2Fraction(HALF);
+    setCols3AFraction(THIRD);
+    setCols3BFraction(HALF);
+    setSplitRightColFraction(HALF);
+    setSplitRightRowFraction(HALF);
+    setGridColFraction(HALF);
+    setGridRowAFraction(HALF);
+    setGridRowBFraction(HALF);
+  }, [
+    setCols2Fraction,
+    setCols3AFraction,
+    setCols3BFraction,
+    setSplitRightColFraction,
+    setSplitRightRowFraction,
+    setGridColFraction,
+    setGridRowAFraction,
+    setGridRowBFraction
+  ]);
+
   const onPresetChangeHere = useCallback(
-    (preset: SplitPreset) => onPresetChange(project.id, preset),
-    [onPresetChange, project.id]
+    (preset: SplitPreset) => {
+      if (preset === "single") {
+        resetDividerFractions();
+      }
+      onPresetChange(project.id, preset);
+    },
+    [onPresetChange, project.id, resetDividerFractions]
   );
   const chrome = useMemo<PaneChrome>(
     () => ({ gitOpen, onToggleGit, showProgress: externalBusy }),
