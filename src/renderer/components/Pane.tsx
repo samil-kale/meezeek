@@ -127,6 +127,7 @@ export const Pane = memo(function Pane({
   const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const stack = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
+  const tabElements = useRef(new Map<string, HTMLDivElement>());
 
   // VS Code scrolls its tab strip horizontally with the vertical wheel. Registered by hand
   // because preventDefault needs a non-passive listener, which React's onWheel isn't.
@@ -146,6 +147,15 @@ export const Pane = memo(function Pane({
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
   }, []);
+
+  // A new or newly activated tab can land past the strip's visible width once it no longer
+  // fits — scroll it into view rather than leaving it reachable only by manually scrolling.
+  useEffect(() => {
+    if (!activeTabId) {
+      return;
+    }
+    tabElements.current.get(activeTabId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTabId]);
 
   // Refit whenever the terminal becomes the visible one: while its pane was hidden it had no
   // layout, so its last measured size is stale. The resize is also what starts its process.
@@ -365,6 +375,13 @@ export const Pane = memo(function Pane({
           {tabs.map((tab) => (
             <div
               key={tab.tabId}
+              ref={(element) => {
+                if (element) {
+                  tabElements.current.set(tab.tabId, element);
+                } else {
+                  tabElements.current.delete(tab.tabId);
+                }
+              }}
               className={`terminal-tab${tab.tabId === activeTabId ? " active" : ""}${tab.status === "stopped" ? " inactive" : ""}`}
               // Only once there is somewhere else to drop it: in a single pane the drag would
               // frame the pane it started in and go nowhere.

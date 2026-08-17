@@ -387,22 +387,43 @@ export function App() {
    * belongs wherever it already lives, or the focused pane if it has never been shown before.
    * Written blindly, whether or not the tab has arrived in `tabs` yet — `normalizeLayout` is what
    * leaves a pending one alone instead of treating it as closed.
+   *
+   * Moving a pane's own active tab elsewhere would otherwise leave that pane's `activeTab` naming
+   * a tab it no longer has — nothing selected there until the user clicks something themselves.
+   * The pane that loses it falls back to whichever tab sat right before it in its own order (the
+   * one before wins over VS Code's "closed tab" rule of nearest-right-else-left, since here the
+   * tab has not closed, just left; before is the one glance back to where it a moment ago sat next
+   * to), or the first of what is left if it was that pane's own first tab, or nothing once the
+   * pane is left with no tabs of its own at all.
    */
-  const activateTab = useCallback((projectId: string, tabId: string, paneId?: PaneId) => {
-    setLayouts((current) => {
-      const layout = layoutOf(current, projectId);
-      const target = paneId ?? paneOf(layout, tabId);
-      return {
-        ...current,
-        [projectId]: {
-          ...layout,
-          focusedPane: target,
-          tabPane: layout.tabPane[tabId] === target ? layout.tabPane : { ...layout.tabPane, [tabId]: target },
-          activeTab: { ...layout.activeTab, [target]: tabId }
+  const activateTab = useCallback(
+    (projectId: string, tabId: string, paneId?: PaneId) => {
+      setLayouts((current) => {
+        const layout = layoutOf(current, projectId);
+        const source = paneOf(layout, tabId);
+        const target = paneId ?? source;
+        let activeTab = layout.activeTab;
+        if (target !== source && layout.activeTab[source] === tabId) {
+          const sourceTabs = (tabs[projectId] ?? []).filter(
+            (tab) => (layout.tabPane[tab.tabId] ?? layout.focusedPane) === source
+          );
+          const index = sourceTabs.findIndex((tab) => tab.tabId === tabId);
+          const remaining = sourceTabs.filter((tab) => tab.tabId !== tabId);
+          activeTab = { ...activeTab, [source]: remaining.length > 0 ? remaining[Math.max(index - 1, 0)].tabId : null };
         }
-      };
-    });
-  }, []);
+        return {
+          ...current,
+          [projectId]: {
+            ...layout,
+            focusedPane: target,
+            tabPane: layout.tabPane[tabId] === target ? layout.tabPane : { ...layout.tabPane, [tabId]: target },
+            activeTab: { ...activeTab, [target]: tabId }
+          }
+        };
+      });
+    },
+    [tabs]
+  );
 
   /** A pane taking focus without its active tab changing — clicking its terminal, not a tab. */
   const focusPane = useCallback((projectId: string, paneId: PaneId) => {
