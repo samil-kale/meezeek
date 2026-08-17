@@ -295,13 +295,13 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
                       {status.ahead > 0 && (
                         <span className="tree-track-count" title={`${status.ahead} to push`}>
                           <ArrowUpIcon />
-                          {status.ahead}
+                          <span className="tree-track-number">{status.ahead}</span>
                         </span>
                       )}
                       {status.behind > 0 && (
                         <span className="tree-track-count" title={`${status.behind} to pull`}>
                           <ArrowDownIcon />
-                          {status.behind}
+                          <span className="tree-track-number">{status.behind}</span>
                         </span>
                       )}
                     </span>

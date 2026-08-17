@@ -595,6 +595,12 @@ option {
   padding: 1px 6px;
 }
 
+.tree-track-number {
+  /* Sits 1px too low next to the arrow otherwise. */
+  position: relative;
+  top: -1px;
+}
+
 .tree-track-count svg {
   flex: none;
   width: calc(var(--icon-size) - 3px);
