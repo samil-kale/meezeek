@@ -3,10 +3,10 @@ import type { ChangeStatus, FileChange, GitActionResult, Project, RepositoryStat
 import { isWindows, revealLabel } from "../platform";
 import { BranchTree, type BranchActions } from "./BranchTree";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
-import { confirm } from "./Dialog";
+import { confirm, prompt } from "./Dialog";
 import { notify } from "./Notices";
 import { MIN_PANE_HEIGHT, Sash } from "./Sash";
-import { ArrowDownIcon, ArrowUpIcon, DiscardIcon, StashIcon, SyncIcon } from "./icons";
+import { ArrowDownIcon, ArrowUpIcon, CommitIcon, DiscardIcon, StashIcon, SyncIcon } from "./icons";
 import { ProgressBar } from "./ProgressBar";
 
 interface GitPaneProps {
@@ -111,6 +111,19 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
     });
     if (answer.confirmed) {
       act(() => window.tet.repository.discard(project.id, paths));
+    }
+  };
+
+  const askCommitAll = async (): Promise<void> => {
+    const answer = await prompt({
+      title: "Commit all changes",
+      label: "Message",
+      detail: `Stages and commits all ${state.changes.length} changed files, untracked ones included.`,
+      value: "",
+      confirmLabel: "Commit"
+    });
+    if (answer) {
+      act(() => window.tet.repository.commitAll(project.id, answer.value));
     }
   };
 
@@ -228,10 +241,18 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
           <span>
             LOCAL CHANGES <span className="count">({state.changes.length})</span>
           </span>
-          {/* The two things that clear the whole list, in the order of what they cost: one puts
-              it away and can be popped again, the other throws it out. Anything narrower than
-              "all of it" is in the changes' own context menu. */}
+          {/* The three things that clear the whole list, in the order of what they cost: one
+              keeps it, one puts it away and can be popped again, the last throws it out. Anything
+              narrower than "all of it" is in the changes' own context menu. */}
           <span className="sidebar-header-actions">
+            <button
+              className="icon-button"
+              title="Commit all changes"
+              disabled={branch.busy || acting || state.changes.length === 0}
+              onClick={() => void askCommitAll()}
+            >
+              <CommitIcon />
+            </button>
             <button
               className="icon-button"
               title="Stash all changes"

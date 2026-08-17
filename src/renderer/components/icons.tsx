@@ -213,6 +213,20 @@ export function TagIcon(props: IconProps) {
   );
 }
 
+/**
+ * A commit: a node on the line of history, VS Code's own git-commit glyph. Wide and flat, so
+ * the extent is the long-side cap rather than the geometric mean (14.5 by 7.5 with stroke).
+ */
+export function CommitIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={13.33}>
+      <circle cx="8" cy="8" r="3" />
+      <path d="M1.5 8H5" />
+      <path d="M11 8h3.5" />
+    </Svg>
+  );
+}
+
 /** A stash: work set aside in a box, the way an inbox tray is drawn. */
 export function StashIcon(props: IconProps) {
   return (

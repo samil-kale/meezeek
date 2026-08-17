@@ -355,6 +355,11 @@ export class Repository {
     return this.runAction(() => git.checkoutTag(this.project.path, name));
   }
 
+  /** Commits the working tree, untracked files and all, and leaves it clean. */
+  commitAll(message: string): Promise<GitActionResult> {
+    return this.runAction(() => git.commitAll(this.project.path, message));
+  }
+
   /** Puts the working tree away, untracked files and all, and leaves it clean. */
   stashPush(message: string): Promise<GitActionResult> {
     return this.runAction(() => git.stashPush(this.project.path, message));

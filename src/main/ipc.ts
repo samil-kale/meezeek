@@ -296,6 +296,7 @@ export function registerIpc({
     repository.deleteTag(name, onRemote)
   );
   onRepository("repo:checkout-tag", (repository, name: string) => repository.checkoutTag(name));
+  onRepository("repo:commit-all", (repository, message: string) => repository.commitAll(message));
   onRepository("repo:stash-push", (repository, message: string) => repository.stashPush(message));
   onRepository("repo:stash", (repository, command: StashCommand, ref: string) => repository.stash(command, ref));
   onRepository("repo:discard", async (repository, paths: string[]) =>

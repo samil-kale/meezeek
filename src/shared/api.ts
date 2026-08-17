@@ -102,6 +102,8 @@ export interface TETApi {
     deleteTag(projectId: string, name: string, onRemote: boolean): Promise<GitActionResult>;
     /** A tag names a commit, so this leaves HEAD detached. */
     checkoutTag(projectId: string, name: string): Promise<GitActionResult>;
+    /** Commits everything the changes list shows, untracked files included. */
+    commitAll(projectId: string, message: string): Promise<GitActionResult>;
     /** Stashes everything the changes list shows, untracked files included. */
     stashPush(projectId: string, message: string): Promise<GitActionResult>;
     /** Applies, pops or drops one. The ref is a position — only ever a freshly read one. */

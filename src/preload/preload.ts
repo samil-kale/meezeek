@@ -56,6 +56,7 @@ const api: TETApi = {
     pushTag: (projectId, name) => ipcRenderer.invoke("repo:push-tag", projectId, name),
     deleteTag: (projectId, name, onRemote) => ipcRenderer.invoke("repo:delete-tag", projectId, name, onRemote),
     checkoutTag: (projectId, name) => ipcRenderer.invoke("repo:checkout-tag", projectId, name),
+    commitAll: (projectId, message) => ipcRenderer.invoke("repo:commit-all", projectId, message),
     stashPush: (projectId, message) => ipcRenderer.invoke("repo:stash-push", projectId, message),
     stash: (projectId, command, ref) => ipcRenderer.invoke("repo:stash", projectId, command, ref),
     discard: (projectId, paths) => ipcRenderer.invoke("repo:discard", projectId, paths),

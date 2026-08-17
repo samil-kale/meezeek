@@ -174,7 +174,8 @@ fires for plenty of no-op edits. Diffs load on file selection, never up front.
 limits the *views*, not git: a command needing a checkbox list, a message field, or conflict
 resolution is one the pane doesn't offer. Of what fits, we take GitHub Desktop's set — today the
 branch tree (branches, remotes, tags, stashes) with per-ref menus, checkout, status, per-file diff,
-discard, `.gitignore`, fetch/pull/push, and cloning from the add-repository dialog. Cloning brought
+discard, `.gitignore`, fetch/pull/push, "commit all" (one message asked, `add --all` then `commit`
+— the whole list or nothing, no staging), and cloning from the add-repository dialog. Cloning brought
 GitHub and GitLab with it, behind one `GitProvider` interface (authenticate, list repositories,
 resolve a clone URL) under `src/providers/`. Providers stay out of the local git layer — once
 cloned, everything goes back through the CLI.
@@ -266,7 +267,7 @@ since utf8 would mangle every byte. SVG stays out of that list: git diffs it as 
 ### What the git view deliberately does not do
 
 Built at some point and taken back out, so don't re-add without being asked: a commit UI with
-per-file/per-line staging; history, graph, cherry-pick, revert, squash, reorder; bisect, submodules;
+per-file/per-line staging (what stayed is "commit all", a button and a message prompt); history, graph, cherry-pick, revert, squash, reorder; bisect, submodules;
 conflict resolution beyond aborting; side-by-side diff; discarding single lines. A git command
 needing a list, a message or a per-line decision is exactly what an agent should be asked to do,
 where the answer, the conflict and the fix are all visible.
@@ -476,7 +477,7 @@ bar beside it.
 - **The git pane**: two bars of its own, one per section, because its two headers are two
   different kinds of action — `GitPane`'s `branch.busy` (checkout, branch/tag create/rename/delete,
   stash apply/pop/drop, merge, rebase, abort, fetch/pull/push: everything routed through
-  `BranchActions.run`) under BRANCHES, and its own local `acting` (stash push, discard, ignore —
+  `BranchActions.run`) under BRANCHES, and its own local `acting` (commit all, stash push, discard, ignore —
   everything routed through its own `act`, since they start from the changed-file list this
   section owns) under LOCAL CHANGES. Stashing changes goes through `act` rather than `branch.run`
   for exactly that reason, even though it used to share the tree's lock.

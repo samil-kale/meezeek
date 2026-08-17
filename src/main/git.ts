@@ -620,6 +620,15 @@ export function checkoutTag(cwd: string, name: string): Promise<GitActionResult>
   return run(cwd, ["switch", "--detach", `refs/tags/${name}`]);
 }
 
+/**
+ * `add --all` first, so "commit all changes" covers the same files the list shows, untracked
+ * included — `commit --all` alone would leave those behind.
+ */
+export async function commitAll(cwd: string, message: string): Promise<GitActionResult> {
+  const added = await run(cwd, ["add", "--all"]);
+  return added.ok ? run(cwd, ["commit", "--message", message]) : added;
+}
+
 /** `--include-untracked`, so "stash all changes" covers the same files the list shows. */
 export function stashPush(cwd: string, message: string): Promise<GitActionResult> {
   return run(cwd, ["stash", "push", "--include-untracked", ...(message ? ["--message", message] : [])]);
