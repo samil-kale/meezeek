@@ -96,6 +96,8 @@ interface TerminalsPaneProps {
   onActivateTab: (projectId: string, tabId: string, paneId?: PaneId) => void;
   onFocusPane: (projectId: string, paneId: PaneId) => void;
   onPresetChange: (projectId: string, preset: SplitPreset) => void;
+  /** The settings dialog — opened from the pane the layout picker sits on, beside it. */
+  onOpenSettings: () => void;
   /** Tabs whose finished turn is still waiting to be looked at — App decides, this draws it. */
   markedTabIds: string[];
   /** Tabs stopped mid-turn on an unanswered question — decided in App for the same reason. */
@@ -121,6 +123,7 @@ export const TerminalsPane = memo(function TerminalsPane({
   onActivateTab,
   onFocusPane,
   onPresetChange,
+  onOpenSettings,
   markedTabIds,
   waitingTabIds,
   startingTabIds
@@ -304,6 +307,7 @@ export const TerminalsPane = memo(function TerminalsPane({
       // The picker sits at the actual right edge — `TOP_RIGHT_PANE`, not always this project's
       // first pane, which is only ever the top-*left* one once there is more than one column.
       onPresetChange={paneId === TOP_RIGHT_PANE[layout.preset] ? onPresetChangeHere : undefined}
+      onOpenSettings={paneId === TOP_RIGHT_PANE[layout.preset] ? onOpenSettings : undefined}
       // Pane "a" also carries whatever project-wide reason has no tab of its own to point at;
       // every other pane only ever shows its own.
       showProgress={(first && externalBusy) || (startingHere[paneId] ?? false)}

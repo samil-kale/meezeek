@@ -12,6 +12,7 @@ import {
   CloseIcon,
   CommentIcon,
   ExclamationIcon,
+  GearIcon,
   LayoutCols2Icon,
   LayoutCols3Icon,
   LayoutGrid2x2Icon,
@@ -90,6 +91,12 @@ interface PaneProps {
    */
   onPresetChange?: (preset: SplitPreset) => void;
   /**
+   * The settings, right of the layout picker — present on exactly the pane `onPresetChange` is,
+   * for the same reason: it belongs to the window rather than to a project, so it sits at the
+   * window's own right edge, wherever the preset puts that.
+   */
+  onOpenSettings?: () => void;
+  /**
    * Whether this pane's own progress bar shows — one of its own tabs starting, or (only ever
    * true where `chrome` also is) a project-wide reason with no tab of its own to point at.
    * Independent of `chrome`, the same way `onPresetChange` is: unlike the git toggle, the reason
@@ -126,6 +133,7 @@ export const Pane = memo(function Pane({
   waitingTabIds,
   chrome,
   onPresetChange,
+  onOpenSettings,
   showProgress,
   dragOver,
   onDragOverChange
@@ -505,6 +513,11 @@ export const Pane = memo(function Pane({
             >
               <PresetIcon preset={preset} />
             </button>
+            {onOpenSettings && (
+              <button className="icon-button" title="Settings" onClick={onOpenSettings}>
+                <GearIcon />
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -62,8 +62,7 @@ export const LARGER = 15 / 13;
 
 /**
  * `extent` is how much of the 16 grid this icon draws on, stroke included, and `cx`/`cy` where
- * that drawing is centred. All three are measured. An icon that leaves them out is left exactly
- * as it was — which is what the gear in the title bar wants.
+ * that drawing is centred. All three are measured.
  *
  * `scale` is the one number here that is a *choice* rather than an observation: it says this
  * icon should read smaller than its neighbours. Keeping it separate is the point — a measured
@@ -352,13 +351,14 @@ export function RemoteIcon(props: IconProps) {
 }
 
 /**
- * The settings, in the title bar. Six teeth rather than the eight a gear usually has: at this
- * size the flanks of eight sit less than a stroke width apart and fill in, so what is left of
- * the drawing is a disc with a bumpy edge.
+ * The settings, beside the layout picker. Six teeth rather than the eight a gear usually has: at
+ * this size the flanks of eight sit less than a stroke width apart and fill in, so what is left
+ * of the drawing is a disc with a bumpy edge. The outline is straight segments only, so its box
+ * is exactly its vertices' span — 2.2 to 13.8 on both axes — plus one stroke width: 13.1.
  */
 export function GearIcon(props: IconProps) {
   return (
-    <Svg {...props}>
+    <Svg {...props} extent={13.1}>
       <path d="M6.23 4.03 L6.45 2.2 L9.55 2.2 L9.77 4.03 L10.56 4.48 L12.24 3.76 L13.8 6.45 L12.33 7.55 L12.33 8.45 L13.8 9.55 L12.24 12.24 L10.56 11.52 L9.77 11.97 L9.55 13.8 L6.45 13.8 L6.23 11.97 L5.44 11.52 L3.76 12.24 L2.2 9.55 L3.67 8.45 L3.67 7.55 L2.2 6.45 L3.76 3.76 L5.44 4.48Z" />
       <circle cx="8" cy="8" r="2.2" />
     </Svg>

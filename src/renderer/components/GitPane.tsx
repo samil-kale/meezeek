@@ -120,10 +120,22 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
       label: "Message",
       detail: `Stages and commits all ${state.changes.length} changed files, untracked ones included.`,
       value: "",
-      confirmLabel: "Commit"
+      confirmLabel: "Commit",
+      // The same push the BRANCHES button does, offered where the commit is asked for — with
+      // no remote or a detached HEAD there is nothing to offer, so no checkbox either.
+      checkboxLabel: canSync
+        ? state.upstream === undefined
+          ? `Also push ${state.head} to ${remote} and track it`
+          : `Also push to ${state.upstream}`
+        : undefined
     });
     if (answer) {
-      act(() => window.tet.repository.commitAll(project.id, answer.value));
+      // Two actions in a row on this section's bar, since both were asked for here: the push
+      // is only worth doing when the commit went through.
+      act(async () => {
+        const committed = await window.tet.repository.commitAll(project.id, answer.value);
+        return committed.ok && answer.checked ? window.tet.repository.push(project.id) : committed;
+      });
     }
   };
 

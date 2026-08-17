@@ -392,12 +392,11 @@ is still the one on screen.
 ## Settings
 
 One dialog for everything TET keeps about *itself* rather than a repository — the one button in
-the window belonging to neither a project nor a pane. It sits at the title bar's end, reading as a
-platform window control: **not** an `.icon-button` but a 46px box the bar's full height, without the
-3px radius buttons elsewhere have — VS Code's own measurement, what the overlay reserves per
-control. It stops at `.titlebar`'s `padding-right`, read off the Window Controls Overlay env vars
-(`env(titlebar-area-width)`), standing against minimize on Windows/Linux; macOS publishes no such
-vars and puts its controls left, so the fallback keeps it at the right edge.
+the window belonging to neither a project nor a pane. It sits right of the layout picker, in the
+`.layout-toggle` of whichever pane `TOP_RIGHT_PANE` names (see "Split view"), handed down the same
+way as `onPresetChange` — the actual right edge of the window, whatever the preset. An ordinary
+`.icon-button`. It lived at the title bar's end once, drawn as a platform window control; the
+title bar is now the app's name and the drag region alone.
 
 It asks nothing — a switch applies the moment it's flipped, like VS Code's own settings — so one
 button closes it. Tabbed (Notifications, then Info) with the add-repository dialog's own strip
@@ -876,9 +875,7 @@ binding and label can't drift apart.
   wherever shape allows; a chevron and a row of dots are capped, not stretched. Neither number is
   optional: unequal extents in a shared box is what the app looked like for months.
 - Adding or redrawing an icon means re-measuring, not estimating: render it, read `getBBox()` on
-  each child grown by half its stroke, write down that extent and centre. The title bar's gear is
-  the one exception, declaring no extent and keeping its own proportions among the platform's
-  caption glyphs.
+  each child grown by half its stroke, write down that extent and centre.
 - **State an icon's size in CSS; never rely on the `width`/`height` the shared `<Svg>` writes as
   attributes** — a fallback a flex container is free to shrink. `.icon-button` is a `<button>`;
   `styles.css`'s reset clears border and background but not padding, and Chrome's default `1px 6px`

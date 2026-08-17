@@ -20,7 +20,7 @@ import {
 } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
 import { disposeProjectTerminals } from "./terminal-views";
-import { GearIcon, PlusIcon } from "./components/icons";
+import { PlusIcon } from "./components/icons";
 import { matchesShortcut } from "./shortcuts";
 import {
   applyPreset,
@@ -749,14 +749,11 @@ export function App() {
 
   return (
     <div className="app">
-      {/* The app name and the one button that belongs to the window rather than to a project;
-          the bar itself is the drag region and the space the window controls overlay needs. */}
+      {/* The app name; the bar itself is the drag region and the space the window controls
+          overlay needs. */}
       <div className="titlebar">
         <img className="titlebar-icon" src="icon.png" alt="" />
         <span className="titlebar-name">TET</span>
-        <button className="titlebar-button" title="Settings" onClick={openSettings}>
-          <GearIcon />
-        </button>
       </div>
 
       <div className="body">
@@ -848,6 +845,7 @@ export function App() {
               onActivateTab={activateTab}
               onFocusPane={focusPane}
               onPresetChange={setPreset}
+              onOpenSettings={openSettings}
               markedTabIds={marks[project.id]?.finished ?? NO_IDS}
               waitingTabIds={marks[project.id]?.waiting ?? NO_IDS}
               startingTabIds={marks[project.id]?.starting ?? NO_IDS}

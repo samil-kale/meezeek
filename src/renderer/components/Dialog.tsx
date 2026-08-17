@@ -45,12 +45,16 @@ export interface PromptOptions {
    * hold lines rather than words — a command with its arguments, a list of variables.
    */
   wide?: boolean;
+  /** An optional yes/no under the fields — the push after a commit. See ConfirmOptions. */
+  checkboxLabel?: string;
 }
 
 export interface PromptAnswer {
   value: string;
   /** The extra fields' values in the order they were declared, "" where one was left blank. */
   extras: string[];
+  /** Whether the checkbox was ticked; always false when the question had none. */
+  checked: boolean;
 }
 
 type Pending =
@@ -180,6 +184,7 @@ function ConfirmDialog({ dialog }: { dialog: Extract<Pending, { kind: "confirm" 
 function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }> }) {
   const [value, setValue] = useState(dialog.value);
   const [extras, setExtras] = useState<string[]>(() => (dialog.extras ?? []).map((field) => field.value ?? ""));
+  const [checked, setChecked] = useState(false);
   const field = useRef<HTMLInputElement>(null);
 
   // The focus has to land in the first field, not on a button: a rename is opened to type in.
@@ -225,10 +230,16 @@ function PromptDialog({ dialog }: { dialog: Extract<Pending, { kind: "prompt" }>
       confirmLabel={dialog.confirmLabel}
       disabled={value.trim().length === 0}
       wide={dialog.wide}
-      onSubmit={() => dialog.answer({ value: value.trim(), extras: extras.map((entry) => entry.trim()) })}
+      onSubmit={() => dialog.answer({ value: value.trim(), extras: extras.map((entry) => entry.trim()), checked })}
       onCancel={() => dialog.answer(null)}
     >
       {fields}
+      {dialog.checkboxLabel && (
+        <label className="dialog-checkbox">
+          <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
+          <span>{dialog.checkboxLabel}</span>
+        </label>
+      )}
       {dialog.detail && <p className="dialog-detail">{dialog.detail}</p>}
     </Frame>
   );
