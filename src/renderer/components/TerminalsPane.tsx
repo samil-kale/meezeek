@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, Project, TerminalDescriptor } from "../../shared/types";
 import { disposeTerminal, setRevealHandler } from "../terminal-views";
-import { PANE_IDS, layoutStorageKey } from "../pane-layout";
+import { PANE_IDS, TOP_RIGHT_PANE, layoutStorageKey } from "../pane-layout";
 import type { PaneId, ProjectLayout, SplitPreset } from "../pane-layout";
 import { MIN_PANE_HEIGHT, MIN_PANE_WIDTH, PERSIST_MS, Sash } from "./Sash";
 import { Pane, type PaneChrome } from "./Pane";
@@ -200,8 +200,8 @@ export const TerminalsPane = memo(function TerminalsPane({
     [onPresetChange, project.id]
   );
   const chrome = useMemo<PaneChrome>(
-    () => ({ gitOpen, onToggleGit, showProgress: externalBusy, onPresetChange: onPresetChangeHere }),
-    [gitOpen, onToggleGit, externalBusy, onPresetChangeHere]
+    () => ({ gitOpen, onToggleGit, showProgress: externalBusy }),
+    [gitOpen, onToggleGit, externalBusy]
   );
   const onActivate = useCallback(
     (paneId: PaneId, tabId: string) => onActivateTab(project.id, tabId, paneId),
@@ -252,6 +252,9 @@ export const TerminalsPane = memo(function TerminalsPane({
       markedTabIds={markedTabIds}
       waitingTabIds={waitingTabIds}
       chrome={first ? chrome : undefined}
+      // The picker sits at the actual right edge — `TOP_RIGHT_PANE`, not always this project's
+      // first pane, which is only ever the top-*left* one once there is more than one column.
+      onPresetChange={paneId === TOP_RIGHT_PANE[layout.preset] ? onPresetChangeHere : undefined}
       dragOver={dragOverPane === paneId}
       onDragOverChange={onDragOverChange}
     />

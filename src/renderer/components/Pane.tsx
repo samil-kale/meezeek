@@ -53,12 +53,11 @@ function formatIso(ms: number): string {
   );
 }
 
-/** What only the primary pane of a split project shows — git, the layout picker, the progress bar. */
+/** What only the first pane of a split project shows — the git toggle and the progress bar. */
 export interface PaneChrome {
   gitOpen: boolean;
   onToggleGit: () => void;
   showProgress: boolean;
-  onPresetChange: (preset: SplitPreset) => void;
 }
 
 interface PaneProps {
@@ -83,6 +82,13 @@ interface PaneProps {
   waitingTabIds: string[];
   /** Present only for the pane that carries the project's shared chrome — see `PaneChrome`. */
   chrome?: PaneChrome;
+  /**
+   * Present only for the pane that carries the layout picker — the rightmost one in the top row
+   * (`TOP_RIGHT_PANE`), not necessarily the same pane as `chrome`: the picker belongs at the
+   * window's own right edge whatever the preset, which for every preset but "single" is a
+   * different pane than the one the git toggle sits in.
+   */
+  onPresetChange?: (preset: SplitPreset) => void;
   /**
    * This pane's own size within the grid, in pixels — one of the two for a pane a divider sizes,
    * neither for the one that fills what is left. Numbers rather than a style object so the memo
@@ -112,6 +118,7 @@ export const Pane = memo(function Pane({
   markedTabIds,
   waitingTabIds,
   chrome,
+  onPresetChange,
   dragOver,
   onDragOverChange
 }: PaneProps) {
@@ -292,11 +299,11 @@ export const Pane = memo(function Pane({
     run: () => void createTab(agent.id)
   }));
 
-  const presetEntries: ContextMenuEntry[] = chrome
+  const presetEntries: ContextMenuEntry[] = onPresetChange
     ? PRESETS.map((value) => ({
         label: PRESET_LABELS[value],
         icon: <PresetIcon preset={value} className="terminal-tab-icon" />,
-        run: () => chrome.onPresetChange(value)
+        run: () => onPresetChange(value)
       }))
     : [];
 
@@ -445,8 +452,10 @@ export const Pane = memo(function Pane({
         </div>
         {/* At the strip's far end, past the tabs and the + that belongs with them: the layout is
             about the whole project, not about any tab, so it sits where a window's own controls
-            do — against the right edge — rather than in the row of things that select. */}
-        {chrome && (
+            do — against the right edge — rather than in the row of things that select. Present
+            only on the pane `TOP_RIGHT_PANE` names for this preset, which is the actual right
+            edge whatever the preset is — not always this pane's own `chrome`. */}
+        {onPresetChange && (
           <div className="layout-toggle">
             <button
               className="icon-button"

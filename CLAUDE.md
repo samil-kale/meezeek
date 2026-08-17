@@ -62,14 +62,15 @@ Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for
 
 One project's terminals can be split into up to four panes, each with a tab strip and terminal
 stack of its own — VS Code's editor groups, cut down to **five fixed presets** (single, two
-columns, three columns, two columns with the right one split, 2×2) picked from a menu on the first
-pane's strip, not a freely nestable tree: nobody splits into a dozen, and a fixed set is one
-`switch` in `TerminalsPane` instead of a tree, a generic sash composition and a "which pane did
-you mean" for every action. `src/renderer/pane-layout.ts` holds the model and every rule about it;
-`TerminalsPane` lays the panes out; `Pane` is one of them, the strip-and-stack that
-`TerminalsPane` used to be by itself. The first pane carries what belongs to the project rather
-than to a pane — the git toggle, the layout menu, the one progress bar — so the single-pane case
-looks exactly as it did.
+columns, three columns, two columns with the right one split, 2×2) picked from a menu on the
+top-right pane's strip, not a freely nestable tree: nobody splits into a dozen, and a fixed set is
+one `switch` in `TerminalsPane` instead of a tree, a generic sash composition and a "which pane
+did you mean" for every action. `src/renderer/pane-layout.ts` holds the model and every rule about
+it; `TerminalsPane` lays the panes out; `Pane` is one of them, the strip-and-stack that
+`TerminalsPane` used to be by itself. The first pane (always top-left) carries the git toggle and
+the one progress bar; the layout picker sits on whichever pane is top-*right* instead
+(`TOP_RIGHT_PANE`) — the actual right edge of the window, not the first pane's own, which is the
+same pane only for "single" and only there do the two bundles coincide.
 
 - **The layout lives in `App`, not in `TerminalsPane`** (`layouts: Record<projectId,
   ProjectLayout>`): preset, focused pane, which pane each tab is in, each pane's active tab. Not

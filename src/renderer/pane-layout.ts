@@ -49,6 +49,21 @@ export const PANE_LABELS: Record<SplitPreset, Partial<Record<PaneId, string>>> =
   grid2x2: { a: "Top Left", b: "Top Right", c: "Bottom Left", d: "Bottom Right" }
 };
 
+/**
+ * The pane whose own tab strip carries the layout picker — always the rightmost one in the top
+ * row, so the button sits at the window's own right edge the way a title bar's controls do,
+ * whatever the preset. Pane "a" is where every preset's top row starts, so this is the same as
+ * "the last pane before the layout drops to a second row" — "b" for a preset with only one row
+ * to its right, and "a" itself once there is no other pane at all.
+ */
+export const TOP_RIGHT_PANE: Record<SplitPreset, PaneId> = {
+  single: "a",
+  cols2: "b",
+  cols3: "c",
+  "split-right": "b",
+  grid2x2: "b"
+};
+
 /** A project's split state — held in `App`, not in `TerminalsPane`, see CLAUDE.md for why. */
 export interface ProjectLayout {
   preset: SplitPreset;
