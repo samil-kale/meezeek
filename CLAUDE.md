@@ -470,17 +470,25 @@ project off-screen still shows what its sessions are doing:
 
 - **working**: a spinner, for as long as the turn runs.
 - **waiting on you**: a question mark. The turn's open but nothing's moving — a permission prompt,
-  an elicitation, or an `AskUserQuestion`. Clears the moment the tab's in front of the user, and —
-  like the bubble — is a condition, not a notice.
+  an elicitation, or an `AskUserQuestion`. Unlike the bubble this is not a one-off notice: it states
+  a fact that stays true for as long as the turn stands open, so it is only hidden — not cleared —
+  while the tab is in front of the user, and comes back the moment it no longer is, still unanswered.
+  `hasBusyTab` (`App.tsx`) excludes a tab that is also waiting, and the tab's own spinner
+  (`Pane`) checks the same, so a stopped session never spins anywhere — not in the project row
+  beside its question mark, and not on the tab in front of the user, where the question mark is
+  hidden and the spinner would otherwise step in for it. A stopped session is precisely *not*
+  working, the more useful of the two truths.
 - **finished out of sight**: a speech bubble. One shape for one thing — a sidebar bell was tried and
   reverted, since two glyphs for the same condition read as two conditions. Goes away when the tab's
-  in front of the user; deliberately not a notice, since a notice is one-off and this holds until
-  answered.
+  in front of the user; a one-off notice of a turn that already ended, unlike the still-standing fact
+  a question is.
 
-In the project row all three are buttons stepping through their sessions one press at a time. Two of
-them empty their list as they go, since a seen session stops being marked; a watched session keeps
+In the project row all three are buttons stepping through their sessions one press at a time. The
+bubble empties its list as it goes, since a seen session stops being marked; a watched session keeps
 working, so the spinner instead keeps a cursor per project (`App.busyCursor`, a ref — changes what
-the next press does, not what's shown) and wraps around.
+the next press does, not what's shown) and wraps around. The question mark's list shrinks the same
+way while its session stays in view, but is not itself the source of truth — it comes back on its
+own once the tab is no longer on screen and the turn still hasn't moved.
 
 **On a tab all three take the agent icon's place** rather than a slot of their own — the tab is only
 as wide as its label. One slot means a ranking: **waiting > working > finished** — a session stopped
@@ -522,11 +530,17 @@ ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` 
   to `request_user_input` (a question tool is about to run) into `waiting/`. What Claude Code
   doesn't need: Codex only *runs* a hook it has decided to trust — see "Codex's hook trust" below.
 
-**There is no "answered" signal from either agent** — buying one would cost a hook process per tool
-call — so a question clears on exactly two things: the tab being looked at (`markSeen`, alongside
-the bubble), or either end of a turn (`setTurn`, since a question can only stand open *within* a
-turn). A permission granted mid-turn leaves the mark until the tab is in front of the user — the
-same contract the bubble has, cleared in one place for the same reason.
+**No agent reports that a question was answered** — Claude Code and Codex would need a hook process
+per tool call for their permission prompts — but meezeek doesn't need them to: the answer is typed
+into the tab that asked, and every keystroke and click reaches the pty through
+`ProjectSessionManager.write`. So a question clears on exactly two things: input that can be an
+answer (`answersQuestion` — Enter, a printable character, a mouse click; not arrows, Tab, a bare
+Escape, mouse motion or the wheel), and either end of a turn (`setTurn`, since a question can only
+stand open *within* a turn; the transcript net that ends an interrupted turn clears it too). The
+same for all three agents, which is the point — one rule in one place, no per-agent signal to keep
+in step. Unlike the bubble, merely looking at the tab does **not** clear it (`markSeen` only ever
+touches `finishedAt`): a standing question states a fact that is still true however long it is
+looked at, where a finished turn is a one-off notice of something that already happened.
 
 `watchMarkers` sweeps its directory on a timer **as well as** watching it: on win32 `fs.watch` can
 silently miss a new file, stranding that turn's spinner forever (observed: a marker sat in
@@ -535,13 +549,23 @@ the git section's terms — a `readdir` on an empty directory is a syscall, not 
 
 **Claude Code runs no Stop hook for a turn the user cut short**, so that end never reaches
 `finished/` — an escaped prompt or rejected tool call left the spinner running until the next turn
-ended. Confirmed in the transcript: a completed turn has a `stop_hook_summary` naming
-`stop-guard.ps1`, an interrupted one has none, and no hook event covers an interrupt. The net is the
-transcript itself, which records a `system`/`turn_duration` entry at *every* turn end — the session
-listing reports it as `AgentSessionInfo.turnEndedAt`, from the same tail scan `custom-title` already
-needs, and `reconcile` is the one place it's read. It only ever *ends* a turn still believed
-running, and only when newer than the busy that started it. It leaves no mark: reaching us this way
-means the user cut it short in that tab.
+ended. The net is the transcript itself, which records a `system`/`turn_duration` entry at *every*
+turn end, hook or no hook — the session listing reports it as `AgentSessionInfo.turnEndedAt`, from
+the same tail scan `custom-title` already needs, and `reconcile` is the one place it's read.
+
+That entry alone does not say *why* `finished/` stayed empty, though, and there are two reasons: an
+interrupted turn (no hook ran at all), or one whose Stop hooks ran and legitimately chose not to
+write the marker (`stop-guard.ps1`'s own `background_tasks` guard, above). Comparing `turnEndedAt`
+against `busySince` cannot tell those apart — both leave a `turn_duration` entry newer than the busy
+that started the turn — and conflating them once cleared the spinner on a session a background job
+was still visibly running in, a monitor watching a long job's own log output and turning matches
+into fresh turns. The tail scan resolves it instead: a completed turn's
+`turn_duration` has a `stop_hook_summary` as its `parentUuid` (confirmed in the transcript — an
+interrupted one has no such parent, no hook event covering an interrupt), so `turnEndedAt` is only
+even set when that parent is missing. A turn hooks ran for is left out of the listing entirely,
+whatever `stop-guard.ps1` decided — the marker mechanism is authoritative for it either way, and
+this net exists only for the turn hooks never got a chance to run for at all. It leaves no mark:
+reaching us this way means the user cut it short in that tab.
 
 Codex has the identical gap for the identical reason — no hook fires on an interrupt either — and
 closes it the identical way: its own rollout records `task_complete`/`turn_aborted` at every turn

@@ -342,8 +342,24 @@ interface TranscriptTail {
   /** The last `agent-name` and `ai-title` entries — Claude appends fresh ones on a resume. */
   agentName?: string;
   aiTitle?: string;
-  /** When the last turn ended, from the `turn_duration` entry Claude writes at every end. */
+  /**
+   * When the last turn ended *without* its Stop hooks ever running for it — the one case the
+   * busy/finished/waiting markers have no other way to report, and what AgentSessionInfo.
+   * turnEndedAt exists for. A turn whose Stop hooks did run is left out even when they chose not
+   * to write a `finished` marker (a background task still pending, per the `background_tasks`
+   * guard in stop-guard.ps1): the marker mechanism is authoritative for that turn either way, and
+   * this net exists only for the turn hooks never got a chance to run for at all. Resolved via
+   * `pendingTurnEnd` below rather than read here directly.
+   */
   turnEndedAt?: number;
+  /** Set once a `turn_duration` entry's Stop-hook parentage has been checked one way or the
+   * other — see readTailEntries. Internal to the scan; distinct from `turnEndedAt` being
+   * undefined, which by itself does not say whether that check has even happened yet. */
+  turnEndResolved?: boolean;
+  /** A `turn_duration` entry found but not yet checked against its parent for a matching
+   * `stop_hook_summary` — resolved by whichever entry the backward scan visits next, whatever
+   * kind it is. */
+  pendingTurnEnd?: { ms: number; parentUuid: string };
 }
 
 /** What is left of a transcript's scan once every entry it looks for has been found. */
@@ -352,12 +368,18 @@ function scanComplete(tail: TranscriptTail): boolean {
     tail.customTitle !== undefined &&
     tail.agentName !== undefined &&
     tail.aiTitle !== undefined &&
-    tail.turnEndedAt !== undefined
+    tail.turnEndResolved === true
   );
 }
 
 /** Only a line naming one of the entry types is worth parsing — most of a transcript is not. */
-const TAIL_ENTRY_TYPES = ['"custom-title"', '"agent-name"', '"ai-title"', '"turn_duration"'];
+const TAIL_ENTRY_TYPES = [
+  '"custom-title"',
+  '"agent-name"',
+  '"ai-title"',
+  '"turn_duration"',
+  '"stop_hook_summary"'
+];
 
 /** Reads the entries in one stretch of a transcript from the end, into what is still unknown. */
 function readTailEntries(lines: string[], sessionId: string, tail: TranscriptTail): void {
@@ -372,6 +394,25 @@ function readTailEntries(lines: string[], sessionId: string, tail: TranscriptTai
     } catch {
       continue;
     }
+    // A pending turn_duration is resolved by the next *turn* entry below it: a stop_hook_summary
+    // it names as its parent means Stop hooks ran (nothing to report - see turnEndedAt's own
+    // comment); any other summary or an earlier turn's own turn_duration means this turn had no
+    // summary of its own, i.e. it was cut short before any hook fired. A title entry between
+    // the two says nothing either way and is skipped - a rename appends a custom-title at any
+    // moment, and treating that as "no summary" would end a turn that finished normally.
+    if (tail.pendingTurnEnd !== undefined) {
+      if (
+        entry.type === "system" &&
+        entry.isSidechain !== true &&
+        (entry.subtype === "stop_hook_summary" || entry.subtype === "turn_duration")
+      ) {
+        if (!(entry.subtype === "stop_hook_summary" && entry.uuid === tail.pendingTurnEnd.parentUuid)) {
+          tail.turnEndedAt = tail.pendingTurnEnd.ms;
+        }
+        tail.pendingTurnEnd = undefined;
+        tail.turnEndResolved = true;
+      }
+    }
     if (tail.customTitle === undefined && entry.type === "custom-title" && entry.sessionId === sessionId) {
       tail.customTitle = nonEmptyString(entry.customTitle);
     } else if (tail.agentName === undefined && entry.type === "agent-name") {
@@ -379,7 +420,8 @@ function readTailEntries(lines: string[], sessionId: string, tail: TranscriptTai
     } else if (tail.aiTitle === undefined && entry.type === "ai-title") {
       tail.aiTitle = nonEmptyString(entry.aiTitle);
     } else if (
-      tail.turnEndedAt === undefined &&
+      tail.turnEndResolved === undefined &&
+      tail.pendingTurnEnd === undefined &&
       entry.type === "system" &&
       entry.subtype === "turn_duration" &&
       entry.isSidechain !== true &&
@@ -388,7 +430,13 @@ function readTailEntries(lines: string[], sessionId: string, tail: TranscriptTai
       !(typeof entry.pendingBackgroundAgentCount === "number" && entry.pendingBackgroundAgentCount > 0)
     ) {
       const ms = Date.parse(nonEmptyString(entry.timestamp) ?? "");
-      tail.turnEndedAt = Number.isNaN(ms) ? undefined : ms;
+      const parentUuid = nonEmptyString(entry.parentUuid);
+      if (Number.isNaN(ms) || parentUuid === undefined) {
+        // Can't be correlated to a Stop hook summary either way - nothing to report.
+        tail.turnEndResolved = true;
+      } else {
+        tail.pendingTurnEnd = { ms, parentUuid };
+      }
     }
   }
 }
@@ -445,11 +493,26 @@ async function scanTail(filePath: string, sessionId: string): Promise<Transcript
       readTailEntries(chunk.toString("utf8").split("\n"), sessionId, tail);
       end = start;
     }
+    // A turn_duration with nothing below it to check against: the whole stretch under it held
+    // no summary and no earlier turn, and a summary is written right before its turn_duration,
+    // so there is none - the turn was cut short. Never left pending into the cache.
+    if (tail.pendingTurnEnd !== undefined) {
+      tail.turnEndedAt = tail.pendingTurnEnd.ms;
+      tail.pendingTurnEnd = undefined;
+      tail.turnEndResolved = true;
+    }
     if (previous) {
       tail.customTitle ??= previous.tail.customTitle;
       tail.agentName ??= previous.tail.agentName;
       tail.aiTitle ??= previous.tail.aiTitle;
-      tail.turnEndedAt ??= previous.tail.turnEndedAt;
+      // Not ??=: turnEndedAt legitimately stays undefined once resolved (Stop hooks ran, so
+      // there's nothing to report), and that must not be overwritten by a now-superseded answer
+      // from before. Only an unresolved scan - one that ran out of newly-read material with a
+      // turn_duration still unconfirmed, or none at all in the new stretch - falls back to it.
+      if (tail.turnEndResolved !== true) {
+        tail.turnEndedAt = previous.tail.turnEndedAt;
+        tail.turnEndResolved = previous.tail.turnEndResolved;
+      }
     }
     scanCache.set(filePath, { size, tail });
   } catch (error) {

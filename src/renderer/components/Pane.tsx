@@ -170,11 +170,18 @@ export const Pane = memo(function Pane({
   // several panes each doing this for their own tab, whichever effect ran last would win, and a
   // tab closed in a pane the user is not in would pull the cursor over there. Separate from the
   // refit above on purpose — a focus change alone must not resize the pty, which repaints the CLI.
+  //
+  // A freshly created tab is activated before its own push arrives (`activateTab`'s own comment:
+  // "a tab just activated can be ahead of its own push") — its TerminalHost has not mounted yet,
+  // so there is no view to focus. `activeTabReady` retriggers this once the tab actually shows up
+  // in `tabs`, without reacting to unrelated tab updates that would otherwise steal focus back
+  // from wherever the user is.
+  const activeTabReady = activeTabId !== null && tabs.some((tab) => tab.tabId === activeTabId);
   useEffect(() => {
     if (visible && focused && activeTabId) {
       focusTerminal(projectId, activeTabId);
     }
-  }, [visible, focused, activeTabId, projectId]);
+  }, [visible, focused, activeTabId, projectId, activeTabReady]);
 
   useEffect(() => {
     const element = stack.current;
@@ -420,7 +427,11 @@ export const Pane = memo(function Pane({
                 <ExclamationIcon className="terminal-tab-icon session-mark session-mark-error" />
               ) : waitingTabIds.includes(tab.tabId) ? (
                 <QuestionIcon className="terminal-tab-icon session-mark" />
-              ) : tab.busy ? (
+              ) : tab.busy && tab.waitingAt === undefined ? (
+                // Not merely the ranking above: a question is *hidden* on the tab in front of the
+                // user (`waitingTabIds` leaves it out), and the spinner must not step in for it —
+                // a session stopped on a question is not working, on screen or off, the same rule
+                // `hasBusyTab` applies to the project row.
                 <SpinnerIcon className="terminal-tab-icon session-mark spinning" />
               ) : markedTabIds.includes(tab.tabId) ? (
                 <CommentIcon className="terminal-tab-icon session-mark" />

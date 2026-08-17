@@ -29,7 +29,7 @@ interface ProjectListProps {
   onOpenTerminal: (projectId: string) => void;
   /** Whether a session of this project finished a turn nobody has looked at yet. */
   hasFinished: (projectId: string) => boolean;
-  /** Whether one of its sessions is working on a turn right now. */
+  /** Whether one of its sessions is working on a turn right now, excluding one stopped on a question. */
   hasBusy: (projectId: string) => boolean;
   /** Whether one of its sessions stopped mid-turn on a question nobody has answered. */
   hasWaiting: (projectId: string) => boolean;

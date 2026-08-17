@@ -141,6 +141,33 @@ function setTurn(tab: TabState, busy: boolean): void {
   }
 }
 
+/**
+ * Whether one chunk of terminal input can be the answer to a standing question — see `write`.
+ * Enter, any printable character (Claude Code's permission prompt takes the option's digit with
+ * no Enter at all) and a mouse *click*: the TUIs turn mouse tracking on, so a click on an option
+ * arrives here as an SGR press sequence, `ESC [ < button ; x ; y M`. What is left out is moving
+ * around without choosing — the arrow keys, Tab and Shift+Tab, a bare Escape, mouse motion (bit
+ * 32 in the button code) and the wheel (64 and up), since scrolling past a prompt is not answering
+ * it. Deliberately generous otherwise: a mark dropped a keystroke early is a mark on a tab the
+ * user is typing into, which is on screen and hides it regardless.
+ */
+function answersQuestion(data: string): boolean {
+  if (data.includes("\r") || data.includes("\n")) {
+    return true;
+  }
+  // eslint-disable-next-line no-control-regex
+  const mouse = /\x1b\[<(\d+);\d+;\d+M/.exec(data);
+  if (mouse) {
+    const button = Number(mouse[1]);
+    return (button & 32) === 0 && button < 64;
+  }
+  // Escape sequences (arrows, function keys, a bare ESC) all start with ESC and are not answers.
+  if (data.startsWith("\x1b")) {
+    return false;
+  }
+  return /\S/.test(data);
+}
+
 function toDescriptor(tab: TabState): TerminalDescriptor {
   const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt, busy, waitingAt } =
     tab;
@@ -611,6 +638,17 @@ export class ProjectSessionManager {
   }
 
   write(tabId: string, data: string): void {
+    // The one "answered" signal there is, and it is ours rather than the agent's: a question
+    // is answered by typing into the tab that asked it, and every keystroke and click passes
+    // through here on its way to the pty. Uniform across agents — no hook, no event, no
+    // process per tool call. Cleared before forwarding, so the answer and the mark's end are
+    // one moment; wrong at worst by a stray keystroke into a prompt, which puts the mark back
+    // to what the tab in front of the user says anyway.
+    const tab = this.tabs.find((candidate) => candidate.tabId === tabId);
+    if (tab?.waitingAt !== undefined && answersQuestion(data)) {
+      tab.waitingAt = undefined;
+      this.postTabs();
+    }
     this.sessions.get(tabId)?.write(data);
   }
 
@@ -795,21 +833,21 @@ export class ProjectSessionManager {
   }
 
   /**
-   * The tab is in front of the user, so whatever was waiting on it has been seen. Nothing is
-   * checked here: the renderer calls it for the active tab of the project on screen, which is
+   * The tab is in front of the user, so a turn that finished out of sight has been seen. Nothing
+   * is checked here: the renderer calls it for the active tab of the project on screen, which is
    * the one thing this process cannot know for itself.
+   *
+   * A standing question is left alone: unlike a finished turn, it is not a one-off notification
+   * of something that already happened — the turn is still open, so the mark states a fact that
+   * remains true for as long as the user is looking at it too. It ends with an answer typed into
+   * the tab (see `write`) or with the turn itself, at either end of setTurn.
    */
   markSeen(tabId: string): void {
     const tab = this.tabs.find((candidate) => candidate.tabId === tabId);
-    if (!tab || (tab.finishedAt === undefined && tab.waitingAt === undefined)) {
+    if (!tab || tab.finishedAt === undefined) {
       return;
     }
     tab.finishedAt = undefined;
-    // The open question goes with it, and this is the only signal that clears one before the
-    // turn ends: neither agent reports that a permission was granted, and buying that would
-    // cost a hook process on every tool call. A tab on screen has been answered or not, and
-    // either way the user knows — which is the same contract the bubble beside it has.
-    tab.waitingAt = undefined;
     this.postTabs();
   }
 
@@ -926,6 +964,9 @@ export class ProjectSessionManager {
       // there is nothing to find again later.
       if (tab.busy && info.turnEndedAt !== undefined && info.turnEndedAt > (tab.busySince ?? 0)) {
         tab.busy = false;
+        // A question can only stand within a turn — the same rule setTurn applies, without the
+        // mark setTurn would leave (a turn cut short in that tab has nothing to find again).
+        tab.waitingAt = undefined;
         changed = true;
       }
       if (info.title !== tab.title || info.updatedAt !== tab.updatedAt) {

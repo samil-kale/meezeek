@@ -513,9 +513,15 @@ export function App() {
    * Whether any session of this project is working on a turn. Unlike the mark above, the tab in
    * front of the user is *not* left out: a spinner says what is happening now, and it says it
    * wherever the tab is — the reason to look at it is that the answer is not there yet.
+   *
+   * A tab stopped on a question is excluded even though `busy` is still true underneath — the
+   * turn is technically open, but the session is waiting on the user, not working, and the two
+   * marks would otherwise stand side by side on the very same session with nothing to tell them
+   * apart from.
    */
   const hasBusyTab = useCallback(
-    (projectId: string): boolean => (tabs[projectId] ?? []).some((tab) => tab.busy),
+    (projectId: string): boolean =>
+      (tabs[projectId] ?? []).some((tab) => tab.busy && tab.waitingAt === undefined),
     [tabs]
   );
 
@@ -528,7 +534,7 @@ export function App() {
   const busyCursor = useRef<Record<string, string>>({});
   const showBusy = useCallback(
     (projectId: string) => {
-      const working = (tabs[projectId] ?? []).filter((tab) => tab.busy);
+      const working = (tabs[projectId] ?? []).filter((tab) => tab.busy && tab.waitingAt === undefined);
       if (working.length === 0) {
         return;
       }
@@ -567,7 +573,8 @@ export function App() {
   /**
    * Every tab in front of the user — one per pane — has been seen, so the mark on each goes. The
    * main process holds the mark but never learns what is on screen, which is why this is the
-   * renderer's half.
+   * renderer's half. Only the bubble: a standing question is hidden while on screen (`waitingTabs`)
+   * but not cleared by being looked at, so reporting it here would be an IPC per push for nothing.
    */
   useEffect(() => {
     if (!activeProjectId) {
@@ -575,7 +582,7 @@ export function App() {
     }
     const onScreen = visibleTabIds(layouts[activeProjectId] ?? DEFAULT_LAYOUT);
     for (const tab of tabs[activeProjectId] ?? []) {
-      if (onScreen.includes(tab.tabId) && (tab.finishedAt !== undefined || tab.waitingAt !== undefined)) {
+      if (onScreen.includes(tab.tabId) && tab.finishedAt !== undefined) {
         window.meezeek.terminals.seen(activeProjectId, tab.tabId);
       }
     }
