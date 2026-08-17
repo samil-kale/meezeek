@@ -15,7 +15,7 @@ function RequirementRow({ requirement }: { requirement: Requirement }) {
           <button
             type="button"
             className="requirement-link"
-            onClick={() => void window.meezeek.shell.openUrl(requirement.url)}
+            onClick={() => void window.tet.shell.openUrl(requirement.url)}
           >
             Get it
           </button>
@@ -45,7 +45,7 @@ export function RequirementsDialog({ requirements, checking, onRecheck }: Requir
   return (
     <div className="dialog-overlay">
       <div className="dialog">
-        <div className="dialog-title">Meezeek cannot start</div>
+        <div className="dialog-title">TET cannot start</div>
         <div className="dialog-body">
           <p className="dialog-message">
             Git runs the whole git side, and an agent is what the terminals are for. Install what is
@@ -61,12 +61,12 @@ export function RequirementsDialog({ requirements, checking, onRecheck }: Requir
             ))}
           </div>
           <p className="dialog-detail">
-            A program installed just now may only be found once meezeek is restarted — its PATH is
+            A program installed just now may only be found once tet is restarted — its PATH is
             the one it was started with.
           </p>
         </div>
         <div className="dialog-buttons">
-          <button type="button" className="button secondary" onClick={() => window.meezeek.startup.quit()}>
+          <button type="button" className="button secondary" onClick={() => window.tet.startup.quit()}>
             Quit
           </button>
           <button type="button" className="button" onClick={onRecheck} disabled={checking}>

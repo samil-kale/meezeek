@@ -26,15 +26,15 @@ import type {
 /** Removes a listener registered through one of the `on*` methods. */
 export type Unsubscribe = () => void;
 
-export interface MeezeekApi {
-  /** The programs meezeek cannot run without; the window shows the app only once they are there. */
+export interface TETApi {
+  /** The programs tet cannot run without; the window shows the app only once they are there. */
   startup: {
     /** Runs the check and, when it passes, brings the stored projects up. */
     check(): Promise<Requirements>;
     /** Leaves, for the user who would rather install first. */
     quit(): void;
   };
-  /** What meezeek is rather than what it is set to; the settings dialog's Info tab shows it. */
+  /** What tet is rather than what it is set to; the settings dialog's Info tab shows it. */
   app: {
     info(): Promise<AppInfo>;
   };
@@ -117,11 +117,11 @@ export interface MeezeekApi {
     onState(listener: (payload: { projectId: string; state: RepositoryState }) => void): Unsubscribe;
   };
   /**
-   * A project's saved shell commands, kept in a meezeek.json in its own root. They belong to
-   * the repository, not to meezeek's storage, so they follow it around.
+   * A project's saved shell commands, kept in a tet.json in its own root. They belong to
+   * the repository, not to tet's storage, so they follow it around.
    */
   commands: {
-    /** Null when the project has no meezeek.json yet — as opposed to one with an empty list. */
+    /** Null when the project has no tet.json yet — as opposed to one with an empty list. */
     list(projectId: string): Promise<ProjectCommand[] | null>;
     /** Writes the whole list; adding, removing and reordering all go through here. */
     save(projectId: string, commands: ProjectCommand[]): Promise<void>;
@@ -136,6 +136,8 @@ export interface MeezeekApi {
      * new to the list, and resolves to the whole list. Reports what happened as a notice.
      */
     suggest(projectId: string): Promise<ProjectCommand[]>;
+    /** Fires when a project's tet.json changed on disk, whoever wrote it. */
+    onChanged(listener: (payload: { projectId: string }) => void): Unsubscribe;
   };
   terminals: {
     list(projectId: string): Promise<TerminalDescriptor[]>;
@@ -199,7 +201,7 @@ export interface MeezeekApi {
     revealFile(projectId: string, path: string): Promise<void>;
     /**
      * Hands a repository-relative path to whatever the OS opens that type with — the nearest
-     * thing meezeek has to GitHub Desktop's external editor, which it has no setting for.
+     * thing tet has to GitHub Desktop's external editor, which it has no setting for.
      */
     openFileExternally(projectId: string, path: string): Promise<void>;
     /** Opens the project's own folder in the OS file manager. */

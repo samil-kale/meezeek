@@ -106,8 +106,8 @@ export class TerminalSession {
         envOverride: this.envOverride
       });
     } catch (error) {
-      console.error(`[meezeek] failed to spawn ${this.executable}:`, error);
-      this.callbacks.onOutput(`\r\n[meezeek] failed to spawn ${this.executable}:\r\n${String(error)}\r\n`);
+      console.error(`[tet] failed to spawn ${this.executable}:`, error);
+      this.callbacks.onOutput(`\r\n[tet] failed to spawn ${this.executable}:\r\n${String(error)}\r\n`);
       this.setStatus("error");
       return;
     }
@@ -117,7 +117,7 @@ export class TerminalSession {
     this.process.onExit(({ exitCode }) => {
       this.process = undefined;
       if (!this.intentionalStop) {
-        this.callbacks.onOutput(`\r\n[meezeek] ${this.executable} exited with code ${exitCode}\r\n`);
+        this.callbacks.onOutput(`\r\n[tet] ${this.executable} exited with code ${exitCode}\r\n`);
       }
       // What the process said, not merely that it is gone: a saved command ends by itself every
       // time it is run, and a build that passed is not an error. Killed by us is "stopped"

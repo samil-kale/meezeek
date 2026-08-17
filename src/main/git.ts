@@ -502,8 +502,8 @@ export function init(directory: string): Promise<GitActionResult> {
 const ASKPASS_SCRIPT = [
   "#!/bin/sh",
   'case "$1" in',
-  '*sername*) printf \'%s\\n\' "$MEEZEEK_ASKPASS_USER" ;;',
-  '*) printf \'%s\\n\' "$MEEZEEK_ASKPASS_TOKEN" ;;',
+  '*sername*) printf \'%s\\n\' "$TET_ASKPASS_USER" ;;',
+  '*) printf \'%s\\n\' "$TET_ASKPASS_TOKEN" ;;',
   "esac",
   ""
 ].join("\n");
@@ -512,7 +512,7 @@ let askpassPath: Promise<string> | undefined;
 
 function ensureAskpass(): Promise<string> {
   askpassPath ??= (async () => {
-    const file = path.join(os.tmpdir(), "meezeek-askpass.sh");
+    const file = path.join(os.tmpdir(), "tet-askpass.sh");
     const temp = `${file}.${process.pid}`;
     await fs.writeFile(temp, ASKPASS_SCRIPT, { encoding: "utf8", mode: 0o755 });
     await fs.rename(temp, file);
@@ -536,8 +536,8 @@ export async function cloneWithToken(
   const askpass = await ensureAskpass();
   return runNetwork(os.homedir(), ["-c", "credential.helper=", "clone", "--", url, directory], {
     GIT_ASKPASS: askpass,
-    MEEZEEK_ASKPASS_USER: user,
-    MEEZEEK_ASKPASS_TOKEN: token
+    TET_ASKPASS_USER: user,
+    TET_ASKPASS_TOKEN: token
   });
 }
 

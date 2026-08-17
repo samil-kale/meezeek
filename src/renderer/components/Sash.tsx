@@ -5,7 +5,7 @@ import { useCallback, useRef, useState, type PointerEvent } from "react";
  * repository, so it lives in the renderer's own storage instead of the project store, and
  * every project sees the same one.
  */
-const STORAGE_PREFIX = "meezeek.layout.";
+const STORAGE_PREFIX = "tet.layout.";
 /**
  * How long after the last resize a pane size is written to storage. Exported for the terminal
  * split's dividers, which keep their own kind of size (`useDividerFraction`) but settle a drag

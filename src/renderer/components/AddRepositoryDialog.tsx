@@ -88,7 +88,7 @@ interface PathFieldProps {
  * account. Every one of these fields shares it — a clone and an add both go where the user
  * keeps repositories.
  */
-const LAST_DIRECTORY_KEY = "meezeek.dialog.lastDirectory";
+const LAST_DIRECTORY_KEY = "tet.dialog.lastDirectory";
 
 /** A folder path, typed or picked — the Browse button fills the same field. */
 function PathField({ label, value, pickTitle, onChange, inputRef }: PathFieldProps) {
@@ -96,7 +96,7 @@ function PathField({ label, value, pickTitle, onChange, inputRef }: PathFieldPro
     // What the field already names comes first: it is the more specific answer, and it is
     // where the user was last looking.
     const start = value.trim() || localStorage.getItem(LAST_DIRECTORY_KEY) || undefined;
-    const picked = await window.meezeek.projects.pickDirectory(pickTitle, start);
+    const picked = await window.tet.projects.pickDirectory(pickTitle, start);
     if (picked) {
       localStorage.setItem(LAST_DIRECTORY_KEY, picked);
       onChange(picked);
@@ -139,7 +139,7 @@ function AccountForm({ onAdded }: AccountFormProps) {
   const submit = async (): Promise<void> => {
     setBusy(true);
     try {
-      const result = await window.meezeek.providers.addAccount(provider, host.trim(), token.trim());
+      const result = await window.tet.providers.addAccount(provider, host.trim(), token.trim());
       if (result.account) {
         onAdded(result.account);
       } else {
@@ -235,7 +235,7 @@ function RemoteTab({ onClone }: RemoteTabProps) {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    void window.meezeek.providers.accounts().then((list) => {
+    void window.tet.providers.accounts().then((list) => {
       setAccounts(list);
       setSelectedId(list[0]?.id ?? null);
       // Straight into the form when there is nothing yet — it is the only thing to do here.
@@ -257,7 +257,7 @@ function RemoteTab({ onClone }: RemoteTabProps) {
     }
     let cancelled = false;
     setLoading(true);
-    void window.meezeek.providers.repos(selectedId).then((result) => {
+    void window.tet.providers.repos(selectedId).then((result) => {
       if (cancelled) {
         return;
       }
@@ -303,7 +303,7 @@ function RemoteTab({ onClone }: RemoteTabProps) {
     if (!answer.confirmed) {
       return;
     }
-    await window.meezeek.providers.removeAccount(account.id);
+    await window.tet.providers.removeAccount(account.id);
     const remaining = (accounts ?? []).filter((entry) => entry.id !== account.id);
     setAccounts(remaining);
     setSelectedId((current) => (current === account.id ? (remaining[0]?.id ?? null) : current));
@@ -316,7 +316,7 @@ function RemoteTab({ onClone }: RemoteTabProps) {
       setAccounts((current) =>
         (current ?? []).map((entry) => (entry.id === selectedId ? { ...entry, namespace: next } : entry))
       );
-      void window.meezeek.providers.setNamespace(selectedId, next);
+      void window.tet.providers.setNamespace(selectedId, next);
     }
   };
 
@@ -574,7 +574,7 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
    */
   const askForCredentials = async (): Promise<void> => {
     const host = hostOf(url);
-    const stored = await window.meezeek.providers.accounts();
+    const stored = await window.tet.providers.accounts();
     const matching = stored.filter((account) => account.host === host);
     setAuthAccounts(matching);
     setAccountId(matching[0]?.id ?? null);
@@ -589,27 +589,27 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
       // Validated against the host and stored on the way through: the same call replaces an
       // expired account's token, and the next clone from this host finds it there. One the
       // host does not accept fails here, before git is run again.
-      const added = await window.meezeek.providers.addAccount(tokenProvider, hostOf(url), token.trim());
+      const added = await window.tet.providers.addAccount(tokenProvider, hostOf(url), token.trim());
       if (!added.account) {
         return { error: added.error ?? "The token could not be verified", authRequired: true };
       }
       id = added.account.id;
     }
-    return window.meezeek.projects.clone(url.trim(), directory.trim(), folderName.trim(), id);
+    return window.tet.projects.clone(url.trim(), directory.trim(), folderName.trim(), id);
   };
 
   const submit = async (): Promise<void> => {
     setBusy(true);
     try {
       if (mode === "add") {
-        onAdded(await window.meezeek.projects.open(directory.trim()));
+        onAdded(await window.tet.projects.open(directory.trim()));
         onClose();
         return;
       }
       const result =
         mode === "clone"
           ? await cloneRepository()
-          : await window.meezeek.projects.create(directory.trim(), folderName.trim());
+          : await window.tet.projects.create(directory.trim(), folderName.trim());
       if (result.project) {
         onAdded(result.project);
         onClose();

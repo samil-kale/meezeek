@@ -56,13 +56,13 @@ export interface IpcDeps {
 
 const MISSING_REPOSITORY: RepositoryState = { ...EMPTY_REPOSITORY_STATE, error: "Project not found" };
 
-const TEMP_FILE_NAME = /^meezeek-(\d+)-/;
+const TEMP_FILE_NAME = /^tet-(\d+)-/;
 /** A pasted path is meant to be read within the turn it was typed into — a day is generous. */
 const TEMP_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** Writes bytes the renderer holds but has no path for to a temp file, and returns it. */
 async function writeTempFile(name: string, data: Buffer): Promise<string> {
-  const file = path.join(os.tmpdir(), `meezeek-${Date.now()}-${path.basename(name)}`);
+  const file = path.join(os.tmpdir(), `tet-${Date.now()}-${path.basename(name)}`);
   // Asynchronously: a pasted screenshot is megabytes, and a synchronous write would hold the
   // ptys' output and the keystrokes on their way to them for as long as the disk takes.
   await fs.promises.writeFile(file, data);
@@ -497,7 +497,7 @@ export function registerIpc({
   });
 
   /**
-   * The changed-file menu's "Open in external editor". meezeek has no editor setting, so the
+   * The changed-file menu's "Open in external editor". tet has no editor setting, so the
    * file goes to whatever the OS opens its type with — which on a developer's machine is the
    * editor GitHub Desktop would have asked about.
    */

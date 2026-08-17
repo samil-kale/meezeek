@@ -7,14 +7,14 @@ import type { NotificationSettings } from "../../shared/types";
  * Codex only runs a hook once it is *trusted* — a sha256 over a normalized form of its event
  * name, matcher and command, checked against a `trusted_hash` Codex reads back out of its own
  * config. Passed cold, an unknown hash means an interactive session opens on a blocking "Hooks
- * need review" screen instead of the chat. Reproduced here so meezeek can hand in the matching
+ * need review" screen instead of the chat. Reproduced here so tet can hand in the matching
  * hash alongside the hook itself and skip that screen entirely — verified end to end against a
  * real Codex install (five (event, matcher, command) → hash pairs Codex itself computed, and a
  * live interactive session that went straight to the chat with a never-before-seen hash set).
  *
  * `timeout` is always present at its effective value: 600 is the default for every event Codex
- * lets a hook run on other than SessionEnd (meezeek uses none of the events that differ), so it
- * has to be in the hash even though meezeek never sets it explicitly. Key order matters — this
+ * lets a hook run on other than SessionEnd (tet uses none of the events that differ), so it
+ * has to be in the hash even though tet never sets it explicitly. Key order matters — this
  * has to be a real recursive alphabetical sort, not the object's own key order (`matcher`, when
  * present, sorts after `hooks`, not between `event_name` and `hooks`).
  *
@@ -65,7 +65,7 @@ const SESSION_FLAGS_SOURCE =
 /**
  * Codex's snake_case label for a hook event, as it appears in a trust key. `handlerIndex` is the
  * handler's own position within the event's one matcher group (`group_index` is always `0` here
- * — meezeek never registers two matcher groups for the same event) — each handler is trusted
+ * — tet never registers two matcher groups for the same event) — each handler is trusted
  * *independently*, hashed as if it were the only one in its group, verified against Codex's own
  * `hooks/list` for a two-handler `UserPromptSubmit` (context file, then the busy marker): the
  * second handler's key is `…:0:1`, not folded into the first's hash.
@@ -78,7 +78,7 @@ function trustKey(eventLabel: string, handlerIndex: number): string {
  * TOML literal string (`'...'`): everything but `'` itself is taken verbatim, so a Windows path
  * full of backslashes and a PowerShell command line full of `"` need no escaping at all — the
  * same reasoning `powershellSingleQuote`/`shellSingleQuote` apply to their own shells. None of
- * what meezeek generates (its own storage paths, a sha256 hash, `request_user_input`) can ever
+ * what tet generates (its own storage paths, a sha256 hash, `request_user_input`) can ever
  * contain a `'`, but a Windows user or repository name could, so this still has to fall back
  * rather than emit invalid TOML — a basic string, with `\` and `"` escaped this time since those
  * *do* mean something inside one.
@@ -102,7 +102,7 @@ interface HookEntry {
 }
 
 /**
- * The one `-c hooks={…}` argument covering every hook meezeek registers and its matching trust
+ * The one `-c hooks={…}` argument covering every hook tet registers and its matching trust
  * entry, built as a single TOML value on purpose: `-c hooks.Stop=[…]` and a second
  * `-c hooks.state…=…` do not reliably merge (verified — the state entry silently failed to
  * apply), and `-c`'s own key-path parsing splits on every literal `.` in the *key* before any
@@ -142,7 +142,7 @@ function buildBusyCommand(storageDir: string): string {
  * Builds the Stop hook's command line: marks the session finished, then notifies where
  * notifications are on. Unlike Claude Code, Codex has no `background_tasks` payload to guard
  * against — a turn that merely spawns a subagent and returns is reported through the separate
- * `SubagentStop` event, which meezeek does not hook, so Stop firing always means this turn is
+ * `SubagentStop` event, which tet does not hook, so Stop firing always means this turn is
  * actually over.
  */
 function buildStopCommand(storageDir: string, notifyCommand: string | undefined): string {

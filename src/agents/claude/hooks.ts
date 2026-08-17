@@ -209,12 +209,12 @@ export function setupClaudeHooks(
     }
   ];
 
-  // The context block points at a file in meezeek's own storage — outside the repository,
+  // The context block points at a file in tet's own storage — outside the repository,
   // where reads are denied unless granted. Scoped to that one file rather than the whole
   // directory, which also holds the notify scripts and this settings file.
   const permissions = { allow: context.contextReadPaths.map((file) => `Read(${file})`) };
 
-  const settingsFile = path.join(storageDir, "meezeek-hooks-settings.json");
+  const settingsFile = path.join(storageDir, "tet-hooks-settings.json");
   fs.writeFileSync(settingsFile, JSON.stringify({ hooks, permissions }, null, 2));
   return ["--settings", settingsFile];
 }

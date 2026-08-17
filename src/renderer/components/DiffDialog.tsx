@@ -4,6 +4,7 @@ import { DiffView } from "./DiffView";
 import { CloseIcon, WhitespaceIcon } from "./icons";
 import { notify } from "./Notices";
 import { useEscape } from "./use-escape";
+import { ProgressBar } from "./ProgressBar";
 
 interface DiffDialogProps {
   projectId: string;
@@ -12,8 +13,6 @@ interface DiffDialogProps {
   /** What the diff depends on besides the file — a change to it reloads while the dialog is open. */
   version: string;
   onClose: () => void;
-  /** Reading and colouring the diff, reported into the one progress bar like everything else. */
-  onBusy: (busy: boolean) => void;
 }
 
 /**
@@ -24,16 +23,18 @@ interface DiffDialogProps {
  * Not part of Dialog.tsx: that file puts *questions* (confirm, prompt) and is built around a
  * form with two buttons. This asks nothing.
  */
-export const DiffDialog = memo(function DiffDialog({ projectId, path, version, onClose, onBusy }: DiffDialogProps) {
+export const DiffDialog = memo(function DiffDialog({ projectId, path, version, onClose }: DiffDialogProps) {
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  /** Reading the diff and colouring it, `DiffView`'s own two waits — this dialog's own bar. */
+  const [busy, setBusy] = useState(false);
 
   // Reloads whenever the file, the repository state or the whitespace switch changes.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void window.meezeek.repository.diff(projectId, path, { ignoreWhitespace }).then((result) => {
+    void window.tet.repository.diff(projectId, path, { ignoreWhitespace }).then((result) => {
       if (cancelled) {
         return;
       }
@@ -67,12 +68,13 @@ export const DiffDialog = memo(function DiffDialog({ projectId, path, version, o
           <button className="icon-button" title="Close" onClick={onClose}>
             <CloseIcon />
           </button>
+          {busy && <ProgressBar />}
         </div>
         <DiffView
           projectId={projectId}
           diff={diff}
           loading={loading}
-          onBusy={onBusy}
+          onBusy={setBusy}
           ignoreWhitespace={ignoreWhitespace}
         />
       </div>

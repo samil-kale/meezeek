@@ -21,7 +21,7 @@ export function isSplitPreset(value: unknown): value is SplitPreset {
 }
 
 /** A tab dragged onto another pane — its own MIME, so a dropped file is never mistaken for one. */
-export const TAB_DRAG_TYPE = "application/x-meezeek-terminal-tab";
+export const TAB_DRAG_TYPE = "application/x-tet-terminal-tab";
 
 /** Which panes exist for a preset, in reading order — also the "move to" menu's own order. */
 export const PRESET_PANES: Record<SplitPreset, PaneId[]> = {
@@ -200,14 +200,14 @@ export function applyPreset(layout: ProjectLayout, preset: SplitPreset, tabs: Te
 
 /**
  * Where a project's split state lives between runs: `localStorage`, under the same
- * `meezeek.layout.` namespace `Sash.tsx` keeps every other pane size in — layout describes the
+ * `tet.layout.` namespace `Sash.tsx` keeps every other pane size in — layout describes the
  * window, not the repository. Per project, so the key needs the project id, which is why this
  * cannot go through `usePaneSize`/`usePaneToggle` (their key is fixed at the call site) and why
  * `App` reads and writes it by hand instead. `suffix` tells the layout itself apart from the
  * divider positions `TerminalsPane` keeps under the same project.
  */
 export function layoutStorageKey(projectId: string, suffix: string): string {
-  return `meezeek.layout.terminals.${projectId}.${suffix}`;
+  return `tet.layout.terminals.${projectId}.${suffix}`;
 }
 
 /**

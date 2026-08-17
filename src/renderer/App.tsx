@@ -72,10 +72,15 @@ function layoutOf(layouts: Record<string, ProjectLayout>, projectId: string): Pr
   return layouts[projectId] ?? loadLayout(projectId);
 }
 
-/** The sessions of one project that are marked, by tab id: finished out of sight, and waiting. */
+/**
+ * The sessions of one project that are marked, by tab id: finished out of sight, waiting, and
+ * starting — the last is what lets the pane a new agent opens in show the bar itself rather than
+ * always pane "a" (see `TerminalsPane`'s `startingHere`).
+ */
 interface ProjectMarks {
   finished: string[];
   waiting: string[];
+  starting: string[];
 }
 
 /** `next` unless `previous` already holds the same ids — then that one, identity and all. */
@@ -176,13 +181,6 @@ export function App() {
     }, GIT_SLIDE_MS);
     return () => clearTimeout(stop);
   }, [gitOpen]);
-  /**
-   * The git pane or an open diff is working; the active project's bar reports either. Two
-   * flags rather than one, because each writer clears its own on unmount — a diff closed while
-   * a discard still runs must not take the discard's "busy" down with it.
-   */
-  const [gitBusy, setGitBusy] = useState(false);
-  const [diffBusy, setDiffBusy] = useState(false);
   /** The file whose diff is open over everything, if any. */
   const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
   /** Whether the add-repository dialog (clone, add, create) is up. */
@@ -192,15 +190,15 @@ export function App() {
 
   useEffect(() => {
     const unsubscribers = [
-      window.meezeek.repository.onState(({ projectId, state }) =>
+      window.tet.repository.onState(({ projectId, state }) =>
         setStates((current) => ({ ...current, [projectId]: state }))
       ),
-      window.meezeek.terminals.onTabs(({ projectId, tabs: list }) =>
+      window.tet.terminals.onTabs(({ projectId, tabs: list }) =>
         setTabs((current) => ({ ...current, [projectId]: list }))
       ),
       // A status arrives on its own rather than as a whole list, so it is patched into the one
       // tab it names instead of replacing the project's.
-      window.meezeek.terminals.onStatus(({ projectId, tabId, status }) =>
+      window.tet.terminals.onStatus(({ projectId, tabId, status }) =>
         setTabs((current) => {
           const list = current[projectId];
           return list
@@ -208,21 +206,21 @@ export function App() {
             : current;
         })
       ),
-      window.meezeek.terminals.onStartupProgress(({ projectId, show }) =>
+      window.tet.terminals.onStartupProgress(({ projectId, show }) =>
         setStarting((current) => (current[projectId] === show ? current : { ...current, [projectId]: show }))
       )
     ];
 
     void (async () => {
-      const stored = await window.meezeek.projects.list();
+      const stored = await window.tet.projects.list();
       setProjects(stored);
       setActiveProjectId((current) => current ?? stored[0]?.id ?? null);
       const loaded = await Promise.all(
         stored.map(async (project) => {
           const [state, list, isStarting] = await Promise.all([
-            window.meezeek.repository.state(project.id),
-            window.meezeek.terminals.list(project.id),
-            window.meezeek.terminals.starting(project.id)
+            window.tet.repository.state(project.id),
+            window.tet.terminals.list(project.id),
+            window.tet.terminals.starting(project.id)
           ]);
           return [project.id, state, list, isStarting] as const;
         })
@@ -243,7 +241,7 @@ export function App() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
-  useEffect(() => window.meezeek.onNotice(({ severity, message }) => notify(severity, message)), []);
+  useEffect(() => window.tet.onNotice(({ severity, message }) => notify(severity, message)), []);
 
   /**
    * Keeps every project's split layout honest against its tab list — a tab closed elsewhere
@@ -327,7 +325,7 @@ export function App() {
 
   const closeProject = useCallback(
     async (projectId: string) => {
-      await window.meezeek.projects.remove(projectId);
+      await window.tet.projects.remove(projectId);
       const remaining = projects.filter((project) => project.id !== projectId);
       setProjects(remaining);
       setActiveProjectId((current) => (current === projectId ? (remaining[0]?.id ?? null) : current));
@@ -348,7 +346,7 @@ export function App() {
 
   const reorderProjects = useCallback((ordered: Project[]) => {
     setProjects(ordered);
-    void window.meezeek.projects.reorder(ordered.map((project) => project.id));
+    void window.tet.projects.reorder(ordered.map((project) => project.id));
   }, []);
 
   /**
@@ -489,7 +487,18 @@ export function App() {
   );
 
   /**
-   * Both of the above as tab ids, once per render for every project, and by identity only
+   * A project's sessions whose own tab is what the progress bar is currently about — an agent's
+   * runtime being prepared, or its CLI not yet past its first real frame. Unlike the two marks
+   * above, the tab in front of the user is not excluded: which pane shows the bar does not care
+   * whether that pane is on screen, only which of its own tabs is the reason.
+   */
+  const startingTabs = useCallback(
+    (projectId: string): TerminalDescriptor[] => (tabs[projectId] ?? []).filter((tab) => tab.starting === true),
+    [tabs]
+  );
+
+  /**
+   * All three of the above as tab ids, once per render for every project, and by identity only
    * where the answer changed: a pane and a project row take these as props, and a fresh array
    * for an unchanged answer would re-render every memoized view on every push from any project.
    */
@@ -500,14 +509,16 @@ export function App() {
       const previous = marksRef.current[projectId];
       const finished = markedTabs(projectId).map((tab) => tab.tabId);
       const waiting = waitingTabs(projectId).map((tab) => tab.tabId);
+      const starting = startingTabs(projectId).map((tab) => tab.tabId);
       next[projectId] = {
         finished: sameIds(previous?.finished, finished),
-        waiting: sameIds(previous?.waiting, waiting)
+        waiting: sameIds(previous?.waiting, waiting),
+        starting: sameIds(previous?.starting, starting)
       };
     }
     marksRef.current = next;
     return next;
-  }, [tabs, markedTabs, waitingTabs]);
+  }, [tabs, markedTabs, waitingTabs, startingTabs]);
 
   /**
    * Whether any session of this project is working on a turn. Unlike the mark above, the tab in
@@ -583,7 +594,7 @@ export function App() {
     const onScreen = visibleTabIds(layouts[activeProjectId] ?? DEFAULT_LAYOUT);
     for (const tab of tabs[activeProjectId] ?? []) {
       if (onScreen.includes(tab.tabId) && tab.finishedAt !== undefined) {
-        window.meezeek.terminals.seen(activeProjectId, tab.tabId);
+        window.tet.terminals.seen(activeProjectId, tab.tabId);
       }
     }
   }, [activeProjectId, layouts, tabs]);
@@ -591,7 +602,7 @@ export function App() {
   /** Opens a shell tab in that project, which is what a project row offers as "terminal". */
   const openTerminal = useCallback(
     (projectId: string) => {
-      void window.meezeek.terminals.create(projectId, "shell").then((tab) => showTab(projectId, tab.tabId));
+      void window.tet.terminals.create(projectId, "shell").then((tab) => showTab(projectId, tab.tabId));
     },
     [showTab]
   );
@@ -653,7 +664,7 @@ export function App() {
       return;
     }
     const onFocus = (): void => {
-      void window.meezeek.repository.refresh(activeProjectId);
+      void window.tet.repository.refresh(activeProjectId);
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -742,7 +753,7 @@ export function App() {
           the bar itself is the drag region and the space the window controls overlay needs. */}
       <div className="titlebar">
         <img className="titlebar-icon" src="icon.png" alt="" />
-        <span className="titlebar-name">MEEZEEK</span>
+        <span className="titlebar-name">TET</span>
         <button className="titlebar-button" title="Settings" onClick={openSettings}>
           <GearIcon />
         </button>
@@ -802,7 +813,6 @@ export function App() {
                 treeHeight={branchTreeHeight}
                 onTreeHeight={setBranchTreeHeight}
                 onOpenDiff={openActiveDiff}
-                onBusy={setGitBusy}
               />
             </div>
             {gitOpen && (
@@ -828,11 +838,11 @@ export function App() {
               visible={project.id === activeProjectId}
               gitOpen={gitOpen}
               onToggleGit={toggleGit}
-              externalBusy={
-                starting[project.id] === true ||
-                branchAction?.projectId === project.id ||
-                (project.id === activeProjectId && (gitBusy || diffBusy))
-              }
+              // The git pane, the diff dialog and a discard/stash now all carry their own bar —
+              // this one is left with only the reason that has no tab of its own to point a pane
+              // at yet: the session listing at bootstrap, before any tab exists. Once a tab is
+              // what is starting, `startingTabIds` below is where that shows instead.
+              externalBusy={starting[project.id] === true && (marks[project.id]?.starting ?? NO_IDS).length === 0}
               onOpenDiff={openDiff}
               layout={layouts[project.id] ?? DEFAULT_LAYOUT}
               onActivateTab={activateTab}
@@ -840,6 +850,7 @@ export function App() {
               onPresetChange={setPreset}
               markedTabIds={marks[project.id]?.finished ?? NO_IDS}
               waitingTabIds={marks[project.id]?.waiting ?? NO_IDS}
+              startingTabIds={marks[project.id]?.starting ?? NO_IDS}
             />
           ))}
           {!activeProject && (
@@ -864,7 +875,6 @@ export function App() {
           path={diffFile.path}
           version={diffVersion(states[diffFile.projectId], diffFile.path)}
           onClose={closeDiff}
-          onBusy={setDiffBusy}
         />
       )}
 

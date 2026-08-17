@@ -4,13 +4,14 @@ import type { ProjectCommand } from "../../shared/types";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { confirm, prompt, type PromptAnswer } from "./Dialog";
 import { reorder, useDragReorder } from "./drag-reorder";
-import { PlayIcon, PlusIcon, SparkleIcon, SpinnerIcon } from "./icons";
+import { PlayIcon, PlusIcon, SparkleIcon } from "./icons";
+import { ProgressBar } from "./ProgressBar";
 
 /**
  * A type of our own, for the same reason the project list has one: a row dragged across a
  * terminal must not end up pasted into it, and this list is no target for anything else.
  */
-const DRAG_TYPE = "application/x-meezeek-command";
+const DRAG_TYPE = "application/x-tet-command";
 
 /** The optional fields of the dialog, the same in the one that adds and the one that edits. */
 const EXTRA_FIELDS = [
@@ -19,11 +20,11 @@ const EXTRA_FIELDS = [
   { label: "Environment (optional)", placeholder: "PROFILE=DEVELOPMENT PORT=8080" }
 ];
 
-const COMMAND_DETAIL = "Saved to meezeek.json in the project. The command is started without a shell.";
+const COMMAND_DETAIL = "Saved to tet.json in the project. The command is started without a shell.";
 
 /**
  * What the dialog was answered with as an entry, carrying only what was filled in: a folder or
- * an environment written into every one would put the long form in meezeek.json for commands
+ * an environment written into every one would put the long form in tet.json for commands
  * that have nothing to say beyond themselves.
  *
  * `shell` is carried over from the command being edited rather than asked for — the dialog does
@@ -73,7 +74,7 @@ interface CommandListProps {
 }
 
 /**
- * A project's saved shell commands, under the project list. They come from a meezeek.json in
+ * A project's saved shell commands, under the project list. They come from a tet.json in
  * the repository's own root, so they belong to the project rather than to this machine, and
  * they change with the project the sidebar has selected.
  *
@@ -118,12 +119,12 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
       return;
     }
     let cancelled = false;
-    void window.meezeek.commands.list(projectId).then((saved) => {
+    void window.tet.commands.list(projectId).then((saved) => {
       if (cancelled) {
         return;
       }
       applyCommands(saved ?? []);
-      // No meezeek.json at all: nobody has set this project up here, which is the one moment
+      // No tet.json at all: nobody has set this project up here, which is the one moment
       // where looking its commands up unasked is worth the wait. A file with an empty list is
       // someone having deleted them all, and stays empty.
       if (saved === null && !autoSuggested.current.has(projectId)) {
@@ -131,8 +132,23 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
         void suggest(projectId);
       }
     });
+    // The file is the record, and it changes without this list: an editor, an agent in one of
+    // the tabs, a checkout. Read again on every change, our own writes included — those come
+    // back as what is already shown. No lookup for a file gone missing here: the unasked agent
+    // run is for a project seen for the first time, not for a delete.
+    const unsubscribe = window.tet.commands.onChanged((payload) => {
+      if (payload.projectId !== projectId) {
+        return;
+      }
+      void window.tet.commands.list(projectId).then((saved) => {
+        if (!cancelled) {
+          applyCommands(saved ?? []);
+        }
+      });
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [projectId]);
 
@@ -153,7 +169,7 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
       return;
     }
     applyCommands(next);
-    void window.meezeek.commands.save(projectId, next);
+    void window.tet.commands.save(projectId, next);
   };
 
   const askAdd = async (): Promise<void> => {
@@ -210,7 +226,7 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
     const answer = await confirm({
       title: "Delete command",
       message: `Delete "${command.command}"?`,
-      detail: "It is removed from the project's meezeek.json.",
+      detail: "It is removed from the project's tet.json.",
       confirmLabel: "Delete"
     });
     if (answer.confirmed) {
@@ -231,7 +247,7 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
     }
     setSuggestingIn((current) => [...current, project]);
     try {
-      const found = await window.meezeek.commands.suggest(project);
+      const found = await window.tet.commands.suggest(project);
       if (shown.current === project) {
         applyCommands(found);
       }
@@ -246,7 +262,7 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
       return;
     }
     const project = projectId;
-    void window.meezeek.commands.run(project, command).then((tab) => {
+    void window.tet.commands.run(project, command).then((tab) => {
       if (tab) {
         onOpenTab(project, tab.tabId);
       }
@@ -266,20 +282,20 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
           COMMANDS <span className="count">({commands.length})</span>
         </span>
         <span className="sidebar-header-actions">
-          {/* The button becomes the progress: an agent reading a repository takes a while,
-              and this is the only place that wait belongs. */}
           <button
-            className={`icon-button${suggesting ? " busy" : ""}`}
+            className="icon-button"
             title={suggesting ? "Looking for commands..." : "Have an agent find this project's commands"}
             disabled={!projectId || suggesting}
             onClick={() => projectId && void suggest(projectId)}
           >
-            {suggesting ? <SpinnerIcon className="spinning" /> : <SparkleIcon />}
+            <SparkleIcon />
           </button>
           <button className="icon-button" title="New command" disabled={!projectId} onClick={() => void askAdd()}>
             <PlusIcon />
           </button>
         </span>
+        {/* This pane's own bar — an agent reading the repository for its commands. */}
+        {suggesting && <ProgressBar />}
       </div>
       <div className="command-items" {...listProps}>
         {commands.map((command, index) => (

@@ -12,7 +12,7 @@ import { useState, type DragEvent, type HTMLAttributes } from "react";
  * list twice), and what to do with the finished move.
  */
 export interface DragReorderOptions {
-  /** A MIME type of this list's own, e.g. "application/x-meezeek-project". */
+  /** A MIME type of this list's own, e.g. "application/x-tet-project". */
   dragType: string;
   /** How many rows there are; the index one past the last stands for the end of the list. */
   count: number;

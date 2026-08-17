@@ -40,7 +40,7 @@ export const claudeSessionProvider: SessionProvider = {
       entries.sort((a, b) => a.createdAt - b.createdAt);
       return entries;
     } catch (error) {
-      console.error("[meezeek] claude session listing failed:", error);
+      console.error("[tet] claude session listing failed:", error);
       return [];
     }
   },
@@ -267,7 +267,7 @@ async function scanHead(filePath: string, fileSize: number): Promise<TranscriptH
     }
     headCache.set(filePath, { size, head });
   } catch (error) {
-    console.error("[meezeek] claude title extraction failed:", error);
+    console.error("[tet] claude title extraction failed:", error);
   } finally {
     lines.close();
     stream.destroy();
@@ -309,7 +309,7 @@ async function extractCreatedAt(filePath: string): Promise<number | undefined> {
       }
     }
   } catch (error) {
-    console.error("[meezeek] claude createdAt extraction failed:", error);
+    console.error("[tet] claude createdAt extraction failed:", error);
   } finally {
     lines.close();
     stream.destroy();
@@ -516,7 +516,7 @@ async function scanTail(filePath: string, sessionId: string): Promise<Transcript
     }
     scanCache.set(filePath, { size, tail });
   } catch (error) {
-    console.error("[meezeek] claude transcript scan failed:", error);
+    console.error("[tet] claude transcript scan failed:", error);
   } finally {
     await handle?.close();
   }

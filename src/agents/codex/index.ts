@@ -24,13 +24,13 @@ export const codexAgent: AgentDefinition = {
       // RGB theme (catppuccin) picked by a light/dark guess, ignoring the terminal's own ANSI
       // palette entirely. "ansi" is the one bundled theme that emits plain named ANSI colors
       // instead — verified end to end: with this override, the status line's model name and cwd
-      // path render in exactly meezeek's configured ansiYellow/ansiGreen instead of a hardcoded
+      // path render in exactly tet's configured ansiYellow/ansiGreen instead of a hardcoded
       // catppuccin tan/green. The key is `tui.theme`, not `tui_theme` — that's the Rust struct
       // field name, but `-c`'s dotted path follows the TOML layout (`[tui]\ntheme = "..."`,
       // `codex-rs/config/src/types.rs`), and only the dotted form actually takes effect.
       args.push("-c", "tui.theme=ansi");
       // Same shape as Claude's: a hook is a process of its own and cannot call back into
-      // meezeek, so each end of a turn — and the point part-way through where it stops for an
+      // tet, so each end of a turn — and the point part-way through where it stops for an
       // answer — leaves a marker file behind, and these are what pick them up.
       watchers.push(watchMarkers(paths.agentDir, "busy", paths.onSessionBusy));
       watchers.push(watchMarkers(paths.agentDir, "finished", paths.onSessionFinished));
@@ -38,7 +38,7 @@ export const codexAgent: AgentDefinition = {
     } catch (error) {
       // As with Claude, losing the hooks must not keep Codex from starting — swallowed rather
       // than rejected, since a rejection here marks the whole agent unstartable.
-      console.error("[meezeek] could not set up Codex hooks:", error);
+      console.error("[tet] could not set up Codex hooks:", error);
     }
     return Promise.resolve({ args, dispose: () => watchers.forEach((stop) => stop()) });
   },

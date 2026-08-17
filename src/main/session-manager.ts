@@ -168,7 +168,8 @@ function answersQuestion(data: string): boolean {
   return /\S/.test(data);
 }
 
-function toDescriptor(tab: TabState): TerminalDescriptor {
+/** `starting` is not the tab's own: it is read off `tabIndicators` by the caller — see there. */
+function toDescriptor(tab: TabState, starting: boolean): TerminalDescriptor {
   const { tabId, projectId, agentId, title, updatedAt, createdAt, status, sessionId, finishedAt, busy, waitingAt } =
     tab;
   return {
@@ -182,6 +183,7 @@ function toDescriptor(tab: TabState): TerminalDescriptor {
     finishedAt,
     busy,
     waitingAt,
+    starting,
     sessionId
   };
 }
@@ -208,6 +210,15 @@ export class ProjectSessionManager {
    * the project's tabs, so it stays up as long as at least one of them hasn't settled.
    */
   private indicators = 0;
+  /**
+   * How many of those belong to which tab — what `TerminalDescriptor.starting` says, so the pane
+   * that tab lives in can show the bar itself. A count per tab rather than a flag on the tab,
+   * for two reasons: a tab's setup and its CLI's first frame are two indicators that overlap
+   * (see `handleResize` and `startSession`), and a release for a tab that has just been closed
+   * must still balance its acquire — `closeTabs` can put a tab back after a failed delete, and
+   * a flag on it would come back stuck.
+   */
+  private readonly tabIndicators = new Map<string, number>();
 
   private readonly shellContext: ShellContext;
 
@@ -239,10 +250,16 @@ export class ProjectSessionManager {
   }
 
   snapshot(): TerminalDescriptor[] {
-    return this.tabs.map(toDescriptor);
+    return this.tabs.map((tab) => toDescriptor(tab, this.tabIndicators.has(tab.tabId)));
   }
 
   private postTabs(): void {
+    // Not after the project is gone: a release, a status or a turn arriving late would post an
+    // empty list for it, and the renderer — which forgot the project on close — would take
+    // that as a project it has tabs for again.
+    if (this.disposed) {
+      return;
+    }
     this.callbacks.onTabs(this.project.id, this.snapshot());
   }
 
@@ -255,17 +272,42 @@ export class ProjectSessionManager {
     return this.indicators > 0;
   }
 
-  private acquireIndicator(): void {
+  /**
+   * `tabId`, where there is one, is what lets the pane that tab lives in show the bar itself
+   * instead of every pane borrowing pane "a"'s — `bootstrap` below has none, since it starts
+   * before any tab does, and stays a plain project-wide reason for pane "a" to fall back to.
+   * Every acquire is matched by one release with the same `tabId`, or the count never comes
+   * back down.
+   */
+  private acquireIndicator(tabId?: string): void {
     this.indicators += 1;
     if (this.indicators === 1) {
       this.callbacks.onStartupProgress(this.project.id, true);
     }
+    if (tabId !== undefined) {
+      const count = this.tabIndicators.get(tabId) ?? 0;
+      this.tabIndicators.set(tabId, count + 1);
+      if (count === 0) {
+        this.postTabs();
+      }
+    }
   }
 
-  private releaseIndicator(): void {
+  private releaseIndicator(tabId?: string): void {
     this.indicators -= 1;
     if (this.indicators === 0) {
       this.callbacks.onStartupProgress(this.project.id, false);
+    }
+    if (tabId !== undefined) {
+      const count = this.tabIndicators.get(tabId) ?? 0;
+      if (count <= 1) {
+        this.tabIndicators.delete(tabId);
+        // The tab may be gone already; posting for one that is not there costs a snapshot
+        // nothing changed in, and the map is right either way.
+        this.postTabs();
+      } else {
+        this.tabIndicators.set(tabId, count - 1);
+      }
     }
   }
 
@@ -416,7 +458,7 @@ export class ProjectSessionManager {
       runtime.prepareFailed = false;
       return true;
     } catch (error) {
-      console.error("[meezeek] spawn preparation failed:", error);
+      console.error("[tet] spawn preparation failed:", error);
       this.callbacks.onNotice("error", `${agent.displayName} could not be started: ${String(error)}`);
       runtime.prepareFailed = true;
       return false;
@@ -500,7 +542,7 @@ export class ProjectSessionManager {
       this.callbacks.onNotice(
         "error",
         `"${command.command}" cannot run: ${operator} is shell syntax, and a saved command is ` +
-          `started without one. Split it into two commands, or add "shell": true to it in meezeek.json.`
+          `started without one. Split it into two commands, or add "shell": true to it in tet.json.`
       );
       return undefined;
     }
@@ -520,7 +562,8 @@ export class ProjectSessionManager {
     };
     this.tabs.push(tab);
     this.postTabs();
-    return toDescriptor(tab);
+    // Nothing of a tab this new can be starting yet — that begins with its first fit.
+    return toDescriptor(tab, false);
   }
 
   handleResize(tabId: string, cols: number, rows: number): void {
@@ -541,10 +584,12 @@ export class ProjectSessionManager {
       return;
     }
     // Bringing a released setup back can mean starting opencode's server, which takes
-    // seconds — the bar under the tab strip is what says so.
-    this.acquireIndicator();
+    // seconds — the bar under the tab strip is what says so. Released *after* the session is
+    // started, not before: `startSession` acquires the same tab's next indicator (its CLI's
+    // first frame), and releasing first would drop both counts to zero for a moment — the bar
+    // flickering off and on between two pushes for what is one wait to the user.
+    this.acquireIndicator(tabId);
     void this.ensurePrepared(this.runtimeFor(tab.agentId))
-      .finally(() => this.releaseIndicator())
       .then(() => {
         const dims = this.starting.get(tabId);
         this.starting.delete(tabId);
@@ -552,7 +597,8 @@ export class ProjectSessionManager {
           return;
         }
         this.startSession(tab).ensureStarted(dims.cols, dims.rows);
-      });
+      })
+      .finally(() => this.releaseIndicator(tabId));
   }
 
   private startSession(tab: TabState): TerminalSession {
@@ -565,7 +611,7 @@ export class ProjectSessionManager {
     // than carrying over a previous session's already-passed state.
     let isSessionReady = agent.createIsSessionReady?.();
     if (isSessionReady) {
-      this.acquireIndicator();
+      this.acquireIndicator(tabId);
     }
     const hideIndicator = (): void => {
       if (!isSessionReady) {
@@ -574,7 +620,7 @@ export class ProjectSessionManager {
       // Cleared before the delay, so a second call (e.g. the session stopping right after)
       // can't queue a second release.
       isSessionReady = undefined;
-      setTimeout(() => this.releaseIndicator(), INDICATOR_LINGER_MS);
+      setTimeout(() => this.releaseIndicator(tabId), INDICATOR_LINGER_MS);
     };
 
     // A tab that brings its own program — a saved command's — is not this agent's process, so
@@ -1013,6 +1059,7 @@ export class ProjectSessionManager {
     // tab is still known — with the project gone, none of them is.
     this.tabs = [];
     this.starting.clear();
+    this.tabIndicators.clear();
     this.shellContext.dispose();
     for (const runtime of this.runtimes.values()) {
       clearTimeout(runtime.reconcileTimer);

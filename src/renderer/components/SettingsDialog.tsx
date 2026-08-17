@@ -23,9 +23,9 @@ const SWITCHES: { key: keyof NotificationSettings; label: string }[] = [
   { key: "idleReminder", label: "Still waiting — no new prompt for a while" }
 ];
 
-/** The Info tab's rows, in the order the versions nest: meezeek, then what it runs on. */
+/** The Info tab's rows, in the order the versions nest: tet, then what it runs on. */
 const INFO_ROWS: { key: keyof AppInfo; label: string }[] = [
-  { key: "version", label: "Meezeek" },
+  { key: "version", label: "TET" },
   { key: "electron", label: "Electron" },
   { key: "chromium", label: "Chromium" },
   { key: "node", label: "Node" },
@@ -33,7 +33,7 @@ const INFO_ROWS: { key: keyof AppInfo; label: string }[] = [
 ];
 
 /**
- * Everything meezeek keeps about itself rather than about one repository. Opened from the title
+ * Everything tet keeps about itself rather than about one repository. Opened from the title
  * bar, over the whole window like the diff.
  *
  * Not part of Dialog.tsx: that file puts *questions* and is built around a form with two
@@ -46,10 +46,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
-    void window.meezeek.settings.get().then(setSettings);
+    void window.tet.settings.get().then(setSettings);
     // Asked alongside the settings rather than when the Info tab is first opened: none of it can
     // change while the process runs, so there is nothing a later read would catch.
-    void window.meezeek.app.info().then(setInfo);
+    void window.tet.app.info().then(setInfo);
   }, []);
 
   useEscape(onClose);
@@ -60,7 +60,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     }
     const next: AppSettings = { ...settings, notifications: { ...settings.notifications, [key]: value } };
     setSettings(next);
-    void window.meezeek.settings.save(next);
+    void window.tet.settings.save(next);
   };
 
   return (
@@ -105,7 +105,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                   afterwards. */}
               <p className="dialog-detail">
                 An agent is handed these when it starts, so a change reaches the terminals that are
-                already open only after meezeek is restarted.
+                already open only after tet is restarted.
               </p>
             </>
           )}

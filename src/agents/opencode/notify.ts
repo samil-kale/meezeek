@@ -30,7 +30,7 @@ export const SESSION_WAITING_EVENTS = ["permission.asked", "question.asked"] as 
 
 /**
  * Fires the OS notifications for opencode. No hooks and no generated plugin: the server's own
- * event stream carries what a notification would be about, and meezeek is already subscribed
+ * event stream carries what a notification would be about, and tet is already subscribed
  * to it for everything else — opencode's configuration stays untouched.
  */
 export function createOpencodeNotifier(

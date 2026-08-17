@@ -7,6 +7,7 @@ import { confirm } from "./Dialog";
 import { notify } from "./Notices";
 import { MIN_PANE_HEIGHT, Sash } from "./Sash";
 import { ArrowDownIcon, ArrowUpIcon, DiscardIcon, StashIcon, SyncIcon } from "./icons";
+import { ProgressBar } from "./ProgressBar";
 
 interface GitPaneProps {
   project: Project;
@@ -17,8 +18,6 @@ interface GitPaneProps {
   onTreeHeight: (size: number) => void;
   /** A file to look at — the diff opens as a dialog over everything. */
   onOpenDiff: (path: string) => void;
-  /** A discard or an ignore is running; the app feeds it into the one progress bar. */
-  onBusy: (busy: boolean) => void;
 }
 
 const STATUS_LETTER: Record<ChangeStatus, string> = {
@@ -35,7 +34,7 @@ const STATUS_LETTER: Record<ChangeStatus, string> = {
  * files, and nothing else. The diff is not here — double-clicking a file shows it over the
  * whole window, so this pane stays narrow enough to leave open next to a terminal.
  */
-export const GitPane = memo(function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOpenDiff, onBusy }: GitPaneProps) {
+export const GitPane = memo(function GitPane({ project, state, branch, treeHeight, onTreeHeight, onOpenDiff }: GitPaneProps) {
   const [filter, setFilter] = useState("");
   /** Ctrl- and shift-click extend it, so one discard can cover several files. */
   const [selected, setSelected] = useState<string[]>([]);
@@ -55,13 +54,6 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
   const remote = state.remotes[0]?.name;
   const canSync = remote !== undefined && !state.detached;
   const syncLocked = branch.busy || acting;
-
-  // Taken back when the pane goes: it can be closed while a discard is still running, and a
-  // "busy" nobody is left to clear would keep the one progress bar running for good.
-  useEffect(() => {
-    onBusy(acting);
-    return () => onBusy(false);
-  }, [acting, onBusy]);
 
   // A file that stopped being changed — committed in a terminal, or discarded here — is gone
   // from the list, and holding on to it would let a later change reappear pre-selected.
@@ -118,7 +110,7 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
       confirmLabel: "Discard changes"
     });
     if (answer.confirmed) {
-      act(() => window.meezeek.repository.discard(project.id, paths));
+      act(() => window.tet.repository.discard(project.id, paths));
     }
   };
 
@@ -127,7 +119,7 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
     [project.path, ...relative.split("/")].join(isWindows() ? "\\" : "/");
 
   /**
-   * GitHub Desktop's changed-file menu, minus the editor entries meezeek has no setting for.
+   * GitHub Desktop's changed-file menu, minus the editor entries tet has no setting for.
    * It acts on the whole selection where that makes sense, and on the one file where it does
    * not — a diff and a file manager each show exactly one thing.
    */
@@ -138,13 +130,13 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
     const extension = /\.[^./]+$/.exec(change.path)?.[0];
     const discard = (targets: string[]) => () => void confirmDiscard(targets);
     const ignore = (scope: "file" | "extension") => () =>
-      act(() => window.meezeek.repository.ignore(project.id, change.path, scope));
+      act(() => window.tet.repository.ignore(project.id, change.path, scope));
 
     const entries: ContextMenuEntry[] = [
       { label: "Open diff", run: one ? () => onOpenDiff(change.path) : undefined },
       {
         label: "Open in external editor",
-        run: one ? () => void window.meezeek.shell.openFileExternally(project.id, change.path) : undefined
+        run: one ? () => void window.tet.shell.openFileExternally(project.id, change.path) : undefined
       },
       SEPARATOR,
       { label: one ? "Discard changes..." : `Discard ${paths.length} selected changes...`, run: discard(paths) },
@@ -157,7 +149,7 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
       SEPARATOR,
       {
         label: revealLabel(),
-        run: one ? () => void window.meezeek.shell.revealFile(project.id, change.path) : undefined
+        run: one ? () => void window.tet.shell.revealFile(project.id, change.path) : undefined
       },
       {
         label: one ? "Copy file path" : "Copy file paths",
@@ -188,7 +180,7 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
               className="icon-button"
               title={remote ? `Fetch from ${remote}` : "This repository has no remote"}
               disabled={syncLocked || !canSync}
-              onClick={() => branch.run("Fetching...", () => window.meezeek.repository.fetch(project.id))}
+              onClick={() => branch.run("Fetching...", () => window.tet.repository.fetch(project.id))}
             >
               <SyncIcon />
             </button>
@@ -196,7 +188,7 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
               className="icon-button"
               title={state.upstream ? `Pull from ${state.upstream}` : "No upstream to pull from"}
               disabled={syncLocked || !canSync || state.upstream === undefined}
-              onClick={() => branch.run("Pulling...", () => window.meezeek.repository.pull(project.id))}
+              onClick={() => branch.run("Pulling...", () => window.tet.repository.pull(project.id))}
             >
               <ArrowDownIcon />
             </button>
@@ -210,13 +202,17 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
               disabled={syncLocked || !canSync}
               onClick={() =>
                 branch.run(state.upstream === undefined ? "Publishing..." : "Pushing...", () =>
-                  window.meezeek.repository.push(project.id)
+                  window.tet.repository.push(project.id)
                 )
               }
             >
               <ArrowUpIcon />
             </button>
           </span>
+          {/* This section's own bar — a checkout, a fetch/pull/push, a stash apply/pop/drop, a
+              merge or rebase, anything `branch.run` covers. Not the changed-files list below:
+              stashing, discarding and ignoring have their own bar under that header instead. */}
+          {branch.busy && <ProgressBar />}
         </div>
         <BranchTree projectId={project.id} state={state} branch={branch} />
       </div>
@@ -240,9 +236,10 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
               className="icon-button"
               title="Stash all changes"
               disabled={branch.busy || acting || state.changes.length === 0}
-              onClick={() =>
-                branch.run("Stashing changes...", () => window.meezeek.repository.stashPush(project.id, ""))
-              }
+              // Through `act`, not `branch.run`: it starts from the changed-file list this
+              // section owns, so its own bar is the one that should show it running — the same
+              // reason discard and ignore already go through here rather than the tree's lock.
+              onClick={() => act(() => window.tet.repository.stashPush(project.id, ""))}
             >
               <StashIcon />
             </button>
@@ -255,6 +252,8 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
               <DiscardIcon />
             </button>
           </span>
+          {/* This section's own bar — stashing, discarding or ignoring, everything `act` covers. */}
+          {acting && <ProgressBar />}
         </div>
         <div className="changes-list">
           <input

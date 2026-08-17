@@ -11,7 +11,7 @@ import { CloseIcon, CommentIcon, PlusIcon, QuestionIcon, SpinnerIcon } from "./i
  * A type of our own rather than text/plain: a project dragged across a terminal must not end
  * up pasted into it, and the terminal only ever reads dropped files and plain text.
  */
-const DRAG_TYPE = "application/x-meezeek-project";
+const DRAG_TYPE = "application/x-tet-project";
 
 interface ProjectListProps {
   projects: Project[];
@@ -118,7 +118,7 @@ export const ProjectList = memo(function ProjectList({
     if (!answer || answer.value === remote.url) {
       return;
     }
-    const result = await window.meezeek.repository.setRemoteUrl(project.id, remote.name, answer.value);
+    const result = await window.tet.repository.setRemoteUrl(project.id, remote.name, answer.value);
     if (!result.ok) {
       notify("error", result.error ?? "Could not change the remote URL");
     }
@@ -133,12 +133,12 @@ export const ProjectList = memo(function ProjectList({
     const web = remote?.url ? webUrl(remote.url) : null;
     return [
       { label: "Open in terminal", run: () => onOpenTerminal(project.id) },
-      { label: revealLabel(), run: () => void window.meezeek.shell.openProject(project.id) },
+      { label: revealLabel(), run: () => void window.tet.shell.openProject(project.id) },
       { label: "Copy repository path", run: () => void navigator.clipboard.writeText(project.path) },
       SEPARATOR,
       {
         label: web ? `View on ${hostName(web)}` : "View in browser",
-        run: web ? () => void window.meezeek.shell.openUrl(web) : undefined
+        run: web ? () => void window.tet.shell.openUrl(web) : undefined
       },
       {
         label: "Change remote URL...",

@@ -52,7 +52,8 @@ const settings = new SettingsStore(app.getPath("userData"));
 const accounts = new AccountStore(app.getPath("userData"));
 const repositories = new RepositoryManager(
   (projectId, state) => send("repo:state-changed", { projectId, state }),
-  (severity, message) => send("app:notice", { severity, message })
+  (severity, message) => send("app:notice", { severity, message }),
+  (projectId) => send("commands:changed", { projectId })
 );
 const sessions = new SessionManagerRegistry(app.getPath("userData"), settings, {
   onTabs: (projectId, tabs) => send("terminal:tabs", { projectId, tabs }),

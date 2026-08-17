@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { powershellSingleQuote, shellSingleQuote, WIN_BOM, writePosixScript } from "./os-notify";
 
 /**
- * Where a hook drops its markers, and where meezeek watches for them, shared by every agent
+ * Where a hook drops its markers, and where tet watches for them, shared by every agent
  * whose lifecycle signals arrive as hook-written files rather than an event stream: three kinds,
  * `busy` from a prompt-submitted hook and `finished` from a turn-ended hook, either end of a
  * turn, plus `waiting` from an approval/question hook for a turn that stopped part-way on a
@@ -90,7 +90,7 @@ exit 0
 }
 
 /**
- * The meezeek half of a hook-driven agent's markers: reports every session marked with `kind`
+ * The tet half of a hook-driven agent's markers: reports every session marked with `kind`
  * and takes the marker away again. From then on the state lives in the tab, so a file left lying
  * around would report the same turn again on the next start.
  *
@@ -138,7 +138,7 @@ export function watchMarkers(
   try {
     watcher = fs.watch(dir, () => queueDrain(true));
   } catch (error) {
-    console.error(`[meezeek] could not watch ${kind} markers in ${dir}:`, error);
+    console.error(`[tet] could not watch ${kind} markers in ${dir}:`, error);
   }
   // The watcher alone is not enough, and this was measured rather than feared: a marker sat in
   // `finished/` for seven minutes while the process that should have picked it up was running

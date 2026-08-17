@@ -271,14 +271,11 @@ option {
   opacity: 1;
 }
 
-/* Same treatment VS Code gives a disabled action — dimmed, not recolored. Not while it is
-   busy: such a button is not disabled because there is nothing to do, but because it is
-   already doing it, and its spinner has to stay legible. */
-.icon-button:disabled:not(.busy) {
-  opacity: 0.3;
-}
-
+/* Same treatment VS Code gives a disabled action — dimmed, not recolored. A button disabled for
+   being underway rather than idle carries no exception here any more: its own pane's bar is what
+   says it is busy now, the same as any other action button next to one. */
 .icon-button:disabled {
+  opacity: 0.3;
   cursor: default;
 }
 
@@ -378,6 +375,9 @@ option {
    above comes from whatever the section sits under — `.body` for the first one, the section's
    own top border for the ones after it — so no header draws two. */
 .sidebar-header {
+  /* What lets its own `.tab-progress` anchor to its bottom edge — the same bar every pane's own
+     header carries, not the terminal strip's alone. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -718,7 +718,15 @@ option {
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
-/* Indeterminate: a CLI's startup reports no progress, only that it is or isn't done. */
+/* Indeterminate: none of what this sits under reports real progress, only that it is or isn't
+   done — a CLI starting, a branch command, a diff being read or coloured. One rule, anchored to
+   whichever header or bar declares `position: relative` above (a pane's own tab strip, a git
+   section's `.sidebar-header`, the diff dialog's own bar) so every pane's own indicator looks
+   identical without a rule of its own. Drawn only by `ProgressBar`, which sets the bit's width,
+   its starting offset, how far it travels (`--travel`) and how long that takes: all absolute, so
+   the bit is the same length and moves at the same speed in a 300px sidebar section and a 900px
+   pane — a share of the width, VS Code's own recipe, is right for one bar and wrong for several
+   side by side. */
 .tab-progress {
   position: absolute;
   left: 0;
@@ -730,23 +738,18 @@ option {
 
 .tab-progress-bit {
   position: absolute;
-  left: 0;
   top: 0;
   height: 100%;
-  width: 2%;
   background: var(--vscode-progressBar-background);
-  animation: tab-progress-loop 2s linear infinite;
+  animation: tab-progress-loop linear infinite;
 }
 
 @keyframes tab-progress-loop {
-  0% {
-    transform: translateX(0%) scaleX(1);
+  from {
+    transform: translateX(0);
   }
-  50% {
-    transform: translateX(2500%) scaleX(3);
-  }
-  100% {
-    transform: translateX(4900%) scaleX(1);
+  to {
+    transform: translateX(var(--travel));
   }
 }
 
@@ -1165,6 +1168,8 @@ option {
 
 /* The tab strip's height again, with the file it is showing, its whitespace switch and the way out. */
 .diff-dialog-bar {
+  /* What lets its own `.tab-progress` anchor to its bottom edge while the diff is read or coloured. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;

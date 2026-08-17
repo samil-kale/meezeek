@@ -1,7 +1,7 @@
 # What turns the compiled dist/ into something installable, per platform. Its own file rather
 # than a block in package.json, so the reasons below can be written down at all.
-appId: com.samilkale.meezeek
-productName: Meezeek
+appId: com.samilkale.tet
+productName: TET
 
 directories:
   # esbuild already owns dist/, and electron-builder would write its installers into the same
@@ -49,4 +49,4 @@ linux:
 publish:
   provider: github
   owner: samil-kale
-  repo: meezeek
+  repo: tet

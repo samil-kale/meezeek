@@ -13,7 +13,7 @@ import type { DiffLine, FileDiff } from "../shared/types";
 const THEME = "dark-plus";
 
 /**
- * The grammars meezeek bundles. The renderer is one file with no code splitting, so a language
+ * The grammars tet bundles. The renderer is one file with no code splitting, so a language
  * is in the bundle whether it is used or not — hence a list of what an agent's repository
  * plausibly holds rather than all two hundred Shiki ships. Anything missing shows uncolored.
  *
@@ -191,7 +191,7 @@ export async function highlightDiff(diff: FileDiff): Promise<(ThemedToken[] | un
     }
     return colored;
   } catch (error) {
-    console.error("[meezeek] could not highlight the diff:", error);
+    console.error("[tet] could not highlight the diff:", error);
     return undefined;
   }
 }

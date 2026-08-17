@@ -46,9 +46,9 @@ function tally(): string {
  */
 export function startEventLoopMonitor(logFile: string): void {
   try {
-    fs.writeFileSync(logFile, `# meezeek event loop, from ${new Date().toISOString()}\n`);
+    fs.writeFileSync(logFile, `# tet event loop, from ${new Date().toISOString()}\n`);
   } catch (error) {
-    console.error("[meezeek] could not open the event loop log:", error);
+    console.error("[tet] could not open the event loop log:", error);
     return;
   }
   const append = (line: string): void => {

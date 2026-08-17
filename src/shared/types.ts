@@ -7,14 +7,14 @@ export interface AgentInfo {
   hasSessions: boolean;
 }
 
-/** One program meezeek needs on the machine, and whether the startup check found it. */
+/** One program tet needs on the machine, and whether the startup check found it. */
 export interface Requirement {
   /** What it is called where it is downloaded — "Git", "Claude". */
   name: string;
   /** The executable that was looked for, so the user can try it in their own terminal. */
   command: string;
   installed: boolean;
-  /** Where to get it; the dialog links there, since meezeek installs nothing itself. */
+  /** Where to get it; the dialog links there, since tet installs nothing itself. */
   url: string;
 }
 
@@ -48,7 +48,7 @@ export interface NotificationSettings {
 }
 
 /**
- * Everything the settings dialog holds, and everything meezeek keeps about itself rather than
+ * Everything the settings dialog holds, and everything tet keeps about itself rather than
  * about one repository. Written whole, so a new group is a new key here and a new section
  * there.
  */
@@ -57,7 +57,7 @@ export interface AppSettings {
 }
 
 /**
- * What meezeek *is*, as opposed to what it is set to — the settings dialog's Info tab. Read once
+ * What tet *is*, as opposed to what it is set to — the settings dialog's Info tab. Read once
  * when the dialog opens: none of it can change while the process runs.
  */
 export interface AppInfo {
@@ -351,6 +351,15 @@ export interface TerminalDescriptor {
    * process has ended, whatever the agent last said.
    */
   busy?: boolean;
+  /**
+   * Whether *this* tab is what a progress bar is currently about — its agent's runtime still
+   * being prepared, or its CLI not yet past its first real frame. What lets the pane this tab
+   * lives in show the bar itself instead of every pane borrowing the first one's; the
+   * project-wide `terminal:startup-progress` only says that *something* in the project is.
+   * Read off the session manager's per-tab indicator count at every snapshot, not kept on the
+   * tab.
+   */
+  starting?: boolean;
   /**
    * When this session last stopped mid-turn on a question nobody has answered yet — a
    * permission prompt, an elicitation, or an `AskUserQuestion` — ms since epoch. Cleared the

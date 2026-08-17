@@ -7,10 +7,10 @@ import { resolveCommand } from "./pty";
 
 /**
  * Shell commands a project keeps around — "npm run build", a deploy script, whatever is typed
- * often enough to be worth a button. They live in the repository rather than in meezeek's own
+ * often enough to be worth a button. They live in the repository rather than in tet's own
  * storage, so they travel with it like any other project file.
  */
-const FILE = "meezeek.json";
+const FILE = "tet.json";
 
 /**
  * What that file holds. A command is a plain string while the command line alone says
@@ -45,7 +45,7 @@ function file(root: string): string {
 }
 
 /**
- * The file's contents, or **null** when there is no meezeek.json at all — the one case worth
+ * The file's contents, or **null** when there is no tet.json at all — the one case worth
  * telling apart, since that is when the caller offers to fill the list itself. One that is
  * there but unreadable or shaped differently is no commands rather than none: it is a file in
  * the user's repository, and half of it being someone else's is reason neither to throw nor to
@@ -165,6 +165,12 @@ const SUGGEST_PROMPT = [
   "does offer twenty commands worth running by hand, name all twenty — the number is not the",
   "point, being able to use each one is.",
   "",
+  'Leave out anything that only works with a value nobody but its caller could know — a user',
+  'id, a date range, an environment name — and has no sensible default. A placeholder like',
+  '"<year>" or "{ticketId}" is not a command: nothing here can fill it in, and no one reads',
+  "this list before running a row. If a command only makes sense with such a value supplied,",
+  "skip it rather than name it with a placeholder in place of the value.",
+  "",
   "Write every command the way it would be typed in the folder that declares it — plain",
   '"npm run build", not "npm run build --prefix web". Where that folder is not the repository',
   'root, say so with "cwd", relative to the root. A command that runs in the root is a plain',
@@ -175,7 +181,7 @@ const SUGGEST_PROMPT = [
   '"&&" or "||", no ">" redirection, no "$(...)", no backticks, no "$VAR", and no',
   '"VAR=value cmd" prefix. Quotes group one argument and are the only way to put a space in',
   "one.",
-  'Environment variables go in an "env" object instead, and meezeek sets them:',
+  'Environment variables go in an "env" object instead, and tet sets them:',
   '  {"command": "java -jar target/app.jar", "env": {"PROFILE": "DEVELOPMENT"}}',
   "Two things that have to run one after the other are two entries, not one line.",
   "",

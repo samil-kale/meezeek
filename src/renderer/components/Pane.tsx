@@ -21,6 +21,7 @@ import {
   QuestionIcon,
   SpinnerIcon
 } from "./icons";
+import { ProgressBar } from "./ProgressBar";
 
 /** Dragging the window edge fires dozens of observations, and every pty resize repaints the TUI. */
 const RESIZE_DEBOUNCE_MS = 100;
@@ -53,11 +54,10 @@ function formatIso(ms: number): string {
   );
 }
 
-/** What only the first pane of a split project shows — the git toggle and the progress bar. */
+/** What only the first pane of a split project shows — the git toggle. */
 export interface PaneChrome {
   gitOpen: boolean;
   onToggleGit: () => void;
-  showProgress: boolean;
 }
 
 interface PaneProps {
@@ -90,6 +90,13 @@ interface PaneProps {
    */
   onPresetChange?: (preset: SplitPreset) => void;
   /**
+   * Whether this pane's own progress bar shows — one of its own tabs starting, or (only ever
+   * true where `chrome` also is) a project-wide reason with no tab of its own to point at.
+   * Independent of `chrome`, the same way `onPresetChange` is: unlike the git toggle, the reason
+   * this bar is up is not bound to pane "a" once it is a tab starting somewhere else.
+   */
+  showProgress: boolean;
+  /**
    * This pane's own size within the grid, in pixels — one of the two for a pane a divider sizes,
    * neither for the one that fills what is left. Numbers rather than a style object so the memo
    * above sees a size that has not changed as the same prop.
@@ -119,6 +126,7 @@ export const Pane = memo(function Pane({
   waitingTabIds,
   chrome,
   onPresetChange,
+  showProgress,
   dragOver,
   onDragOverChange
 }: PaneProps) {
@@ -208,14 +216,14 @@ export const Pane = memo(function Pane({
 
   const createTab = useCallback(
     async (agentId: AgentId) => {
-      const descriptor = await window.meezeek.terminals.create(projectId, agentId);
+      const descriptor = await window.tet.terminals.create(projectId, agentId);
       onActivate(paneId, descriptor.tabId);
     },
     [projectId, paneId, onActivate]
   );
 
   const closeTabs = useCallback(
-    (tabIds: string[]) => void window.meezeek.terminals.close(projectId, tabIds),
+    (tabIds: string[]) => void window.tet.terminals.close(projectId, tabIds),
     [projectId]
   );
 
@@ -231,7 +239,7 @@ export const Pane = memo(function Pane({
         maxLength: MAX_TITLE_LENGTH
       });
       if (answer !== null && answer.value !== tab.title) {
-        void window.meezeek.terminals.rename(projectId, tab.tabId, answer.value);
+        void window.tet.terminals.rename(projectId, tab.tabId, answer.value);
       }
     },
     [projectId]
@@ -452,13 +460,11 @@ export const Pane = memo(function Pane({
             </div>
           ))}
         </div>
-        {/* The one progress indicator in the window, so everything slow in this project shares
-            it — an agent starting here, and whatever the git pane or an open diff reports. */}
-        {chrome?.showProgress && (
-          <div className="tab-progress">
-            <div className="tab-progress-bit" />
-          </div>
-        )}
+        {/* This pane's own progress bar — a new agent starting here, or, in pane "a" alone, the
+            one project-wide reason with no tab of its own to point at (the session listing at
+            bootstrap). Every pane carries the reason that is its own, so an agent opened in
+            another pane no longer lights up the bar the user is not looking at. */}
+        {showProgress && <ProgressBar />}
         <div className="new-terminal">
           <button
             className="icon-button"

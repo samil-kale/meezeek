@@ -39,7 +39,7 @@ function host(): UtilityProcess {
   if (child) {
     return child;
   }
-  const started = utilityProcess.fork(path.join(__dirname, "git-host.js"), [], { serviceName: "meezeek-git" });
+  const started = utilityProcess.fork(path.join(__dirname, "git-host.js"), [], { serviceName: "tet-git" });
   started.on("message", (message: GitResponse) => {
     const request = pending.get(message.id);
     if (!request) {

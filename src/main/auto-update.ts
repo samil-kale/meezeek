@@ -9,7 +9,7 @@ import type { NoticeSeverity } from "../shared/types";
  */
 const CHECK_INTERVAL_MS = 4 * 60 * 60_000;
 
-const RELEASES_URL = "https://github.com/samil-kale/meezeek/releases/latest";
+const RELEASES_URL = "https://github.com/samil-kale/tet/releases/latest";
 
 /**
  * Runs only in a packaged build: electron-updater reads `app-update.yml`, which esbuild's dev

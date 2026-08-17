@@ -18,7 +18,7 @@ export const claudeAgent: AgentDefinition = {
     const watchers: (() => void)[] = [];
     try {
       args = setupClaudeHooks(paths.agentDir, cwd, "Claude", paths.notifications, paths);
-      // A hook is a process of its own and cannot call back into meezeek, so each end of a turn
+      // A hook is a process of its own and cannot call back into tet, so each end of a turn
       // — and the point part-way through where it stops for an answer — leaves a file behind,
       // and these are what pick them up.
       watchers.push(watchMarkers(paths.agentDir, "busy", paths.onSessionBusy));
@@ -28,7 +28,7 @@ export const claudeAgent: AgentDefinition = {
       // Unlike opencode's server, these hooks are not what makes the CLI usable — losing
       // the notifications must not keep Claude from starting, so this is swallowed rather
       // than rejected (a rejection marks the whole agent as unstartable).
-      console.error("[meezeek] could not write Claude hook settings:", error);
+      console.error("[tet] could not write Claude hook settings:", error);
     }
     return Promise.resolve({ args, dispose: () => watchers.forEach((stop) => stop()) });
   },

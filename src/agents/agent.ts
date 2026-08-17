@@ -61,7 +61,7 @@ export interface AgentPaths {
    */
   agentDir: string;
   /**
-   * The repository's context file, kept current by meezeek — the agent's job is only to
+   * The repository's context file, kept current by tet — the agent's job is only to
    * arrange for it to reach the model. Blank whenever there is nothing to say.
    */
   contextFile: string;
@@ -70,7 +70,7 @@ export interface AgentPaths {
    * repository, so an agent that gates reads by path has to grant these explicitly.
    */
   contextReadPaths: string[];
-  /** Meezeek's user-data root, for anything an agent has to install machine-wide. */
+  /** TET's user-data root, for anything an agent has to install machine-wide. */
   storageRoot: string;
   /**
    * What this agent may notify the OS about, as the settings dialog last left it. Handed over
@@ -138,7 +138,7 @@ export interface AgentDefinition {
    */
   versionArgs?: string[];
   /**
-   * Where this agent is installed from, for the startup check's dialog — meezeek needs one of
+   * Where this agent is installed from, for the startup check's dialog — tet needs one of
    * them and installs none of them itself. Goes with `versionArgs`: an agent that is always
    * there has neither.
    */

@@ -58,7 +58,7 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
   const track = (name: string): { ahead: number; behind: number } | undefined =>
     isCurrent(name) ? { ahead: state.ahead, behind: state.behind } : state.branchTrack[name];
 
-  const repository = window.meezeek.repository;
+  const repository = window.tet.repository;
   /** The remote every command that names one uses, the way the main process picks it. */
   const remote = state.remotes[0]?.name;
 

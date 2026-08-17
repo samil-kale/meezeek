@@ -7,7 +7,7 @@ import * as path from "node:path";
  * the terminal hands it, which are the `--vscode-*` ones (`src/renderer/theme.ts`).
  * `"theme": "system"` is opencode's own way of saying the same.
  *
- * It goes in a file of meezeek's own that `OPENCODE_TUI_CONFIG` points at, layered on top of
+ * It goes in a file of tet's own that `OPENCODE_TUI_CONFIG` points at, layered on top of
  * whatever opencode already loaded; the user's `tui.json` is never read, written or replaced.
  * Set on the *terminal* rather than on the server, since under `attach` the TUI is what draws —
  * and passed as a default, so a user who sets that variable themselves keeps their own file
@@ -23,7 +23,7 @@ export function installTuiConfig(storageRoot: string): Record<string, string> {
   } catch (error) {
     // A TUI in opencode's own colours is still a working TUI — unlike the server, this is not
     // worth marking the agent unstartable over.
-    console.error("[meezeek] could not write the opencode tui config:", error);
+    console.error("[tet] could not write the opencode tui config:", error);
     return {};
   }
   return { OPENCODE_TUI_CONFIG: file };

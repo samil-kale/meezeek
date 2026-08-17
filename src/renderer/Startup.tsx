@@ -14,7 +14,7 @@ export function Startup() {
 
   const check = useCallback(async (): Promise<void> => {
     setChecking(true);
-    setRequirements(await window.meezeek.startup.check());
+    setRequirements(await window.tet.startup.check());
     setChecking(false);
   }, []);
 

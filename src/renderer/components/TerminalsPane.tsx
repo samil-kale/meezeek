@@ -86,7 +86,8 @@ interface TerminalsPaneProps {
   /** Whether the git pane beside this one is open; the button in the strip shows which. */
   gitOpen: boolean;
   onToggleGit: () => void;
-  /** Anything slow in this project — an agent starting, a branch command, a diff being read — for the one bar. */
+  /** Bootstrap's own session listing, before any tab exists yet to carry `starting` itself — the
+      one project-wide reason left with no tab of its own to show on, so it falls to pane "a". */
   externalBusy: boolean;
   /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
   onOpenDiff: (projectId: string, path: string) => void;
@@ -99,6 +100,8 @@ interface TerminalsPaneProps {
   markedTabIds: string[];
   /** Tabs stopped mid-turn on an unanswered question — decided in App for the same reason. */
   waitingTabIds: string[];
+  /** Tabs the progress bar is currently about — shown on whichever pane each one lives in. */
+  startingTabIds: string[];
 }
 
 /**
@@ -119,7 +122,8 @@ export const TerminalsPane = memo(function TerminalsPane({
   onFocusPane,
   onPresetChange,
   markedTabIds,
-  waitingTabIds
+  waitingTabIds,
+  startingTabIds
 }: TerminalsPaneProps) {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   /** Which pane a dragged tab is over right now, if any — what decides which dividers border it. */
@@ -127,7 +131,7 @@ export const TerminalsPane = memo(function TerminalsPane({
   const knownTabs = useRef<TerminalDescriptor[]>([]);
 
   useEffect(() => {
-    void window.meezeek.agents.list().then(setAgents);
+    void window.tet.agents.list().then(setAgents);
   }, []);
 
   // Ctrl+clicking a changed file in a terminal opens that file's diff over everything.
@@ -235,10 +239,7 @@ export const TerminalsPane = memo(function TerminalsPane({
     },
     [onPresetChange, project.id, resetDividerFractions]
   );
-  const chrome = useMemo<PaneChrome>(
-    () => ({ gitOpen, onToggleGit, showProgress: externalBusy }),
-    [gitOpen, onToggleGit, externalBusy]
-  );
+  const chrome = useMemo<PaneChrome>(() => ({ gitOpen, onToggleGit }), [gitOpen, onToggleGit]);
   const onActivate = useCallback(
     (paneId: PaneId, tabId: string) => onActivateTab(project.id, tabId, paneId),
     [onActivateTab, project.id]
@@ -270,6 +271,18 @@ export const TerminalsPane = memo(function TerminalsPane({
     return next;
   }, [tabs, tabPane, focusedPane]);
 
+  // Whether one of a pane's *own* tabs is what the progress bar is about — a new agent opened
+  // there, its runtime still being prepared. Independent of `first`/`chrome`: unlike the git
+  // toggle, this is not bound to pane "a" once the reason is a tab starting somewhere else.
+  const startingHere = useMemo(() => {
+    const ids = new Set(startingTabIds);
+    const next: Partial<Record<PaneId, boolean>> = {};
+    for (const paneId of PANE_IDS) {
+      next[paneId] = (paneTabs[paneId] ?? NO_PANE_TABS).some((tab) => ids.has(tab.tabId));
+    }
+    return next;
+  }, [paneTabs, startingTabIds]);
+
   const renderPane = (paneId: PaneId, size: { width?: number; height?: number }, first: boolean) => (
     <Pane
       key={paneId}
@@ -291,6 +304,9 @@ export const TerminalsPane = memo(function TerminalsPane({
       // The picker sits at the actual right edge — `TOP_RIGHT_PANE`, not always this project's
       // first pane, which is only ever the top-*left* one once there is more than one column.
       onPresetChange={paneId === TOP_RIGHT_PANE[layout.preset] ? onPresetChangeHere : undefined}
+      // Pane "a" also carries whatever project-wide reason has no tab of its own to point at;
+      // every other pane only ever shows its own.
+      showProgress={(first && externalBusy) || (startingHere[paneId] ?? false)}
       dragOver={dragOverPane === paneId}
       onDragOverChange={onDragOverChange}
     />

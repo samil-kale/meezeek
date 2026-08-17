@@ -6,7 +6,7 @@ import type { AgentSessionInfo, SessionProvider } from "../agent";
 import { deleteThread, renameThread } from "./app-server-client";
 
 /**
- * Codex's own config root — never overridden by meezeek (see CLAUDE.md's "never touch the
+ * Codex's own config root — never overridden by tet (see CLAUDE.md's "never touch the
  * user's agent configuration"), so this is the same location Codex itself resolves to.
  */
 function codexHome(): string {
@@ -81,7 +81,7 @@ async function parseSessionMeta(filePath: string): Promise<SessionMeta | undefin
       return { sessionId, cwd, source: source ?? "", createdAt: Number.isNaN(createdAt) ? undefined : createdAt };
     }
   } catch (error) {
-    console.error("[meezeek] codex session_meta read failed:", error);
+    console.error("[tet] codex session_meta read failed:", error);
   } finally {
     lines.close();
     stream.destroy();
@@ -209,7 +209,7 @@ async function scanTail(filePath: string): Promise<TailInfo> {
     tail.turnEndedAt ??= previous?.tail.turnEndedAt;
     tailCache.set(filePath, { size, tail });
   } catch (error) {
-    console.error("[meezeek] codex rollout scan failed:", error);
+    console.error("[tet] codex rollout scan failed:", error);
   } finally {
     await handle?.close();
   }
@@ -318,7 +318,7 @@ export const codexSessionProvider: SessionProvider = {
       sessions.sort((a, b) => a.createdAt - b.createdAt);
       return sessions;
     } catch (error) {
-      console.error("[meezeek] codex session listing failed:", error);
+      console.error("[tet] codex session listing failed:", error);
       return [];
     }
   },

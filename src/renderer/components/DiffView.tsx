@@ -10,8 +10,8 @@ interface DiffViewProps {
   diff: FileDiff | null;
   loading: boolean;
   /**
-   * Reports both waits this view goes through — reading the diff and coloring it — so the tab
-   * strip can show them. It is the only place that knows when the second one is over.
+   * Reports both waits this view goes through — reading the diff and coloring it — so the
+   * dialog's own bar can show them. It is the only place that knows when the second one is over.
    */
   onBusy: (busy: boolean) => void;
   ignoreWhitespace: boolean;
@@ -139,7 +139,7 @@ export function DiffView({
   }, [shown]);
 
   // Taken back when this view goes: the dialog can be closed while the diff is still being
-  // read or coloured, and a "busy" nobody is left to clear would keep the one progress bar
+  // read or coloured, and a "busy" nobody is left to clear would keep the dialog's bar
   // running for the rest of the session.
   useEffect(() => {
     onBusy(loading || highlighting);
@@ -158,7 +158,7 @@ export function DiffView({
       }
       const header = diff.lines[index];
       const offset = (header.oldLine ?? 1) - (header.newLine ?? 1);
-      const texts = await window.meezeek.repository.fileLines(projectId, diff.path, from, to);
+      const texts = await window.tet.repository.fileLines(projectId, diff.path, from, to);
       if (texts.length === 0) {
         return;
       }
@@ -228,8 +228,8 @@ export function DiffView({
     });
   }, [diff, shown, gaps, colored, hunkIndices, openGap]);
 
-  // Empty while one is being read, and nothing that says so: the one progress bar under the
-  // tab strip is what reports that.
+  // Empty while one is being read, and nothing that says so: the dialog's own bar under its
+  // title is what reports that.
   if (loading || !diff || !shown || !rows) {
     return null;
   }

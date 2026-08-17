@@ -19,7 +19,7 @@ const EVENT_RETRY_MS = 2000;
 
 /**
  * opencode is a client/server program: `opencode serve` is the instance that owns the
- * SQLite database, and the TUI is one of its clients (`opencode attach <url>`). Meezeek
+ * SQLite database, and the TUI is one of its clients (`opencode attach <url>`). TET
  * runs that server itself and points everything at it — the session listing, renames, the
  * event stream, and the terminal's own TUI.
  *
@@ -38,7 +38,7 @@ export interface OpencodeEvent {
   /**
    * What `session.status` says the session is doing, e.g. "busy". opencode models it as a
    * tagged union, so the tag is the whole of what is read here — its other branches carry a
-   * provider, a title and a link that nothing in meezeek acts on.
+   * provider, a title and a link that nothing in tet acts on.
    */
   status?: string;
 }
@@ -203,7 +203,7 @@ interface ServerEntry {
   server: Promise<OpencodeServer>;
 }
 
-/** One server per repository — meezeek can have several projects open at once. */
+/** One server per repository — tet can have several projects open at once. */
 const servers = new Map<string, ServerEntry>();
 
 /** A start that never succeeded has nothing to dispose, hence the swallowed rejection. */
@@ -267,7 +267,7 @@ export async function runningServer(executable: string, cwd: string): Promise<Op
 
 /**
  * Brings the server up before any terminal is spawned and hands the TUI the arguments to attach
- * to it, so the terminal's session and everything else meezeek does run in one instance.
+ * to it, so the terminal's session and everything else tet does run in one instance.
  */
 export async function prepareOpencodeSpawn(
   executable: string,
@@ -283,7 +283,7 @@ export async function prepareOpencodeSpawn(
   const unsubscribe = server.subscribe(cwd, (event) => {
     notify(event.type);
     // Both ends of a turn, and one of them is the very event the "Finished" toast is built on.
-    // Unlike Claude Code, opencode says all of this itself over a stream meezeek already holds
+    // Unlike Claude Code, opencode says all of this itself over a stream tet already holds
     // — nothing is read off the TUI, and nothing crosses a process boundary through a file.
     if (!event.sessionId) {
       return;

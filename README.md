@@ -1,23 +1,23 @@
 <p align="center">
-  <img src="src/renderer/icon.png" alt="Meezeek" width="128" />
+  <img src="src/renderer/icon.png" alt="TET" width="128" />
 </p>
 
-<h1 align="center">Meezeek</h1>
+<h1 align="center">TET</h1>
 
 <p align="center">
   <strong>A git workspace for coding agents.<br>Several repositories, each with its own git pane and its own terminals.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/samil-kale/meezeek/releases/latest"><img src="https://img.shields.io/github/v/release/samil-kale/meezeek?style=flat-square&color=blue" alt="Release"></a>
-  <a href="https://github.com/samil-kale/meezeek/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/samil-kale/meezeek/build.yml?style=flat-square&label=build" alt="Build"></a>
+  <a href="https://github.com/samil-kale/tet/releases/latest"><img src="https://img.shields.io/github/v/release/samil-kale/tet?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://github.com/samil-kale/tet/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/samil-kale/tet/build.yml?style=flat-square&label=build" alt="Build"></a>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/electron-React%20%2B%20xterm.js-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
 </p>
 
 <p align="center">
-  <a href="https://github.com/samil-kale/meezeek/releases/latest"><strong>Download</strong></a> &bull;
+  <a href="https://github.com/samil-kale/tet/releases/latest"><strong>Download</strong></a> &bull;
   <a href="#get-started"><strong>Build from source</strong></a> &bull;
   <a href="CLAUDE.md"><strong>Architecture notes</strong></a>
 </p>
@@ -33,7 +33,7 @@ looking.
 
 ## The solution
 
-Meezeek keeps a project's terminals and its git state on screen together. Git is there for
+TET keeps a project's terminals and its git state on screen together. Git is there for
 **navigation and control** of the repository — branches, changes, diffs, stashes — not for doing
 the work. The actual work happens in the terminals, where a git command, a build, or an agent
 belongs.
@@ -45,11 +45,11 @@ belongs.
 ### Real terminals, several agents
 
 Every session is a real PTY, not a wrapped output stream — the agent's own TUI, colours and all.
-Meezeek auto-detects and drives:
+TET auto-detects and drives:
 
 - **Claude Code**, **opencode**, **Codex CLI** — session listing, resume, rename, delete
 - A plain **shell**, for everything that isn't an agent
-- Each agent's config is generated into Meezeek's own storage and handed to the CLI by flag or
+- Each agent's config is generated into TET's own storage and handed to the CLI by flag or
   env var — your own `~/.claude`, opencode config, or `~/.codex` is never read or modified
 
 ### Split view
@@ -81,7 +81,7 @@ A pane that slides out next to the terminals, not a separate window:
 
 ### Saved commands
 
-A project's own `meezeek.json` holds its build/start/lint commands. Running one opens a terminal
+A project's own `tet.json` holds its build/start/lint commands. Running one opens a terminal
 tab for exactly that process, in its own directory — no shell in between, so it behaves the same
 on every platform. A wand button can ask an installed agent to fill the list in for you.
 
@@ -94,10 +94,10 @@ macOS links to the release page.
 
 ## Get started
 
-**[Download the latest release](https://github.com/samil-kale/meezeek/releases/latest)** for
+**[Download the latest release](https://github.com/samil-kale/tet/releases/latest)** for
 Windows, Linux or macOS.
 
-Meezeek needs `git` on your `PATH`, plus at least one supported agent (or just a shell) — it
+TET needs `git` on your `PATH`, plus at least one supported agent (or just a shell) — it
 checks both on startup and tells you what's missing.
 
 <a id="get-started"></a>
@@ -107,8 +107,8 @@ checks both on startup and tells you what's missing.
 **Prerequisites:** Node.js, npm
 
 ```bash
-git clone https://github.com/samil-kale/meezeek.git
-cd meezeek
+git clone https://github.com/samil-kale/tet.git
+cd tet
 npm install
 npm start          # typecheck, compile, launch
 ```

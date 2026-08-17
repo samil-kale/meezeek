@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 /**
- * The servers meezeek started, written down so the *next* run can find them again.
+ * The servers tet started, written down so the *next* run can find them again.
  *
  * `opencode serve` owns one SQLite database for the whole machine rather than one per
  * repository, so a server a killed run left behind still writes to the very file this run's
@@ -77,7 +77,7 @@ export function killServerTree(pid: number): void {
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", windowsHide: true })
       // A child that could not be spawned emits this, and unhandled it takes the process down.
-      .on("error", (error) => console.error("[meezeek] taskkill failed:", error));
+      .on("error", (error) => console.error("[tet] taskkill failed:", error));
     return;
   }
   try {
@@ -115,7 +115,7 @@ async function isOurs(record: ServerRecord): Promise<boolean> {
   }
 }
 
-/** Read defensively like every file meezeek writes: half of it being someone else's is no reason to throw. */
+/** Read defensively like every file tet writes: half of it being someone else's is no reason to throw. */
 function read(): ServerRecord[] {
   if (!file) {
     return [];
@@ -148,6 +148,6 @@ function write(): void {
   try {
     fs.writeFileSync(file, JSON.stringify(records, null, 2), "utf8");
   } catch (error) {
-    console.error("[meezeek] could not persist the opencode server list:", error);
+    console.error("[tet] could not persist the opencode server list:", error);
   }
 }

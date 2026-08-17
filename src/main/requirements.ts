@@ -27,7 +27,7 @@ const SIMULATED_MISSING = (process.argv.find((arg) => arg.startsWith("--simulate
 
 /**
  * What has to be on the machine before the app opens: git, because the whole git side is the
- * local CLI, and one of the agents, because the terminals are what meezeek is for.
+ * local CLI, and one of the agents, because the terminals are what tet is for.
  *
  * Nothing is answered from memory here — the dialog this feeds offers a re-check for the user who
  * installs something while it stands (the projects opened afterwards do take the answer given here,

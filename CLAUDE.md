@@ -2,7 +2,7 @@
 
 ## What this is
 
-Meezeek is a git workspace for coding agents: Electron + React + xterm.js, several repositories
+TET is a git workspace for coding agents: Electron + React + xterm.js, several repositories
 open at once, each with its own git pane and its own set of agent and shell terminals.
 
 Git is there for navigation and control of the repository state. **The actual work happens in the
@@ -11,7 +11,7 @@ dialog.
 
 ## Do not restart the app yourself
 
-Agents run *inside* meezeek, as terminal tabs. Killing the Electron process kills the session you
+Agents run *inside* TET, as terminal tabs. Killing the Electron process kills the session you
 are running in, mid-turn. Build and typecheck freely, but ask the user to restart and report back.
 The same goes for anything that tears down a project's terminals.
 
@@ -19,12 +19,12 @@ The same goes for anything that tears down a project's terminals.
 
 **`sbc-vsc-agents`** (sibling directory, private) is the direct ancestor: two VS Code extensions
 docking `claude` and `opencode` into the sidebar as real terminals. Most of the terminal half of
-meezeek ports its `shared/`; its `CLAUDE.md` records *why* — read it before changing any of them:
+TET ports its `shared/`; its `CLAUDE.md` records *why* — read it before changing any of them:
 
 - session listing, resume, rename, delete, and the reconcile loop adopting a session id a CLI has
   only just persisted (`src/agents/*/sessions.ts`, `src/main/session-manager.ts`)
 - how each agent is driven: Claude Code is a plain CLI reading `<uuid>.jsonl` transcripts off disk;
-  opencode is client/server and **everything** goes through the one server meezeek runs
+  opencode is client/server and **everything** goes through the one server TET runs
   (`src/agents/opencode/server.ts`) — never its CLI or its SQLite file
 - `extractTitle`'s precedence rules for Claude Code session titles — a regression there silently
   shows the wrong tab title with nothing to catch it
@@ -33,7 +33,7 @@ meezeek ports its `shared/`; its `CLAUDE.md` records *why* — read it before ch
   `src/agents/claude/hooks.ts`)
 - the `--vscode-*` theming layer
 
-Not ported: the VS Code editor context (meezeek has no editor) and the diagnostic quick fix. What
+Not ported: the VS Code editor context (TET has no editor) and the diagnostic quick fix. What
 survives is the shell transcript in `src/main/shell-context.ts` — a capped file the agent is pointed
 at, not an excerpt inlined into every prompt.
 
@@ -67,10 +67,11 @@ top-right pane's strip, not a freely nestable tree: nobody splits into a dozen, 
 one `switch` in `TerminalsPane` instead of a tree, a generic sash composition and a "which pane
 did you mean" for every action. `src/renderer/pane-layout.ts` holds the model and every rule about
 it; `TerminalsPane` lays the panes out; `Pane` is one of them, the strip-and-stack that
-`TerminalsPane` used to be by itself. The first pane (always top-left) carries the git toggle and
-the one progress bar; the layout picker sits on whichever pane is top-*right* instead
-(`TOP_RIGHT_PANE`) — the actual right edge of the window, not the first pane's own, which is the
-same pane only for "single" and only there do the two bundles coincide.
+`TerminalsPane` used to be by itself. The first pane (always top-left) carries the git toggle; the
+layout picker sits on whichever pane is top-*right* instead (`TOP_RIGHT_PANE`) — the actual right
+edge of the window, not the first pane's own, which is the same pane only for "single" and only
+there do the two bundles coincide. The progress bar is a bundle of its own again, on neither: it
+follows whichever pane the slow thing is actually in — see "One progress indicator per pane".
 
 - **The layout lives in `App`, not in `TerminalsPane`** (`layouts: Record<projectId,
   ProjectLayout>`): preset, focused pane, which pane each tab is in, each pane's active tab. Not
@@ -182,8 +183,9 @@ Every action goes through `Repository.runAction`, one at a time per repository, 
 two actions would race for the same index lock. Discarding and ignoring go through it too, since a
 discard context menu doesn't know a fetch is running and `git restore` wants the same lock. The
 renderer mirrors this in `App`'s `branchAction`: one project's tree and sync buttons stop offering
-actions while one runs, and the progress bar shows it. `BranchActions.run` is the one way in — a view asks its own question first (it knows the remote, the branch, the file count), then
-hands over a label and the call.
+actions while one runs, and the git pane's own BRANCHES bar shows it (see "One progress indicator
+per pane"). `BranchActions.run` is the one way in — a view asks its own question first (it knows
+the remote, the branch, the file count), then hands over a label and the call.
 
 Two things the tree needs cost no extra git process. `readRefs` asks `for-each-ref` for `%(symref)`
 alongside the name, empty except for `<remote>/HEAD` — that's `defaultBranch`, and "Update from..."
@@ -207,7 +209,7 @@ pushing a tag — runs with `NETWORK_ENV`, all aimed at stopping git from asking
 `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (unset, git falls back to the terminal the other var
 avoids), and `ssh -oBatchMode=yes`. There's no console to answer in, and a command waiting for an
 answer that can't come holds the repository's one action slot open indefinitely. Credentials come
-from the user's credential helper or a provider token, or not at all — meezeek writes nothing into
+from the user's credential helper or a provider token, or not at all — TET writes nothing into
 that machine-wide helper.
 
 `LC_ALL=C` pins git's own messages so `runNetwork` can match two of them (`could not read Username`,
@@ -295,7 +297,7 @@ Each of these was paid for once and measured; the numbers are in the comment at 
 ## Saved commands
 
 The sidebar's lower half is a project's saved shell commands, living under a `commands` key in a
-`meezeek.json` in the repository's own root (`src/main/commands.ts`), not meezeek's `userData` —
+`tet.json` in the repository's own root (`src/main/commands.ts`), not TET's `userData` —
 they describe the project, so they travel and can be committed, which also means the file shows up
 as untracked until someone commits or ignores it. The key was `actions` before a rename; nothing
 reads that spelling now, so such a file looks unconfigured and the wand fills it again.
@@ -352,13 +354,13 @@ the tab list changes on every status update, and re-applying a selection would d
 out of whatever they moved to.
 
 Because a saved command's process ends every run, `TerminalSession` tells the two apart by exit
-code: `stopped` for a clean one (or anything meezeek killed), `error` only for a process that failed
+code: `stopped` for a clean one (or anything TET killed), `error` only for a process that failed
 on its own. **Nothing draws the difference yet** — the tab strip marks both `.terminal-tab.inactive`.
 Worth doing, deliberately still open — don't invent the look.
 
-Reading a `meezeek.json` that's missing, unparseable or oddly shaped is simply no commands — it's
+Reading a `tet.json` that's missing, unparseable or oddly shaped is simply no commands — it's
 the user's file, and half of it being someone else's isn't a reason to throw. A project with no
-`meezeek.json` **at all** gets its commands looked up straight away, unasked — nobody's set it up
+`tet.json` **at all** gets its commands looked up straight away, unasked — nobody's set it up
 here. So `readCommands` returns `null` for a missing file and `[]` for one that's empty on purpose —
 a list someone emptied stays empty. Runs at most once per project per session, guarded by a ref.
 
@@ -388,7 +390,7 @@ is still the one on screen.
 
 ## Settings
 
-One dialog for everything meezeek keeps about *itself* rather than a repository — the one button in
+One dialog for everything TET keeps about *itself* rather than a repository — the one button in
 the window belonging to neither a project nor a pane. It sits at the title bar's end, reading as a
 platform window control: **not** an `.icon-button` but a 46px box the bar's full height, without the
 3px radius buttons elsewhere have — VS Code's own measurement, what the overlay reserves per
@@ -402,7 +404,7 @@ button closes it. Tabbed (Notifications, then Info) with the add-repository dial
 under it. Height is fixed to the fuller tab so switching doesn't resize under the pointer. Info
 reads `app:info` once, on open.
 
-Values live in a `settings.json` in meezeek's `userData` (`src/main/settings.ts`), written whole
+Values live in a `settings.json` in TET's `userData` (`src/main/settings.ts`), written whole
 from memory and read back defensively — a wrong-typed key falls back to its default rather than
 reaching an agent as `undefined`.
 
@@ -446,21 +448,52 @@ Code.
 
 Only ask before something irreversible. A question always answered the same way isn't worth asking.
 
-## One progress indicator
+## One progress indicator per pane
 
-Exactly one: the indeterminate bar under the tab strip (`.tab-progress` in `TerminalsPane`), shared
-by everything slow in a project — an agent still starting, a branch checking out, a diff being read
-or coloured. Never add a second — a new slow operation is a new condition in that one render. The
-git pane and diff dialog sit outside it and report through `App`, which hands the active project's
-bar what they say. Since the bar reports it, no view writes its own "Loading..." — the diff pane
-just goes empty while reading one.
+Not one per project, and not one shared bar for the whole window: every pane that can be slow
+carries its own `.tab-progress`, showing only what is happening in *it*, never a reason that
+belongs to another — a terminal pane's own agent starting, the git pane's own branch command or
+file action, the diff dialog's own read. What is slow is drawn where it is happening, not
+centralised out of habit; a single spot for the whole app was tried first and read as "something,
+somewhere" instead of pointing at the one thing actually running. One component serves all of them:
+`ProgressBar` (`src/renderer/components/ProgressBar.tsx`), dropped into whichever header or bar
+around it declares `position: relative` (a pane's own tab strip, a `.sidebar-header`,
+`.diff-dialog-bar`), so every pane's bar looks identical without a rule of its own. Its bit is a
+fixed number of pixels moving at a fixed number of pixels per second — measured width, derived
+duration — not VS Code's 2%-of-the-width recipe, which made a narrow section's worm a third the
+length of a wide pane's and a third as fast once several stood side by side. Never add a second
+inside one pane — a new slow reason there is a new condition feeding the one it already has, not a
+bar beside it.
 
-**A spinner in place of an icon is not a second one of these.** The bar is about the project; a
+- **Terminal panes**: `Pane`'s `showProgress` prop — a new agent starting in it, a runtime being
+  prepared, a CLI not yet past its first frame (`TerminalDescriptor.starting`, read off
+  `session-manager.ts`'s per-tab indicator count — `acquireIndicator`/`releaseIndicator` take a
+  `tabId` where one exists, a count and not a flag because a tab's setup and its first frame
+  overlap and a tab can be put back after a failed close — surfaced through `App`'s
+  `marks[…].starting` and `TerminalsPane`'s `startingHere`). The one reason with no tab of
+  its own to point a pane at — the session listing at bootstrap, before any tab exists yet —
+  falls to pane "a" instead (`TerminalsPane`'s `externalBusy`).
+- **The git pane**: two bars of its own, one per section, because its two headers are two
+  different kinds of action — `GitPane`'s `branch.busy` (checkout, branch/tag create/rename/delete,
+  stash apply/pop/drop, merge, rebase, abort, fetch/pull/push: everything routed through
+  `BranchActions.run`) under BRANCHES, and its own local `acting` (stash push, discard, ignore —
+  everything routed through its own `act`, since they start from the changed-file list this
+  section owns) under LOCAL CHANGES. Stashing changes goes through `act` rather than `branch.run`
+  for exactly that reason, even though it used to share the tree's lock.
+- **The diff dialog**: its own `busy` state under `.diff-dialog-bar`, fed by `DiffView`'s `onBusy`
+  (reading the diff, then colouring it) — no longer bubbled up to `App` at all. Since the bar
+  reports it, `DiffView` itself writes no "Loading..." of its own — it just goes empty while one
+  of the two is running.
+- **The command list**: its own bar under COMMANDS, for the wand reading the project — the wand's
+  icon used to turn into a spinner instead; taken back out once every other action button in a
+  pane with its own bar (fetch, pull, push, stash) stayed a plain icon and only dimmed, which is
+  what an action button disabled for being underway rather than idle does everywhere else now.
+
+**A spinner in place of an icon is not a second one of these.** The bar is about the pane; a
 spinner is about the one thing the icon already stands for. `SpinnerIcon` with the `spinning` class
-takes that icon's place, never a slot beside it — two cases: the wand while asking an agent (`.busy`
-keeps disabled-dimming off it, since it's disabled for being underway, not idle), and a tab's agent
-icon while its session works a turn (`TerminalDescriptor.busy`). The project row is the one place a
-spinner stands alone, having no icon to replace.
+takes that icon's place, never a slot beside it — a tab's agent icon while its session works a
+turn (`TerminalDescriptor.busy`) is the one case left now that the wand's own bar took over from
+its icon. The project row is the one place a spinner stands alone, having no icon to replace.
 
 ## Both ends of a turn
 
@@ -504,7 +537,7 @@ screen, and two views applying the rule themselves would be two chances to disag
 **Nothing here is read off the terminal.** Each agent knows when its own turn starts, stalls and
 ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` say so:
 
-- opencode reports `session.status` (`busy`, then `session.idle`) on the event stream meezeek's
+- opencode reports `session.status` (`busy`, then `session.idle`) on the event stream TET's
   already subscribed to; `subscribe` carries `properties.sessionID` and `properties.status.type`
   alongside the event's `type`, verified against the binary's own `session.idle` schema, its
   `SessionStatus` union, and its `{type, properties}` envelope. A question is `permission.asked` /
@@ -513,7 +546,7 @@ ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` 
   watch) are the only types read — a frame naming none of them is dropped on a string test before
   parsing (`CONSUMED_EVENT_TYPE`), since most of the stream is a streaming answer's
   `message.part.updated`, and parsing every one was main-process CPU spent while the ptys wait.
-- Claude Code's hooks are separate processes that can't call back into meezeek, so each point
+- Claude Code's hooks are separate processes that can't call back into TET, so each point
   `touch`es an empty file named after the session id: `UserPromptSubmit` into `<agentDir>/busy/`,
   `Stop` into `<agentDir>/finished/`, and `Notification` (`permission_prompt|elicitation_dialog`)
   plus `PreToolUse` (`AskUserQuestion`) into `<agentDir>/waiting/` — `watchMarkers` picks them up
@@ -531,7 +564,7 @@ ends, and `AgentPaths.onSessionBusy` / `onSessionWaiting` / `onSessionFinished` 
   doesn't need: Codex only *runs* a hook it has decided to trust — see "Codex's hook trust" below.
 
 **No agent reports that a question was answered** — Claude Code and Codex would need a hook process
-per tool call for their permission prompts — but meezeek doesn't need them to: the answer is typed
+per tool call for their permission prompts — but TET doesn't need them to: the answer is typed
 into the tab that asked, and every keystroke and click reaches the pty through
 `ProjectSessionManager.write`. So a question clears on exactly two things: input that can be an
 answer (`answersQuestion` — Enter, a printable character, a mouse click; not arrows, Tab, a bare
@@ -635,7 +668,7 @@ renderer's.
 
 ### The one database under opencode's servers
 
-Meezeek runs one `opencode serve` per repository, but a server opens the SQLite database of the
+TET runs one `opencode serve` per repository, but a server opens the SQLite database of the
 whole machine — every instance shares one `opencode.db`. Two consequences, both paid for:
 
 - **They come up one at a time** (`OpencodeServer.queue` in `server.ts`): four repositories restored
@@ -644,7 +677,7 @@ whole machine — every instance shares one `opencode.db`. Two consequences, bot
   the setup that holds the lock.
 - **What a killed run left running is taken down before the first of them starts**
   (`server-registry.ts`). Every path ending the app ends its servers too, but a killed process
-  doesn't, and a server outliving its meezeek keeps writing to that same file. So each server is
+  doesn't, and a server outliving its TET keeps writing to that same file. So each server is
   recorded in an `opencode-servers.json` in `userData`, and the next run kills what's there — but
   **never by pid alone**: pids are reused and by read time may be anything. Killed only once it
   answers on its recorded url with its recorded password, which only our own server can. One killed
@@ -693,14 +726,14 @@ two at once.
 
 ## Never touch the user's agent configuration
 
-Everything meezeek generates lives under its own `userData` and is pointed at from outside:
+Everything TET generates lives under its own `userData` and is pointed at from outside:
 
 - Claude Code: a generated settings file passed as `--settings`, layered by the CLI on top of its
   own config. `~/.claude/settings.json` is never read, written or replaced.
 - opencode: `OPENCODE_CONFIG_DIR` on the **server** process (under `attach` the TUI is only a
   client). Additive — doesn't replace the user's own `plugins/`. Shared across repositories, since
   opencode pays a minutes-long install on an unfamiliar config dir; each repository's generated
-  plugin needs a unique filename *and* a runtime guard on `MEEZEEK_PROJECT_ROOT`, or every open
+  plugin needs a unique filename *and* a runtime guard on `TET_PROJECT_ROOT`, or every open
   repository's context gets appended to every message. Only written when content changes, since a
   changed plugin triggers a recompile.
 - opencode again: `OPENCODE_TUI_CONFIG` on the **terminal** process, generated with nothing but
@@ -715,7 +748,7 @@ Everything meezeek generates lives under its own `userData` and is pointed at fr
 
 ## Files other processes read
 
-The context file and shell transcript are written by meezeek and read by a separate process — an
+The context file and shell transcript are written by TET and read by a separate process — an
 agent's prompt hook, or the agent's own file reads. Write beside the target and `rename` into place,
 never in place — measured against writing in place and lost; on Windows a read landing mid-write
 fails outright rather than returning partial data.
@@ -743,7 +776,7 @@ others.
 
 ## The keyboard belongs to the terminal
 
-A terminal tab holds a foreign program owning every key while focused, and meezeek's handler runs
+A terminal tab holds a foreign program owning every key while focused, and TET's handler runs
 *before* xterm encodes anything (`attachCustomKeyEventHandler` in `terminal-views.ts`) — the window
 can take any combination, so whether it can is never the question. **It takes nothing an agent could
 have received**, decided by reading xterm's own `Keyboard.ts` rather than assuming:
@@ -820,10 +853,10 @@ binding and label can't drift apart.
 - Codex doesn't adopt the terminal's palette on its own the way opencode's `"theme": "system"`
   does — its default is a fixed RGB syntax theme (`catppuccin-mocha`/`-latte`, picked by an OSC
   10/11 background query this terminal never answers, so it always lands on the dark one) applied
-  to the status line and code highlighting alike, ignoring meezeek's ANSI palette entirely.
+  to the status line and code highlighting alike, ignoring TET's ANSI palette entirely.
   `-c tui.theme=ansi`, added in `src/agents/codex/index.ts` alongside the hooks argument, switches
   Codex to its one bundled theme that emits plain named ANSI colors instead of RGB — verified end
-  to end: the status line's model name and cwd path render in exactly meezeek's configured
+  to end: the status line's model name and cwd path render in exactly TET's configured
   ansiYellow/ansiGreen with the override, a hardcoded tan/green without it. The config key is
   `tui.theme`, not `tui_theme` — the latter is the Rust struct field name, but `-c`'s dotted path
   follows the TOML layout instead (`[tui]\ntheme = "..."`, `codex-rs/config/src/types.rs`), and

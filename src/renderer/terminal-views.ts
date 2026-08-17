@@ -32,7 +32,7 @@ function viewKey(projectId: string, tabId: string): string {
 
 // One batch per flush, in the order the main process collected it — a terminal that produced
 // nothing in that window is simply not in it.
-window.meezeek.terminals.onOutput((batch) => {
+window.tet.terminals.onOutput((batch) => {
   for (const { projectId, tabId, data } of batch) {
     views.get(viewKey(projectId, tabId))?.term.write(data);
   }
@@ -49,11 +49,11 @@ function defaultFontSize(): number {
 }
 
 function openUrl(url: string): void {
-  void window.meezeek.shell.openUrl(url);
+  void window.tet.shell.openUrl(url);
 }
 
 function openFile(projectId: string, filePath: string): void {
-  void window.meezeek.shell.openFile(projectId, filePath).then((changedPath) => {
+  void window.tet.shell.openFile(projectId, filePath).then((changedPath) => {
     if (changedPath) {
       revealHandlers.get(projectId)?.(changedPath);
     }
@@ -118,7 +118,7 @@ function createWrappedUrlResolver(projectId: string, tabId: string): WrappedUrlR
         return;
       }
       pendingUrlRequests.add(key);
-      void window.meezeek.terminals.resolveUrl(projectId, tabId, fragment).then((url) => {
+      void window.tet.terminals.resolveUrl(projectId, tabId, fragment).then((url) => {
         // Gone while this was in flight means the terminal it was asked for was closed
         // (see forgetUrls) — the answer belongs to nothing and must not put an entry back.
         if (!pendingUrlRequests.delete(key)) {
@@ -151,12 +151,12 @@ function toBase64(buffer: ArrayBuffer): string {
 async function pasteDroppedFiles(term: Terminal, files: File[]): Promise<void> {
   const paths: string[] = [];
   for (const file of files) {
-    const existing = window.meezeek.files.pathOf(file);
+    const existing = window.tet.files.pathOf(file);
     if (existing) {
       paths.push(existing);
       continue;
     }
-    paths.push(await window.meezeek.files.writeTemp(file.name, toBase64(await file.arrayBuffer())));
+    paths.push(await window.tet.files.writeTemp(file.name, toBase64(await file.arrayBuffer())));
   }
   if (paths.length > 0) {
     // Through term.paste, like clipboard text, so whatever input mode the CLI is in cannot
@@ -167,7 +167,7 @@ async function pasteDroppedFiles(term: Terminal, files: File[]): Promise<void> {
 
 /** A copied screenshot has no path either — same temp-file trick, from the clipboard. */
 async function pasteClipboardImage(term: Terminal): Promise<boolean> {
-  const file = await window.meezeek.files.clipboardImage();
+  const file = await window.tet.files.clipboardImage();
   if (file === null) {
     return false;
   }
@@ -216,7 +216,7 @@ function createView(projectId: string, tabId: string, agentId: AgentId): Termina
   term.registerLinkProvider(createUrlLinkProvider(term, openUrl, createWrappedUrlResolver(projectId, tabId)));
   term.registerLinkProvider(createFileLinkProvider(term, (filePath) => openFile(projectId, filePath)));
 
-  term.onData((data) => window.meezeek.terminals.input(projectId, tabId, data));
+  term.onData((data) => window.tet.terminals.input(projectId, tabId, data));
 
   term.attachCustomKeyEventHandler((event) => {
     // xterm can't tell Shift+Enter from plain Enter at the data level — both arrive as "\r".
@@ -226,7 +226,7 @@ function createView(projectId: string, tabId: string, agentId: AgentId): Termina
       event.preventDefault();
       event.stopPropagation();
       if (!event.repeat) {
-        window.meezeek.terminals.input(projectId, tabId, "\x1b\r");
+        window.tet.terminals.input(projectId, tabId, "\x1b\r");
       }
       return false;
     }
@@ -305,7 +305,7 @@ export function attachTerminal(projectId: string, tabId: string, agentId: AgentI
     event.preventDefault();
     if (agentId === "shell") {
       // A plain shell never turns on xterm's mouse reporting, so unlike the agent CLIs below,
-      // nothing reads the right click on its own — meezeek has to supply the usual terminal
+      // nothing reads the right click on its own — tet has to supply the usual terminal
       // convention itself: copy a selection, or paste when there is none.
       const selection = view.term.getSelection();
       if (selection) {
@@ -339,7 +339,7 @@ export function fitTerminal(projectId: string, tabId: string): void {
     return;
   }
   view.fit.fit();
-  window.meezeek.terminals.resize(projectId, tabId, view.term.cols, view.term.rows);
+  window.tet.terminals.resize(projectId, tabId, view.term.cols, view.term.rows);
 }
 
 export function focusTerminal(projectId: string, tabId: string): void {

@@ -122,7 +122,7 @@ export class AccountStore {
     try {
       fs.writeFileSync(this.file, JSON.stringify(this.accounts, null, 2), "utf8");
     } catch (error) {
-      console.error("[meezeek] could not persist accounts:", error);
+      console.error("[tet] could not persist accounts:", error);
     }
   }
 }

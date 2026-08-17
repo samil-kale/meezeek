@@ -1,8 +1,8 @@
-import type { MeezeekApi } from "../shared/api";
+import type { TETApi } from "../shared/api";
 
 declare global {
   interface Window {
-    meezeek: MeezeekApi;
+    tet: TETApi;
   }
 }
 

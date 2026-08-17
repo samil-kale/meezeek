@@ -69,7 +69,7 @@ class CappedLogFile {
     this.writing = this.writing
       .then(() => replaceFile(this.file, contents))
       .catch((error) => {
-        console.error(`[meezeek] failed to write ${path.basename(this.file)}:`, error);
+        console.error(`[tet] failed to write ${path.basename(this.file)}:`, error);
         // Nothing landed on disk, so the next flush has to try again.
         this.dirty = true;
       });
@@ -116,7 +116,7 @@ function carryFrom(data: string): number {
 }
 
 /**
- * What meezeek tells an agent about the repository it is working in: the running transcript of
+ * What tet tells an agent about the repository it is working in: the running transcript of
  * the shell tabs the user opened next to it. Modelled on how the VS Code extension passed a
  * debug session's console output — a capped file the agent is pointed at and reads on demand,
  * not an excerpt inlined into every prompt.
@@ -172,11 +172,11 @@ export class ShellContext {
       this.log.chars === 0
         ? ""
         : [
-            "<meezeek_context>",
+            "<tet_context>",
             `Shell output in ${this.repositoryName} (${Math.ceil(this.log.chars / 1024)} KB), from the` +
               ` shell tabs the user has open next to you: ${this.logFile}`,
             "Read that file when the user asks about something they ran in a shell.",
-            "</meezeek_context>",
+            "</tet_context>",
             "This is the state of the user's workspace at the time the message was sent." +
               " It may or may not be relevant to the request."
           ].join("\n");
@@ -187,7 +187,7 @@ export class ShellContext {
     this.writing = this.writing
       .then(() => replaceFile(this.contextFile, contents === "" ? "" : CONTEXT_FILE_BOM + contents))
       .catch((error) => {
-        console.error("[meezeek] failed to write the context file:", error);
+        console.error("[tet] failed to write the context file:", error);
         // Nothing landed on disk, so the next write must not be skipped as unchanged.
         this.written = undefined;
       });

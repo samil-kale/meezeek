@@ -18,6 +18,8 @@ import type { DiscardTargets } from "./git";
 
 /** Filesystem events arrive in bursts (a build, a checkout, an agent editing files). */
 const REFRESH_DEBOUNCE_MS = 250;
+/** The saved commands' file in the root, reported for the list rather than the repository. */
+const COMMANDS_FILE = "tet.json";
 /**
  * Least time between two finished refreshes. A working tree under continuous change would
  * otherwise keep one running back to back, and every git process a refresh starts is
@@ -72,6 +74,8 @@ export class Repository {
   private watchRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private watchRetryDelay = WATCH_RETRY_MS;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Same debounce as the refresh, for the one watched file that is not git state. */
+  private commandsTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshing = false;
   private refreshPending = false;
   private lastRefreshAt = 0;
@@ -91,7 +95,13 @@ export class Repository {
   constructor(
     readonly project: Project,
     private readonly onState: (state: RepositoryState) => void,
-    private readonly onNotice: (severity: NoticeSeverity, message: string) => void
+    private readonly onNotice: (severity: NoticeSeverity, message: string) => void,
+    /**
+     * tet.json in the root changed. The saved commands live in the repository, not in
+     * tet, so an editor, an agent in a tab or a checkout rewrites them behind the list's
+     * back — and the watcher already sees every such write, so reporting it costs no process.
+     */
+    private readonly onCommandsChanged: () => void
   ) {}
 
   /**
@@ -444,17 +454,23 @@ export class Repository {
         // Events are arriving, so whatever went wrong before is over — the next failure backs
         // off from the bottom again rather than from where the last one left the delay.
         this.watchRetryDelay = WATCH_RETRY_MS;
+        if (name === COMMANDS_FILE) {
+          // Debounced like the refresh: the file is written in place, and a read landing
+          // between the events of one write would find half a file.
+          clearTimeout(this.commandsTimer);
+          this.commandsTimer = setTimeout(this.onCommandsChanged, REFRESH_DEBOUNCE_MS);
+        }
         this.scheduleRefresh();
       });
       this.watcher.on("error", (error) => {
-        console.error(`[meezeek] watcher failed for ${this.project.path}:`, error);
+        console.error(`[tet] watcher failed for ${this.project.path}:`, error);
         this.watcher?.close();
         this.watcher = undefined;
         this.retryWatching();
       });
     } catch (error) {
       // A filesystem that cannot watch recursively throws here rather than emitting an error.
-      console.error(`[meezeek] could not watch ${this.project.path}:`, error);
+      console.error(`[tet] could not watch ${this.project.path}:`, error);
       this.retryWatching();
     }
   }
@@ -484,6 +500,7 @@ export class Repository {
     // back then belongs to a project the window has already forgotten.
     this.disposed = true;
     clearTimeout(this.debounceTimer);
+    clearTimeout(this.commandsTimer);
     clearTimeout(this.watchRetryTimer);
     clearInterval(this.autoFetchTimer);
     this.watcher?.close();
@@ -496,7 +513,8 @@ export class RepositoryManager {
 
   constructor(
     private readonly onState: (projectId: string, state: RepositoryState) => void,
-    private readonly onNotice: (severity: NoticeSeverity, message: string) => void
+    private readonly onNotice: (severity: NoticeSeverity, message: string) => void,
+    private readonly onCommandsChanged: (projectId: string) => void
   ) {}
 
   open(project: Project): Repository {
@@ -504,7 +522,12 @@ export class RepositoryManager {
     if (existing) {
       return existing;
     }
-    const repository = new Repository(project, (state) => this.onState(project.id, state), this.onNotice);
+    const repository = new Repository(
+      project,
+      (state) => this.onState(project.id, state),
+      this.onNotice,
+      () => this.onCommandsChanged(project.id)
+    );
     this.repositories.set(project.id, repository);
     void repository.start();
     return repository;

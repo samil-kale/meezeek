@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { MeezeekApi, Unsubscribe } from "../shared/api";
+import type { TETApi, Unsubscribe } from "../shared/api";
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscribe {
   const handler = (_event: Electron.IpcRendererEvent, payload: T): void => listener(payload);
@@ -7,7 +7,7 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): Unsubscr
   return () => ipcRenderer.off(channel, handler);
 }
 
-const api: MeezeekApi = {
+const api: TETApi = {
   startup: {
     check: () => ipcRenderer.invoke("startup:check"),
     quit: () => ipcRenderer.send("startup:quit")
@@ -69,7 +69,8 @@ const api: MeezeekApi = {
     list: (projectId) => ipcRenderer.invoke("commands:list", projectId),
     save: (projectId, commands) => ipcRenderer.invoke("commands:save", projectId, commands),
     run: (projectId, command) => ipcRenderer.invoke("commands:run", projectId, command),
-    suggest: (projectId) => ipcRenderer.invoke("commands:suggest", projectId)
+    suggest: (projectId) => ipcRenderer.invoke("commands:suggest", projectId),
+    onChanged: (listener) => subscribe("commands:changed", listener)
   },
   terminals: {
     list: (projectId) => ipcRenderer.invoke("terminal:list", projectId),
@@ -108,4 +109,4 @@ const api: MeezeekApi = {
   onNotice: (listener) => subscribe("app:notice", listener)
 };
 
-contextBridge.exposeInMainWorld("meezeek", api);
+contextBridge.exposeInMainWorld("tet", api);

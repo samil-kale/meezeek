@@ -1,7 +1,7 @@
 import type { RemoteRepository } from "../shared/types";
 
 /**
- * What a repository host has to offer meezeek: authenticate, list repositories, and — through
+ * What a repository host has to offer tet: authenticate, list repositories, and — through
  * the listing — the url a repository is cloned from. Everything past the clone goes through
  * the local git CLI like any other repository; a provider never touches a working tree.
  */
