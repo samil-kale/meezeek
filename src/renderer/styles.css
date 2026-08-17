@@ -187,7 +187,7 @@ option {
    however narrow the window gets, the way the platform's own controls do. */
 .titlebar-name {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--vscode-titleBar-activeForeground);
@@ -345,7 +345,7 @@ option {
   flex: none;
   padding: 0 6px 0 10px;
   border-bottom: 1px solid var(--vscode-panel-border);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--vscode-sideBarSectionHeader-foreground);
@@ -380,7 +380,7 @@ option {
   align-items: center;
   gap: 4px;
   padding: 0 6px 0 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .project-item {
@@ -444,7 +444,7 @@ option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--vscode-descriptionForeground);
 }
 
@@ -503,7 +503,7 @@ option {
   gap: 4px;
   width: 100%;
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--vscode-sideBarSectionHeader-foreground);
@@ -520,7 +520,7 @@ option {
   width: 100%;
   padding: 0 6px 0 20px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .tree-item.nested {
@@ -589,7 +589,7 @@ option {
   display: flex;
   align-items: center;
   gap: 2px;
-  font-size: calc(1em - 2px);
+  font-size: 11px;
   border: 1px solid var(--vscode-foreground);
   border-radius: 999px;
   padding: 1px 6px;
@@ -738,7 +738,7 @@ option {
   /* Less on the right: the close button carries 4px of its own around the glyph. */
   padding: 0 4px 0 10px;
   max-width: 220px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--vscode-tab-inactiveForeground);
   background: var(--vscode-tab-inactiveBackground);
   border-right: 1px solid var(--vscode-tab-border);
@@ -760,7 +760,7 @@ option {
   gap: 6px;
   flex: none;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--vscode-tab-inactiveForeground);
   border-right: 1px solid var(--vscode-tab-border);
 }
@@ -843,7 +843,7 @@ option {
   z-index: 20;
   min-width: 160px;
   padding: 4px 0;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--vscode-menu-background);
   color: var(--vscode-menu-foreground);
   border: 1px solid var(--vscode-menu-border);
@@ -1041,7 +1041,7 @@ option {
   width: 100%;
   padding: 0 8px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .change-item:hover {
@@ -1071,7 +1071,7 @@ option {
   width: 14px;
   text-align: center;
   font-family: var(--vscode-editor-font-family);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .change-status.modified {
@@ -1147,7 +1147,7 @@ option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* `min-height: 0` matters here: a flex item defaults to the height of its content, and a long
@@ -1195,7 +1195,7 @@ option {
 }
 
 .image-diff figcaption {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--vscode-descriptionForeground);
 }
 
@@ -1203,7 +1203,7 @@ option {
   flex: 1;
   overflow: auto;
   font-family: var(--vscode-editor-font-family);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   user-select: text;
 }
@@ -1338,7 +1338,7 @@ option {
 .placeholder {
   padding: 12px;
   color: var(--vscode-descriptionForeground);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .empty-workspace {
@@ -1431,7 +1431,7 @@ option {
   display: flex;
   align-items: center;
   padding: 0 14px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--vscode-tab-inactiveForeground);
 }
 
@@ -1659,7 +1659,7 @@ option {
 }
 
 .remote-account-host {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--vscode-descriptionForeground);
 }
 
@@ -1715,7 +1715,7 @@ option {
   align-items: center;
   gap: 8px;
   padding: 0 6px 0 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .remote-repo:hover {
@@ -1732,7 +1732,7 @@ option {
 
 .remote-repo-private {
   flex: none;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--vscode-descriptionForeground);
 }
 
@@ -1740,7 +1740,7 @@ option {
 .remote-repo-clone {
   visibility: hidden;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .remote-repo:hover .remote-repo-clone {
@@ -1795,7 +1795,7 @@ option {
   max-width: 460px;
   padding: 8px 10px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--vscode-notifications-foreground);
   background: var(--vscode-notifications-background);
   border: 1px solid var(--vscode-notifications-border);

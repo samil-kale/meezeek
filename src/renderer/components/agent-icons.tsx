@@ -27,7 +27,7 @@ function ClaudeIcon({ className }: { className?: string }) {
       className={className}
       width="13"
       height="13"
-      viewBox={fitIcon(22.15 / LARGER, 12, 12.14, 24)}
+      viewBox={fitIcon(22.15 / LARGER, 12, 12.14 - 1.85, 24)}
       aria-hidden="true"
     >
       <path
@@ -101,7 +101,7 @@ function ShellIcon({ className }: { className?: string }) {
       className={className}
       width="13"
       height="13"
-      viewBox={fitIcon(13.4, 8, 8, 16)}
+      viewBox={fitIcon(13.4, 8, 8 - 1.29, 16)}
       fill="none"
       stroke="currentColor"
       strokeWidth={fitStroke(13.4, 16, 1.3)}
