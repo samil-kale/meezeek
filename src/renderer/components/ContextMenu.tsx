@@ -64,10 +64,14 @@ export function ContextMenu({ x, y, entries, onClose, className }: ContextMenuPr
     document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("blur", onClose);
+    // The menu is anchored to raw pointer coordinates, not a moving element, so a resize
+    // leaves it pointing at nothing meaningful — close it rather than pretend it tracked.
+    window.addEventListener("resize", onClose);
     return () => {
       document.removeEventListener("mousedown", onMouseDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("blur", onClose);
+      window.removeEventListener("resize", onClose);
     };
   }, []);
 
