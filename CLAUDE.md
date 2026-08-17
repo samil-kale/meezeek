@@ -194,9 +194,13 @@ merges its *remote-tracking* copy, since auto-fetch keeps that current while loc
 tags are one more argument to the same call. `state.operation` — the merge/rebase git stopped
 mid-way, which "Abort" needs — is three `stat` calls in the git directory.
 
-A remote's url is read once on project open and again after this app changes one
-(`Repository.loadRemoteUrls`), then merged into every emitted state: it changes about never, so the
-refresh path spends its processes elsewhere.
+A remote's url is read once on project open and again after `.git/config` changed — where a remote
+is added or repointed, here or in a terminal (`Repository.loadRemoteUrls`) — then merged into every
+emitted state: it changes about never, so the refresh path spends its processes elsewhere. The merge
+(`Repository.emit`) also lists a configured remote `for-each-ref` can't see yet — an empty clone, a
+`git remote add` before the first fetch — since without it there'd be nothing to push to, and puts
+`origin` first: `remotes[0]` is the remote every command that names one uses, and `for-each-ref`
+sorts, so `backup` would otherwise beat it.
 
 The project row carries repository-wide entries (open in terminal, show in file manager, copy path,
 view on host, change remote url, close) — nothing touches the working tree there; those actions
@@ -208,13 +212,15 @@ window, created and brought to front like any other.
 Every command reaching a remote — fetch, pull, push, force push, deleting a branch/tag remotely,
 pushing a tag — runs with `NETWORK_ENV`, all aimed at stopping git from asking a question:
 `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (unset, git falls back to the terminal the other var
-avoids), and `ssh -oBatchMode=yes`. There's no console to answer in, and a command waiting for an
-answer that can't come holds the repository's one action slot open indefinitely. Credentials come
-from the user's credential helper or a provider token, or not at all — TET writes nothing into
-that machine-wide helper.
+avoids), and `ssh -oBatchMode=yes` — the last only where the user has configured no ssh of their
+own (`GIT_SSH`, `GIT_SSH_COMMAND`, `core.sshCommand`, read once per repository), since
+`GIT_SSH_COMMAND` outranks all three and a plink or `ssh -i` setup would otherwise fail from here
+alone. There's no console to answer in, and a command waiting for an answer that can't come holds
+the repository's one action slot open indefinitely. Credentials come from the user's credential
+helper or a provider token, or not at all — TET writes nothing into that machine-wide helper.
 
-`LC_ALL=C` pins git's own messages so `runNetwork` can match two of them (`could not read Username`,
-`Authentication failed`) into `authRequired` — there's no exit code for it, every fatal clone error
+`LC_ALL=C` pins git's own messages so `runNetwork` can match two of them (`could not read Username`/
+`Password`, `Authentication failed`) into `authRequired` — there's no exit code for it, every fatal clone error
 is 128, and an unpinned `LANG=de_DE` machine would answer in German and match nothing. A repository
 git can't find stays out of that list on purpose: GitHub/GitLab answer 404 for both a private repo
 and a typo, so credentials would be a guess.
@@ -231,7 +237,14 @@ upstream.
 
 Each repository also fetches by itself every ten minutes (GitHub Desktop's interval), **silently**
 on failure — a remote with no credentials entered would otherwise notice six times an hour for
-something nobody asked. A fetch the user pressed a button for reports like anything else.
+something nobody asked. A fetch the user pressed a button for reports like anything else. It does
+not take the action slot: an action clicked while it runs (an unreachable host can take a minute to
+time out) waits for it in `runAction` rather than being refused for a command nobody started.
+
+A refresh the user's own action asks for runs *after* the one already underway, not merely joins
+it: a commit's `add --all` wakes the watcher while the `commit` still runs, and that refresh reads a
+staged, uncommitted tree — coming back only through the schedule left the pane showing it for two
+seconds after the progress bar had stopped.
 
 The branches header carries three buttons — fetch, pull, push — and push doubles as GitHub Desktop's
 "publish" for a branch the remote's never seen (`--set-upstream`). Pull with rebase and force push
@@ -412,7 +425,9 @@ reaching an agent as `undefined`.
 persisted copy stays the only one. Read in `pathsFor`, i.e. at `prepareSpawn` — the honest limit of
 a switch: Claude Code reads its generated `--settings` file at startup, opencode's notifier is built
 around the event stream when its server comes up, so an agent gets its notification setup once and
-can't be reached afterwards. A change applies to what starts after it, and the dialog says so.
+can't be reached afterwards. A change applies to projects opened after it — a Claude or Codex
+runtime is prepared once per project, and re-preparing it under running tabs would leave a gap in
+which no marker watcher stands — and the dialog says so.
 
 Deliberately not in there: marks on a tab that finished out of sight or is waiting on an answer.
 Neither is a notification to turn off, but how such a session is found again (see that section).
@@ -578,7 +593,11 @@ looked at, where a finished turn is a one-off notice of something that already h
 `watchMarkers` sweeps its directory on a timer **as well as** watching it: on win32 `fs.watch` can
 silently miss a new file, stranding that turn's spinner forever (observed: a marker sat in
 `finished/` long after being written, watcher healthy the whole time). The sweep costs nothing in
-the git section's terms — a `readdir` on an empty directory is a syscall, not a process.
+the git section's terms — a `readdir` on an empty directory is a syscall, not a process. The three
+kinds are watched and swept separately, so a `busy` the watcher missed can be found *after* the
+`finished` of the same short turn: every marker carries its mtime (`onSessionBusy`'s `at`), and a
+signal made before the one last applied to its tab (`TabState.signalAt`) is dropped — applied in
+arrival order it left the spinner running until the next turn ended.
 
 **Claude Code runs no Stop hook for a turn the user cut short**, so that end never reaches
 `finished/` — an escaped prompt or rejected tool call left the spinner running until the next turn

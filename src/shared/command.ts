@@ -64,11 +64,19 @@ export function isSameCommand(one: ProjectCommand, other: ProjectCommand): boole
  * An environment written the way the dialog's field takes it — the inverse of `parseEnv`, and
  * here for the same reason: the row that shows one and the dialog that opens with one in it
  * have to spell it the way the parser reads it back. A value holding a space is quoted, since
- * that is what makes it one word again.
+ * that is what makes it one word again — and one holding a quote too, in the other kind,
+ * since a bare quote is what the parser drops. (One holding both kinds cannot be written
+ * for it at all; the double-quoted form then loses the double quotes, the least it can lose.)
  */
 export function formatEnv(env: Record<string, string> | undefined): string {
   return Object.entries(env ?? {})
-    .map(([name, value]) => `${name}=${/\s/.test(value) ? `"${value}"` : value}`)
+    .map(([name, value]) => {
+      if (!/[\s"']/.test(value)) {
+        return `${name}=${value}`;
+      }
+      const quote = value.includes('"') && !value.includes("'") ? "'" : '"';
+      return `${name}=${quote}${value}${quote}`;
+    })
     .join(" ");
 }
 

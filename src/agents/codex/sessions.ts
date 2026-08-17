@@ -23,10 +23,14 @@ function sessionIndexFile(): string {
 }
 
 const TITLE_MAX_LENGTH = 60;
-/** A rollout's `session_meta` line is always first; a few KB is generous headroom for it alone. */
-const META_SCAN_BYTE_LIMIT = 8 * 1024;
 /** Same budget as Claude's scan for the same reason: bounds a pathological single line. */
 const TAIL_SCAN_BYTE_LIMIT = 256 * 1024;
+/**
+ * A rollout's `session_meta` line is always first, but not small: since 0.14x it carries the whole
+ * base instructions (~22 KB measured), and an 8 KB budget cut every one of them short — no Codex
+ * session was ever listed. Only the first line is read either way; this bounds a pathological one.
+ */
+const META_SCAN_BYTE_LIMIT = TAIL_SCAN_BYTE_LIMIT;
 
 interface SessionMeta {
   sessionId: string;
@@ -277,6 +281,27 @@ async function listRolloutFiles(): Promise<string[]> {
   return files;
 }
 
+/**
+ * How many rollouts are read at once. Every rollout on the machine — all projects, every `exec`
+ * run — is opened by a listing, and all of them at once is more file descriptors than a low
+ * `ulimit -n` allows once there are a thousand.
+ */
+const READ_CONCURRENCY = 32;
+
+async function mapLimited<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(READ_CONCURRENCY, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await fn(items[index]);
+      }
+    })
+  );
+  return results;
+}
+
 async function safeReaddir(dir: string): Promise<string[]> {
   try {
     return await fs.promises.readdir(dir);
@@ -295,8 +320,7 @@ export const codexSessionProvider: SessionProvider = {
     try {
       const files = await listRolloutFiles();
       const names = await readSessionNames();
-      const entries = await Promise.all(
-        files.map(async (filePath): Promise<AgentSessionInfo | undefined> => {
+      const entries = await mapLimited(files, async (filePath): Promise<AgentSessionInfo | undefined> => {
           const meta = await readSessionMeta(filePath);
           // `exec`/`mcp`/subagent runs are never interactive sessions of this repository's
           // tabs — only `cli` is, matching what Codex's own `/resume` picker shows by default.
@@ -312,8 +336,7 @@ export const codexSessionProvider: SessionProvider = {
             createdAt: meta.createdAt ?? stat.mtimeMs,
             turnEndedAt: tail.turnEndedAt
           };
-        })
-      );
+        });
       const sessions = entries.filter((entry): entry is AgentSessionInfo => entry !== undefined);
       sessions.sort((a, b) => a.createdAt - b.createdAt);
       return sessions;

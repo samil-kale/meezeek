@@ -20,11 +20,24 @@ interface RpcRequest {
 }
 
 /**
+ * One call at a time, across every project: two tabs closed within a second (or a rename and
+ * a close) would otherwise start two of these against the same state database — the very
+ * cold-start race described above.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+
+function callAppServer(executable: string, cwd: string, request: RpcRequest): Promise<unknown> {
+  const call = queue.then(() => callAppServerNow(executable, cwd, request));
+  queue = call.catch(() => undefined);
+  return call;
+}
+
+/**
  * Starts one `codex app-server` process, performs the `initialize` handshake, sends one further
  * request, and returns its result — rejecting on a JSON-RPC error, a spawn failure, or timeout.
  * The process is always killed on the way out, success or failure alike.
  */
-async function callAppServer(executable: string, cwd: string, request: RpcRequest): Promise<unknown> {
+async function callAppServerNow(executable: string, cwd: string, request: RpcRequest): Promise<unknown> {
   const { command, args } = resolveCommand(executable, ["app-server", "--stdio"]);
   const child = spawn(command, args, { cwd, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
 

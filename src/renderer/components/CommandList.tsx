@@ -193,6 +193,17 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
     }
   };
 
+  /**
+   * Where the command sits in the latest list. By identity when it can be — a re-read of the
+   * file (250ms after every save of our own, or an agent touching tet.json) replaces every
+   * object while a dialog stands, and the row is then found by what it says instead. -1 once
+   * it is gone altogether: the wand can replace the list wholesale.
+   */
+  const indexOf = (command: ProjectCommand): number => {
+    const exact = latest.current.indexOf(command);
+    return exact !== -1 ? exact : latest.current.findIndex((entry) => isSameCommand(entry, command));
+  };
+
   /** The same dialog as `askAdd`, opened with what the command already says. */
   const askEdit = async (command: ProjectCommand): Promise<void> => {
     const answer = await prompt({
@@ -213,9 +224,9 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
       return;
     }
     const current = latest.current;
-    const index = current.indexOf(command);
-    // Gone from the list while the dialog stood — the wand can replace it wholesale, and what
-    // was edited is then a row that no longer exists. Writing it back would put it there again.
+    const index = indexOf(command);
+    // Gone from the list while the dialog stood: what was edited is a row that no longer
+    // exists, and writing it back would put it there again.
     if (index === -1) {
       return;
     }
@@ -230,7 +241,10 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
       confirmLabel: "Delete"
     });
     if (answer.confirmed) {
-      save(latest.current.filter((entry) => entry !== command));
+      const index = indexOf(command);
+      if (index !== -1) {
+        save(latest.current.filter((_entry, position) => position !== index));
+      }
     }
   };
 

@@ -46,7 +46,8 @@ interface ProjectListProps {
  * Both spellings git uses: "git@host:owner/repo.git" and a real url with a scheme.
  */
 function webUrl(remoteUrl: string): string | null {
-  const scp = /^(?:[\w.-]+@)?([\w.-]+):(?!\/)(.+?)(?:\.git)?\/?$/.exec(remoteUrl);
+  // Not a Windows path ("C:\bare\repo.git"): a colon followed by either slash is no host.
+  const scp = /^(?:[\w.-]+@)?([\w.-]+):(?![\\/])(.+?)(?:\.git)?\/?$/.exec(remoteUrl);
   if (scp) {
     return `https://${scp[1]}/${scp[2]}`;
   }

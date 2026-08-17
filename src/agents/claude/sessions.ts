@@ -56,6 +56,9 @@ export const claudeSessionProvider: SessionProvider = {
     }
     const filePath = path.join(projectDir, `${sessionId}.jsonl`);
     await fs.promises.rm(filePath);
+    // What Claude Code keeps beside the transcript under the same id — subagent transcripts,
+    // tool results — and would otherwise stay behind for good.
+    await fs.promises.rm(path.join(projectDir, sessionId), { recursive: true, force: true });
     scanCache.delete(filePath);
     headCache.delete(filePath);
     createdAtCache.delete(filePath);

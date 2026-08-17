@@ -76,17 +76,21 @@ export class Repository {
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   /** Same debounce as the refresh, for the one watched file that is not git state. */
   private commandsTimer: ReturnType<typeof setTimeout> | undefined;
-  private refreshing = false;
+  /** The refresh underway, if one is. */
+  private inflight: Promise<RepositoryState> | undefined;
   private refreshPending = false;
   private lastRefreshAt = 0;
   private actionRunning = false;
   private autoFetchTimer: ReturnType<typeof setInterval> | undefined;
+  /** The periodic fetch underway, if one is — an action waits for it rather than being refused. */
+  private autoFetching: Promise<void> | undefined;
   /**
-   * Each remote's url, read when the project opens and again after it is changed here. Not
-   * part of a refresh: a url changes about never, and a refresh costs the git processes it
-   * starts.
+   * Each remote's url, read when the project opens and again after `.git/config` changed —
+   * that is where a remote is added or repointed, here or in a terminal. Not part of every
+   * refresh: a url changes about never, and a refresh costs the git processes it starts.
    */
   private remoteUrls: Record<string, string> = {};
+  private remoteUrlsStale = false;
   /** Checked once when the project opens; without it there is nothing to read or watch. */
   private isGit = false;
   /** The project was closed; anything still in flight stops short of reporting. */
@@ -120,17 +124,21 @@ export class Repository {
   }
 
   async start(): Promise<void> {
-    this.isGit = await git.isRepository(this.project.path).catch(() => false);
+    // All three at once: each is a git start (~350ms measured), and back to back that was a
+    // second before the pane showed anything. readState on a folder that is no repository
+    // answers with an error, which is thrown away with everything else read there.
+    const [isGit, urls, read] = await Promise.all([
+      git.isRepository(this.project.path).catch(() => false),
+      git.readRemoteUrls(this.project.path).catch(() => ({})),
+      this.read()
+    ]);
+    this.isGit = isGit;
     if (!this.isGit) {
-      const next = { ...EMPTY_REPOSITORY_STATE, error: "Not a git repository" };
-      this.reportError(next);
-      this.state = next;
-      this.stateJson = JSON.stringify(next);
-      this.onState(next);
+      this.emit({ ...EMPTY_REPOSITORY_STATE, error: "Not a git repository" });
       return;
     }
-    await this.loadRemoteUrls();
-    await this.refresh();
+    this.remoteUrls = urls;
+    this.emit(read);
     // Closed while the first refresh ran (seconds, on a large tree): a watcher and a fetch
     // interval started now would have nothing left to close them.
     if (this.disposed) {
@@ -141,6 +149,7 @@ export class Repository {
   }
 
   private async loadRemoteUrls(): Promise<void> {
+    this.remoteUrlsStale = false;
     this.remoteUrls = await git.readRemoteUrls(this.project.path).catch(() => ({}));
   }
 
@@ -148,55 +157,68 @@ export class Repository {
    * The periodic fetch. Silent when it fails: a remote whose credentials nobody entered, or a
    * machine that is offline, would otherwise put the same notice up every ten minutes for
    * something the user never asked for. A fetch they *did* ask for reports like anything else.
+   *
+   * It does not take the action slot: an action clicked while it runs waits for it instead of
+   * being refused with a message about a command nobody started.
    */
   private async autoFetch(): Promise<void> {
-    if (this.actionRunning || this.state.remotes.length === 0) {
+    if (this.actionRunning || this.autoFetching || this.state.remotes.length === 0) {
       return;
     }
-    this.actionRunning = true;
-    try {
-      await git.fetch(this.project.path).catch(() => undefined);
-      await this.refresh();
-    } finally {
-      this.actionRunning = false;
-    }
+    this.autoFetching = git
+      .fetch(this.project.path)
+      .catch(() => undefined)
+      .then(() => this.refresh())
+      .then(
+        () => undefined,
+        () => undefined
+      )
+      .finally(() => {
+        this.autoFetching = undefined;
+      });
+    await this.autoFetching;
   }
 
+  /** What git says the repository is right now; a dead git process is an error like any other. */
+  private read(): Promise<RepositoryState> {
+    // readState answers with an error rather than throwing; what can still reject is the
+    // git process having gone away underneath it, and that is worth saying out loud.
+    return git.readState(this.project.path).catch((error: Error) => ({
+      ...EMPTY_REPOSITORY_STATE,
+      error: error.message
+    }));
+  }
+
+  /**
+   * Refreshes now — *after* the one already underway, if any, since that one may have read a
+   * tree the caller was still changing: a commit's `add --all` wakes the watcher while the
+   * `commit` still runs, and the state that refresh reports is the staged, uncommitted one.
+   * Coming back only through the schedule left the pane showing it for two more seconds
+   * after the progress bar had stopped.
+   */
   async refresh(): Promise<RepositoryState> {
+    while (this.inflight) {
+      await this.inflight;
+    }
+    // Whatever the watcher was waiting to see, this run sees.
+    this.refreshPending = false;
+    return this.runRefresh();
+  }
+
+  private runRefresh(): Promise<RepositoryState> {
     if (!this.isGit || this.disposed) {
-      return this.state;
+      return Promise.resolve(this.state);
     }
-    if (this.refreshing) {
-      this.refreshPending = true;
-      return this.state;
-    }
-    this.refreshing = true;
     countActivity("git");
-    try {
-      // readState answers with an error rather than throwing; what can still reject is the
-      // git process having gone away underneath it, and that is worth saying out loud.
-      const read = await git.readState(this.project.path).catch((error: Error) => ({
-        ...EMPTY_REPOSITORY_STATE,
-        error: error.message
-      }));
-      // The urls are this side's; the refresh does not spend a process on them.
-      const next: RepositoryState = {
-        ...read,
-        remotes: read.remotes.map((remote) => ({ ...remote, url: this.remoteUrls[remote.name] }))
-      };
-      this.reportError(next);
-      // Only emit on an actual change: the watcher fires for plenty of edits that leave the
-      // state identical, and every emit re-renders the views. And not at all once the project
-      // is closed — this call was already in flight when it went.
-      const nextJson = JSON.stringify(next);
-      if (!this.disposed && nextJson !== this.stateJson) {
-        this.state = next;
-        this.stateJson = nextJson;
-        this.onState(next);
+    this.inflight = (async () => {
+      if (this.remoteUrlsStale) {
+        await this.loadRemoteUrls();
       }
+      const next = await this.read();
+      this.emit(next);
       return next;
-    } finally {
-      this.refreshing = false;
+    })().finally(() => {
+      this.inflight = undefined;
       this.lastRefreshAt = Date.now();
       if (this.refreshPending && !this.disposed) {
         this.refreshPending = false;
@@ -204,18 +226,55 @@ export class Repository {
         // change this was an unbroken chain of git processes, with the debounce bypassed.
         this.scheduleRefresh();
       }
+    });
+    return this.inflight;
+  }
+
+  /**
+   * Takes what a read reported as the state, remotes completed from this side: every configured
+   * remote's url, and the remote itself where it has no remote-tracking refs yet — an empty
+   * repository just cloned, or `git remote add` in a terminal — since `for-each-ref` cannot
+   * name it, and without it there would be nothing to push to. `origin` goes first, since the
+   * first remote is the one every command that names one uses.
+   */
+  private emit(read: RepositoryState): void {
+    const names = new Set([...read.remotes.map((remote) => remote.name), ...Object.keys(this.remoteUrls)]);
+    const remotes = [...names]
+      .sort((a, b) => Number(b === "origin") - Number(a === "origin"))
+      .map((name) => ({
+        name,
+        branches: read.remotes.find((remote) => remote.name === name)?.branches ?? [],
+        url: this.remoteUrls[name]
+      }));
+    const next: RepositoryState = { ...read, remotes };
+    this.reportError(next);
+    // Only emit on an actual change: the watcher fires for plenty of edits that leave the
+    // state identical, and every emit re-renders the views. And not at all once the project
+    // is closed — this call was already in flight when it went.
+    const nextJson = JSON.stringify(next);
+    if (!this.disposed && nextJson !== this.stateJson) {
+      this.state = next;
+      this.stateJson = nextJson;
+      this.onState(next);
     }
   }
 
   /**
    * Refreshes once the events have settled, and never sooner than REFRESH_MIN_INTERVAL_MS
    * after the last one finished. Only the watcher goes through here — a refresh the user
-   * asked for runs at once.
+   * asked for runs at once. One already underway is not joined: it will have read what the
+   * watcher saw, or it schedules this again when it has not.
    */
   private scheduleRefresh(): void {
     clearTimeout(this.debounceTimer);
     const delay = Math.max(REFRESH_DEBOUNCE_MS, this.lastRefreshAt + REFRESH_MIN_INTERVAL_MS - Date.now());
-    this.debounceTimer = setTimeout(() => void this.refresh(), delay);
+    this.debounceTimer = setTimeout(() => {
+      if (this.inflight) {
+        this.refreshPending = true;
+        return;
+      }
+      void this.runRefresh();
+    }, delay);
   }
 
   /**
@@ -224,6 +283,11 @@ export class Repository {
    * a second one while the first runs; anything that gets here anyway is refused.
    */
   private async runAction(action: () => Promise<GitActionResult>): Promise<GitActionResult> {
+    // The periodic fetch holds the lock too, for as long as an unreachable host takes to time
+    // out; a click during that waits rather than fails.
+    while (this.autoFetching) {
+      await this.autoFetching;
+    }
     if (this.actionRunning) {
       return { ok: false, error: "A git command is already running for this repository" };
     }
@@ -268,8 +332,8 @@ export class Repository {
   }
 
   /**
-   * The remote every command that names one uses: the first, which is "origin" in all but a
-   * handful of repositories and is what GitHub Desktop picks too.
+   * The remote every command that names one uses: the first, which `emit` makes "origin"
+   * wherever there is one — what GitHub Desktop picks too.
    */
   private get remote(): string | undefined {
     return this.state.remotes[0]?.name;
@@ -459,6 +523,9 @@ export class Repository {
         // Events are arriving, so whatever went wrong before is over — the next failure backs
         // off from the bottom again rather than from where the last one left the delay.
         this.watchRetryDelay = WATCH_RETRY_MS;
+        if (name && /^\.git[\\/]config$/.test(name)) {
+          this.remoteUrlsStale = true;
+        }
         if (name === COMMANDS_FILE) {
           // Debounced like the refresh: the file is written in place, and a read landing
           // between the events of one write would find half a file.

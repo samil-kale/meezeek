@@ -20,6 +20,7 @@ interface DiffViewProps {
 /** Context lines a gap was filled with, keyed by the index of the hunk header it sits above. */
 type OpenedGaps = Record<number, DiffLine[]>;
 const NO_GAPS: OpenedGaps = {};
+const NO_TOKENS: (ThemedToken[] | undefined)[] = [];
 
 /**
  * One style object per colour, shared by every token drawn in it: a diff holds tens of
@@ -87,8 +88,16 @@ export function DiffView({
   onBusy,
   ignoreWhitespace
 }: DiffViewProps) {
-  /** One token list per line of the diff, once the grammar has been loaded and run. */
-  const [colored, setColored] = useState<(ThemedToken[] | undefined)[]>([]);
+  /**
+   * One token list per line of the diff, once the grammar has been loaded and run. Keyed to
+   * the diff it was made for, like the gaps below: the render that first shows a new diff —
+   * another file, a gap just opened — must not put the old one's tokens on the new one's lines
+   * for the frame before the effect below empties them. Text from another file, for a frame.
+   */
+  const [colored, setColored] = useState<{ of: FileDiff | null; tokens: (ThemedToken[] | undefined)[] }>({
+    of: null,
+    tokens: NO_TOKENS
+  });
   const [highlighting, setHighlighting] = useState(false);
   // A gap belongs to the diff it was opened in — a reload, or another file, closes it again.
   // Keyed to that diff rather than reset in an effect, so the render that first sees a new
@@ -117,8 +126,8 @@ export function DiffView({
   // Colors arrive after the diff itself: bringing up the highlighter and its grammar is
   // asynchronous, so the diff is on screen as plain text first and repaints once. Opening a
   // gap goes through here as well, so the lines it added are colored like the rest.
+  const tokens = colored.of === shown ? colored.tokens : NO_TOKENS;
   useEffect(() => {
-    setColored([]);
     setHighlighting(shown !== null);
     if (!shown) {
       return;
@@ -129,7 +138,7 @@ export function DiffView({
         return;
       }
       if (tokens) {
-        setColored(tokens);
+        setColored({ of: shown, tokens });
       }
       setHighlighting(false);
     });
@@ -202,7 +211,9 @@ export function DiffView({
       const at = source;
       const gap = line.type === "hunk" && !gaps[at] ? gapBefore(diff.lines, at) : undefined;
       return (
-        <div key={index} className={`diff-line ${line.type}`}>
+        // Keyed by position in the file rather than in the list: a gap opened above shifts every
+        // index below it, which would rebuild those rows instead of moving them.
+        <div key={`${line.type}:${line.oldLine ?? ""}:${line.newLine ?? ""}`} className={`diff-line ${line.type}`}>
           {gap ? (
             <button
               className="diff-unfold"
@@ -217,7 +228,7 @@ export function DiffView({
           <span className="diff-gutter">{line.type === "hunk" ? "" : (line.newLine ?? "")}</span>
           <span className="diff-marker">{line.type === "add" ? "+" : line.type === "del" ? "-" : ""}</span>
           <span className="diff-text">
-            {colored[index]?.map((token, position) => (
+            {tokens[index]?.map((token, position) => (
               <span key={position} style={colorStyle(token.color)}>
                 {token.content}
               </span>
@@ -226,7 +237,7 @@ export function DiffView({
         </div>
       );
     });
-  }, [diff, shown, gaps, colored, hunkIndices, openGap]);
+  }, [diff, shown, gaps, tokens, hunkIndices, openGap]);
 
   // Empty while one is being read, and nothing that says so: the dialog's own bar under its
   // title is what reports that.

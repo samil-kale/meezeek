@@ -236,18 +236,32 @@ export function suggestCommands(
 ): Promise<ProjectCommand[]> {
   const { command, args: resolved } = resolveCommand(executable, args);
   return new Promise((resolve, reject) => {
+    let timedOut = false;
     const child = execFile(
       command,
       resolved,
-      { cwd: root, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8", timeout: SUGGEST_TIMEOUT_MS },
+      { cwd: root, maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8" },
       (error, stdout, stderr) => {
+        clearTimeout(timer);
         if (error && !stdout.includes("[")) {
-          reject(new Error((stderr.trim() || error.message).slice(0, MAX_OUTPUT)));
+          const reason = timedOut ? "The agent did not answer in time" : stderr.trim() || error.message;
+          reject(new Error(reason.slice(0, MAX_OUTPUT)));
           return;
         }
         resolve(parseSuggestions(stdout));
       }
     );
+    // Not execFile's own `timeout`: on win32 the CLI is a `.cmd` shim behind cmd.exe, and that
+    // only kills cmd.exe — the CLI it started keeps stdout open, and the callback above waits
+    // for it as long as it takes. taskkill takes the tree.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (process.platform === "win32" && child.pid !== undefined) {
+        execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => undefined);
+      } else {
+        child.kill();
+      }
+    }, SUGGEST_TIMEOUT_MS);
     // A CLI that exits before reading (not installed, wrong version) closes the pipe under
     // the write; that surfaces in the callback above, not here.
     child.stdin?.on("error", () => undefined);

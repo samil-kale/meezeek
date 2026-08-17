@@ -127,12 +127,14 @@ interface FrameProps {
   disabled?: boolean;
   /** See PromptOptions.wide. */
   wide?: boolean;
+  /** The confirm button takes the focus, for a dialog with no field of its own to take it. */
+  focusSubmit?: boolean;
   onSubmit: () => void;
   onCancel: () => void;
   children: React.ReactNode;
 }
 
-function Frame({ title, confirmLabel, disabled, wide, onSubmit, onCancel, children }: FrameProps) {
+function Frame({ title, confirmLabel, disabled, wide, focusSubmit, onSubmit, onCancel, children }: FrameProps) {
   return (
     <div className="dialog-overlay">
       {/* A form, so Enter answers from wherever the focus sits — the field or the checkbox. */}
@@ -151,7 +153,7 @@ function Frame({ title, confirmLabel, disabled, wide, onSubmit, onCancel, childr
           <button type="button" className="button secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="button" disabled={disabled}>
+          <button type="submit" className="button" disabled={disabled} autoFocus={focusSubmit}>
             {confirmLabel}
           </button>
         </div>
@@ -166,6 +168,9 @@ function ConfirmDialog({ dialog }: { dialog: Extract<Pending, { kind: "confirm" 
     <Frame
       title={dialog.title}
       confirmLabel={dialog.confirmLabel}
+      // Opened from a context menu, the focus would otherwise stay wherever it was — a terminal,
+      // whose keys keep going there — and Enter would answer nothing.
+      focusSubmit
       onSubmit={() => dialog.answer({ confirmed: true, checked })}
       onCancel={() => dialog.answer({ confirmed: false, checked: false })}
     >

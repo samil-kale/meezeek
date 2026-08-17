@@ -100,7 +100,8 @@ exit 0
 export function watchMarkers(
   storageDir: string,
   kind: Marker,
-  onMarker: (sessionId: string) => void
+  /** `at` is the marker's mtime — when the hook wrote it, not when it was found. */
+  onMarker: (sessionId: string, at: number) => void
 ): () => void {
   const dir = markerDir(storageDir, kind);
   let stopped = false;
@@ -114,15 +115,21 @@ export function watchMarkers(
       return;
     }
     for (const name of names) {
+      let at: number;
       try {
+        const file = path.join(dir, name);
+        // The time it was written travels with the report: the three kinds are watched and
+        // swept separately, so a `busy` the watcher missed can be found *after* the `finished`
+        // of the same short turn, and the reader needs to know which came first.
+        at = (await fs.promises.stat(file)).mtimeMs;
         // Not `force`: a marker gone by now raises ENOENT here, and an unlink that did not
         // happen is not a turn to report.
-        await fs.promises.unlink(path.join(dir, name));
+        await fs.promises.unlink(file);
       } catch {
         continue;
       }
       if (report && !stopped) {
-        onMarker(name);
+        onMarker(name, at);
       }
     }
   };
@@ -137,6 +144,9 @@ export function watchMarkers(
   let watcher: fs.FSWatcher | undefined;
   try {
     watcher = fs.watch(dir, () => queueDrain(true));
+    // Unhandled, an `error` (the directory removed underneath it, on win32) takes the main
+    // process down; the sweep below carries on without the watcher.
+    watcher.on("error", (error) => console.error(`[tet] ${kind} marker watcher failed in ${dir}:`, error));
   } catch (error) {
     console.error(`[tet] could not watch ${kind} markers in ${dir}:`, error);
   }

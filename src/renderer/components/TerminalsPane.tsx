@@ -44,6 +44,7 @@ function useDividerFraction(projectId: string, name: string, initial: number): [
     },
     [storageKey]
   );
+  useEffect(() => () => clearTimeout(persist.current), []);
   return [fraction, set];
 }
 
@@ -201,7 +202,10 @@ export const TerminalsPane = memo(function TerminalsPane({
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+    // Re-seeded when the project comes on screen: hidden (`display: none`) it measured zero,
+    // and the observer's callback comes after the paint that a restored split would otherwise
+    // draw one frame at minimum widths.
+  }, [visible]);
 
   // Everything a `Pane` takes is kept stable across renders that do not change it, or its memo
   // would be switched off — a focus change, a spinner starting in another pane, a resize of the
@@ -332,7 +336,10 @@ export const TerminalsPane = memo(function TerminalsPane({
       orientation={orientation}
       size={pixels}
       min={min}
-      minOther={minOther}
+      // Sash clamps against its own container, the whole grid, while `containerSize` may be only
+      // the room left of it (cols3's second divider shares what "a" left) — the rest of the grid
+      // is "other" too, or dragging back from that edge first works off an overshoot.
+      minOther={minOther + ((orientation === "vertical" ? gridSize?.width : gridSize?.height) ?? 0) - (containerSize ?? 0)}
       // A drag reports itself in pixels — turned back into a fraction of the same room
       // `pixelsFor` measured it against, and through the same bounds, so the two never disagree
       // about what "half" means and a share never gets stored that the room cannot show.

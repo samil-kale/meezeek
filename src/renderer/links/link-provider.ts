@@ -49,6 +49,13 @@ interface LinkSegment {
 export function createModifierGatedLinkProvider(
   terminal: Terminal,
   regex: RegExp,
+  /**
+   * A substring every match of `regex` contains. The window a row is matched in runs to 2048
+   * space-free characters, and both regexes here backtrack through every alphanumeric run in
+   * it — quadratic on a wrapped base64 blob or minified line, on every render the pointer
+   * rests over one. `includes` is linear and rules such a window out first.
+   */
+  anchor: string,
   onActivate: (text: string) => void,
   resolveWrapped?: WrappedUrlResolver
 ): ILinkProvider {
@@ -56,7 +63,7 @@ export function createModifierGatedLinkProvider(
   const rex = new RegExp(regex.source, (regex.flags || "") + "g");
   return {
     provideLinks(bufferLineNumber, callback) {
-      callback(computeLinks(bufferLineNumber, terminal, rex, onActivate, resolveWrapped));
+      callback(computeLinks(bufferLineNumber, terminal, rex, anchor, onActivate, resolveWrapped));
     }
   };
 }
@@ -65,11 +72,15 @@ function computeLinks(
   y: number,
   terminal: Terminal,
   rex: RegExp,
+  anchor: string,
   onActivate: (text: string) => void,
   resolveWrapped?: WrappedUrlResolver
 ): ILink[] {
   const [lines, startLineIndex, offsets] = getWindowedLineStrings(y - 1, terminal);
   const line = lines.join("");
+  if (!line.includes(anchor)) {
+    return [];
+  }
 
   const result: ILink[] = [];
   let match;
@@ -303,7 +314,8 @@ function buildLink(
       // next microtask, by which point the proxy is installed.
       queueMicrotask(() => setDecorations(isModifierHeld(event)));
       onKeyDown = (e) => {
-        if (isModifierKey(e)) {
+        // A held modifier auto-repeats; each repeat would redraw the underline from scratch.
+        if (isModifierKey(e) && !e.repeat) {
           setDecorations(true);
         }
       };

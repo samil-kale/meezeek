@@ -11,6 +11,8 @@ import { buildXtermTheme } from "./theme";
 interface TerminalView {
   term: Terminal;
   fit: FitAddon;
+  /** The size last reported to the pty, so a fit that changed nothing does not report again. */
+  sent?: { cols: number; rows: number };
 }
 
 /**
@@ -303,10 +305,12 @@ export function attachTerminal(projectId: string, tabId: string, agentId: AgentI
   });
   container.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-    if (agentId === "shell") {
-      // A plain shell never turns on xterm's mouse reporting, so unlike the agent CLIs below,
-      // nothing reads the right click on its own — tet has to supply the usual terminal
-      // convention itself: copy a selection, or paste when there is none.
+    if (agentId === "shell" || agentId === "codex") {
+      // A plain shell never turns on xterm's mouse reporting, so nothing reads the right click
+      // on its own — tet has to supply the usual terminal convention itself: copy a selection,
+      // or paste when there is none. Codex's TUI deliberately leaves the mouse to the terminal
+      // too (github.com/openai/codex#8344), unlike Claude Code and opencode below, so the same
+      // convention applies to it.
       const selection = view.term.getSelection();
       if (selection) {
         void navigator.clipboard.writeText(selection);
@@ -339,7 +343,14 @@ export function fitTerminal(projectId: string, tabId: string): void {
     return;
   }
   view.fit.fit();
-  window.tet.terminals.resize(projectId, tabId, view.term.cols, view.term.rows);
+  // Every tab and project switch fits twice — the effect that follows the selection and the
+  // ResizeObserver's initial notification — and a same-size resize still repaints the CLI.
+  const { cols, rows } = view.term;
+  if (view.sent?.cols === cols && view.sent.rows === rows) {
+    return;
+  }
+  view.sent = { cols, rows };
+  window.tet.terminals.resize(projectId, tabId, cols, rows);
 }
 
 export function focusTerminal(projectId: string, tabId: string): void {

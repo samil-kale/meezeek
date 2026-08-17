@@ -198,7 +198,8 @@ async function readRefs(
   // Every remote-tracking ref's own commit, so a diverged local branch can be diffed against it
   // by hash rather than by name — the same ref could in principle also be a tag.
   const remoteHeads = new Map<string, string>();
-  let defaultBranch: string | undefined;
+  // Per remote, since the refs come sorted and "backup/HEAD" would otherwise beat "origin/HEAD".
+  const defaultBranches = new Map<string, string>();
   const diverged: { name: string; head: string; upstream: string }[] = [];
 
   for (const line of result.stdout.split("\n")) {
@@ -227,9 +228,10 @@ async function readRefs(
     // worth keeping: the branch "Update from ..." merges in.
     const separator = remoteRef.indexOf("/");
     if (separator < 0 || remoteRef.endsWith("/HEAD")) {
-      const prefix = `refs/remotes/${remoteRef.slice(0, separator)}/`;
-      if (!defaultBranch && separator > 0 && symref.startsWith(prefix)) {
-        defaultBranch = symref.slice(prefix.length);
+      const remote = remoteRef.slice(0, separator);
+      const prefix = `refs/remotes/${remote}/`;
+      if (separator > 0 && symref.startsWith(prefix)) {
+        defaultBranches.set(remote, symref.slice(prefix.length));
       }
       continue;
     }
@@ -258,7 +260,7 @@ async function readRefs(
   return {
     localBranches,
     tags,
-    defaultBranch,
+    defaultBranch: defaultBranches.get("origin") ?? defaultBranches.values().next().value,
     branchTrack,
     remotes: [...remotes].map(([name, branches]) => ({ name, branches }))
   };
@@ -435,8 +437,6 @@ const NETWORK_ENV: NodeJS.ProcessEnv = {
   // the line above is trying to prevent.
   GIT_ASKPASS: "",
   SSH_ASKPASS: "",
-  // Keeps a host key it has never seen from turning into a question nobody can answer.
-  GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
   // git translates its own messages, and the two below are matched as text. Pinned to C, or a
   // machine with LANG=de_DE answers "Authentifizierung fehlgeschlagen" and matches neither.
   LC_ALL: "C"
@@ -446,15 +446,44 @@ const NETWORK_ENV: NodeJS.ProcessEnv = {
  * The two messages that mean git stopped for want of credentials. There is no exit code for
  * it — every fatal error of a clone is 128 — so this reads the message, the way GitHub Desktop
  * maps git's stderr onto its own error codes. Both are git's own and read the same whatever
- * host answered: `GIT_TERMINAL_PROMPT=0` above produces the first, a 401 or 403 the second.
+ * host answered: `GIT_TERMINAL_PROMPT=0` above produces the first (asking for the password
+ * alone when the url already carries a user), a 401 or 403 the second.
  *
  * A repository git could not find is deliberately not in here: GitHub and GitLab answer 404
  * for a private repository *and* for a typo, so credentials would be a guess.
  */
-const AUTH_FAILURES = [/could not read Username/i, /Authentication failed/i];
+const AUTH_FAILURES = [/could not read (?:Username|Password)/i, /Authentication failed/i];
+
+/**
+ * `core.sshCommand`, remembered per working directory: a setting that changes about never,
+ * read once so no network command spends a second process on it.
+ */
+const sshCommands = new Map<string, Promise<string>>();
+
+/**
+ * `NETWORK_ENV` plus an ssh that never asks — `-oBatchMode=yes` keeps a host key ssh has never
+ * seen from turning into a question nobody can answer. Only where the user has not chosen an
+ * ssh of their own: `GIT_SSH_COMMAND` outranks both `GIT_SSH` and `core.sshCommand`, so setting
+ * it blindly turned a working plink or `ssh -i work_key` setup into "Permission denied" for
+ * every command from here — and a program that is not OpenSSH would not know the flag anyway.
+ */
+async function networkEnv(cwd: string): Promise<NodeJS.ProcessEnv> {
+  if (process.env.GIT_SSH || process.env.GIT_SSH_COMMAND) {
+    return NETWORK_ENV;
+  }
+  let configured = sshCommands.get(cwd);
+  if (!configured) {
+    configured = git(cwd, ["config", "--get", "core.sshCommand"]).then(
+      (result) => (result.code === 0 ? result.stdout.trim() : ""),
+      () => ""
+    );
+    sshCommands.set(cwd, configured);
+  }
+  return (await configured) ? NETWORK_ENV : { ...NETWORK_ENV, GIT_SSH_COMMAND: "ssh -oBatchMode=yes" };
+}
 
 async function runNetwork(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitActionResult> {
-  const result = await run(cwd, args, { ...NETWORK_ENV, ...env });
+  const result = await run(cwd, args, { ...(await networkEnv(cwd)), ...env });
   if (result.ok || !AUTH_FAILURES.some((pattern) => pattern.test(result.error ?? ""))) {
     return result;
   }
@@ -510,14 +539,23 @@ const ASKPASS_SCRIPT = [
 
 let askpassPath: Promise<string> | undefined;
 
+/**
+ * Written once per process, into a directory of its own: a fixed name under a shared /tmp can
+ * already belong to another user, and the rename then fails — for good, were that rejection
+ * kept.
+ */
 function ensureAskpass(): Promise<string> {
   askpassPath ??= (async () => {
-    const file = path.join(os.tmpdir(), "tet-askpass.sh");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tet-askpass-"));
+    const file = path.join(dir, "askpass.sh");
     const temp = `${file}.${process.pid}`;
     await fs.writeFile(temp, ASKPASS_SCRIPT, { encoding: "utf8", mode: 0o755 });
     await fs.rename(temp, file);
     return file;
-  })();
+  })().catch((error: unknown) => {
+    askpassPath = undefined;
+    throw error;
+  });
   return askpassPath;
 }
 
@@ -752,6 +790,12 @@ function parseUnifiedDiff(text: string): { lines: DiffLine[]; truncated: boolean
   let inHunk = false;
 
   for (const raw of text.split("\n")) {
+    // A second file section (a rename git was told not to detect: one deletion, one addition)
+    // starts with headers again, whose `---`/`+++` lines must not read as content.
+    if (raw.startsWith("diff --git ")) {
+      inHunk = false;
+      continue;
+    }
     const header = HUNK_HEADER.exec(raw);
     if (header) {
       oldLine = Number(header[1]);

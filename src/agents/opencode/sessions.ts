@@ -9,7 +9,12 @@ export const opencodeSessionProvider: SessionProvider = {
   async list(executable: string, cwd: string): Promise<AgentSessionInfo[]> {
     try {
       const server = await ensureServer(executable, cwd);
-      const entries = (await (await server.request("/session", cwd)).json()) as {
+      // `roots`: only conversations, not the child sessions a subagent (the task tool) ran in
+      // — those share the directory and would each become a tab of their own; opencode's own
+      // `session list` and picker ask the same. And a limit well above its default of 100,
+      // which silently dropped the oldest sessions from the tabs. Both verified in the binary
+      // (`Session.list`, the `GET /session` query schema).
+      const entries = (await (await server.request("/session?roots=true&limit=10000", cwd)).json()) as {
         id?: unknown;
         title?: unknown;
         time?: { updated?: unknown; created?: unknown };

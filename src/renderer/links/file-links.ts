@@ -18,5 +18,5 @@ const FILE_PATH_REGEX =
   /(?:(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/])(?:[\w@.+-]+[\\/])*|(?:[\w@.+-]+[\\/])+)[\w@+-][\w@.+-]*\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,10}|[\w@+-]{2,}[\w@.+-]*\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,10}/;
 
 export function createFileLinkProvider(terminal: Terminal, onOpenFile: (path: string) => void): ILinkProvider {
-  return createModifierGatedLinkProvider(terminal, FILE_PATH_REGEX, onOpenFile);
+  return createModifierGatedLinkProvider(terminal, FILE_PATH_REGEX, ".", onOpenFile);
 }

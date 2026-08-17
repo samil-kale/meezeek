@@ -86,9 +86,13 @@ export interface AgentPaths {
    *
    * A session id, not a tab id: an agent knows nothing about tabs. One that has no tab yet is
    * held until the next reconcile claims it, so a fresh session's first turn is not lost.
+   *
+   * `at` is when the agent *made* the report, where that is known (a marker file's mtime);
+   * a report older than the last one applied to its session is dropped, since markers of the
+   * three kinds are watched separately and can arrive out of order. Left out, it is now.
    */
-  onSessionBusy(sessionId: string): void;
-  onSessionFinished(sessionId: string): void;
+  onSessionBusy(sessionId: string, at?: number): void;
+  onSessionFinished(sessionId: string, at?: number): void;
   /**
    * The turn stopped part-way on a question only the user can answer — a permission prompt, an
    * elicitation, or `AskUserQuestion`. Reported through the same path and held the same way as
@@ -99,7 +103,7 @@ export interface AgentPaths {
    * would cost a hook process on every tool call. The mark is cleared by being looked at, and
    * by either end of the turn — see setTurn.
    */
-  onSessionWaiting(sessionId: string): void;
+  onSessionWaiting(sessionId: string, at?: number): void;
 }
 
 /**

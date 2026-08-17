@@ -136,6 +136,8 @@ function AccountForm({ onAdded }: AccountFormProps) {
     );
   };
 
+  const canSubmit = host.trim() !== "" && token.trim() !== "" && !busy;
+
   const submit = async (): Promise<void> => {
     setBusy(true);
     try {
@@ -159,7 +161,20 @@ function AccountForm({ onAdded }: AccountFormProps) {
       </label>
       <label className="dialog-field">
         <span>Personal access token</span>
-        <input type="password" value={token} onChange={(event) => setToken(event.target.value)} />
+        <input
+          type="password"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          // Enter here means this form, not the dialog's — whose own submit does nothing in this mode.
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              if (canSubmit) {
+                void submit();
+              }
+            }
+          }}
+        />
       </label>
       {/* Its own row rather than the dialog's: the dialog's Cancel closes the whole thing,
           while leaving this form is done by clicking an account on the left. */}
@@ -167,7 +182,7 @@ function AccountForm({ onAdded }: AccountFormProps) {
         <button
           type="button"
           className="button"
-          disabled={host.trim() === "" || token.trim() === "" || busy}
+          disabled={!canSubmit}
           onClick={() => void submit()}
         >
           {busy && <SpinnerIcon className="spinning" />}
@@ -551,7 +566,7 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
 
   useEscape(onClose);
 
-  const folderName = name ?? cloneFolder(url);
+  const folderName = name ?? cloneFolder(url.trim());
   // With no account for this host there is nothing to switch to, so the token is what applies
   // however the switch stands.
   const authWith: CloneAuthMode = authAccounts?.length ? authMode : "token";
@@ -601,15 +616,12 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
   const submit = async (): Promise<void> => {
     setBusy(true);
     try {
-      if (mode === "add") {
-        onAdded(await window.tet.projects.open(directory.trim()));
-        onClose();
-        return;
-      }
       const result =
-        mode === "clone"
-          ? await cloneRepository()
-          : await window.tet.projects.create(directory.trim(), folderName.trim());
+        mode === "add"
+          ? await window.tet.projects.open(directory.trim())
+          : mode === "clone"
+            ? await cloneRepository()
+            : await window.tet.projects.create(directory.trim(), folderName.trim());
       if (result.project) {
         onAdded(result.project);
         onClose();
@@ -638,6 +650,10 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
     setUrl(repo.cloneUrl);
     setName(repo.name);
     setAccountId(fromAccountId);
+    // A credentials block a previous url put up belongs to that url: left standing, it would
+    // hold this clone back for a token and then use that instead of the row's own account.
+    setAuthAccounts(null);
+    setToken("");
     setMode("clone");
   };
 

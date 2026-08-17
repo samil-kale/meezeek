@@ -67,23 +67,55 @@ export function forgetServer(pid: number): void {
   write();
 }
 
+/** How long a killed server is given to actually go before the reclaim stops waiting for it. */
+const KILL_WAIT_MS = 5000;
+
 /**
  * On win32 resolveCommand routes a shim install (`opencode.cmd`) through cmd.exe, and killing
  * the process would only take down that wrapper — verified: the server keeps running, and once
  * its parent is gone it can no longer be reached through the process tree either. So kill the
- * tree instead of the process, while the tree still exists.
+ * tree instead of the process, while the tree still exists. The npm install on the other two
+ * platforms is the same shape — a node launcher in front of the binary — so there the server
+ * is spawned into a process group of its own (see `boot`) and the group is what is signalled.
+ *
+ * Resolves once the process is gone, or the wait is up: the reclaim clears the file on it,
+ * and a server still shutting down holds the very database the next one is about to open.
  */
-export function killServerTree(pid: number): void {
+export function killServerTree(pid: number): Promise<void> {
   if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", windowsHide: true })
-      // A child that could not be spawned emits this, and unhandled it takes the process down.
-      .on("error", (error) => console.error("[tet] taskkill failed:", error));
-    return;
+    return new Promise((resolve) => {
+      spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", windowsHide: true })
+        // A child that could not be spawned emits this, and unhandled it takes the process down.
+        .on("error", (error) => {
+          console.error("[tet] taskkill failed:", error);
+          resolve();
+        })
+        .on("exit", () => resolve());
+    });
   }
   try {
-    process.kill(pid);
+    process.kill(-pid);
   } catch {
-    // Already gone, which is what we wanted.
+    // Not a group of its own — a server an older run recorded — or already gone.
+    try {
+      process.kill(pid);
+    } catch {
+      return Promise.resolve();
+    }
+  }
+  return waitGone(pid);
+}
+
+async function waitGone(pid: number): Promise<void> {
+  const deadline = Date.now() + KILL_WAIT_MS;
+  while (Date.now() < deadline) {
+    try {
+      // Signal 0 sends nothing and only asks whether the pid still exists.
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
@@ -91,7 +123,7 @@ async function killOrphans(orphans: ServerRecord[]): Promise<void> {
   await Promise.all(
     orphans.map(async (orphan) => {
       if (await isOurs(orphan)) {
-        killServerTree(orphan.pid);
+        await killServerTree(orphan.pid);
       }
     })
   );

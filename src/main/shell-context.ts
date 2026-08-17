@@ -103,10 +103,15 @@ const MAX_CARRY = 4096;
  * end anywhere, and a chunk ending in the `\r` of a `\r\n` would lose its whole line to the
  * carriage-return rule, while an escape sequence split in two would leave both halves in the
  * log. Everything from that point on waits for the next chunk.
+ *
+ * A line still being written waits whole, up to that same limit: a progress bar redrawn with
+ * `\r` across a chunk boundary would otherwise leave both drawings in the log, the very thing
+ * the carriage-return rule is there to prevent. (A `\r` at the very end is that case too.)
  */
 function carryFrom(data: string): number {
-  if (data.endsWith("\r")) {
-    return data.length - 1;
+  const newline = data.lastIndexOf("\n");
+  if (data.length - newline - 1 < MAX_CARRY) {
+    return newline + 1;
   }
   const escape = data.lastIndexOf("\x1b");
   if (escape !== -1 && data.length - escape < MAX_CARRY && !ANSI_AT_START.test(data.slice(escape))) {
@@ -195,6 +200,11 @@ export class ShellContext {
 
   dispose(): void {
     clearTimeout(this.writeTimer);
+    // The line the last chunk left unfinished has no next chunk to wait for.
+    if (this.carry) {
+      this.log.append(cleanTerminalOutput(this.carry));
+      this.carry = "";
+    }
     this.log.flush();
   }
 }

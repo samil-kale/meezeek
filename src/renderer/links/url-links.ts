@@ -11,5 +11,5 @@ export function createUrlLinkProvider(
   onOpenUrl: (url: string) => void,
   resolveWrapped?: WrappedUrlResolver
 ): ILinkProvider {
-  return createModifierGatedLinkProvider(terminal, URL_REGEX, onOpenUrl, resolveWrapped);
+  return createModifierGatedLinkProvider(terminal, URL_REGEX, "://", onOpenUrl, resolveWrapped);
 }

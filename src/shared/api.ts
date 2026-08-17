@@ -51,8 +51,11 @@ export interface TETApi {
      * folder it opens in — a folder that is no longer there is ignored by the platform.
      */
     pickDirectory(title: string, defaultPath?: string): Promise<string | null>;
-    /** Opens the folder — or the repository it is a subdirectory of — as a project. */
-    open(directory: string): Promise<Project>;
+    /**
+     * Opens the folder — or the repository it is a subdirectory of — as a project. A folder
+     * that is not there is an error, the way a failed clone is.
+     */
+    open(directory: string): Promise<AddRepositoryResult>;
     /**
      * `git clone` into a new folder `name` inside `directory`, which becomes a project. With
      * an account, its token authenticates the clone — the remote tab's rows pass one.

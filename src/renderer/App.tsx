@@ -102,6 +102,13 @@ export function App() {
    */
   const [tabs, setTabs] = useState<Record<string, TerminalDescriptor[]>>({});
   /**
+   * The same, for the two layout callbacks below that only *read* it, on a click: depending on
+   * `tabs` would remake them — and through them every pane's props — on every push from any
+   * project, which is what the memo on the panes is there to prevent.
+   */
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  /**
    * Each project's split state: its preset, which pane is focused, which pane every open tab
    * belongs to, and each pane's own active tab. Held here rather than in `TerminalsPane` because
    * the shortcuts below and the marks/seen logic need to know what is on screen across every
@@ -118,12 +125,13 @@ export function App() {
    */
   const [starting, setStarting] = useState<Record<string, boolean>>({});
   /**
-   * The branch command in flight, if any, and what to call it while it runs — a checkout can
-   * take seconds on a large repository, and deleting on a remote goes to the network.
+   * The projects with a branch command in flight — a checkout can take seconds on a large
+   * repository, and deleting on a remote goes to the network. Per project, not one slot for the
+   * window: a fetch finishing in project A must not free B's tree while B's own still runs.
    */
-  const [branchAction, setBranchAction] = useState<{ projectId: string; label: string } | null>(null);
+  const [branchActions, setBranchActions] = useState<ReadonlySet<string>>(() => new Set());
   /** The same, read synchronously: a second double-click can land before a re-render does. */
-  const branchActionRef = useRef<{ projectId: string; label: string } | null>(null);
+  const branchActionsRef = useRef(new Set<string>());
   // Defaults and limits of the draggable panes. The one git pane shares the two below,
   // so they are held here rather than in each of them.
   const [sidebarWidth, setSidebarWidth] = usePaneSize("sidebar", 240, MIN_PANE_WIDTH);
@@ -356,22 +364,21 @@ export function App() {
    */
   const runBranchAction = useCallback(
     async (projectId: string, label: string, action: () => Promise<GitActionResult>) => {
-      if (branchActionRef.current?.projectId === projectId) {
+      if (branchActionsRef.current.has(projectId)) {
         return;
       }
       // Which project is working, not just that one is: the bar shows the active project, and
       // that may not be the one still busy when the user moves on.
-      const started = { projectId, label };
-      branchActionRef.current = started;
-      setBranchAction(started);
+      branchActionsRef.current.add(projectId);
+      setBranchActions(new Set(branchActionsRef.current));
       try {
         const result = await action();
         if (!result.ok) {
           notify("error", result.error ?? `${label} failed`);
         }
       } finally {
-        branchActionRef.current = null;
-        setBranchAction(null);
+        branchActionsRef.current.delete(projectId);
+        setBranchActions(new Set(branchActionsRef.current));
       }
     },
     []
@@ -402,7 +409,7 @@ export function App() {
         const target = paneId ?? source;
         let activeTab = layout.activeTab;
         if (target !== source && layout.activeTab[source] === tabId) {
-          const sourceTabs = (tabs[projectId] ?? []).filter(
+          const sourceTabs = (tabsRef.current[projectId] ?? []).filter(
             (tab) => (layout.tabPane[tab.tabId] ?? layout.focusedPane) === source
           );
           const index = sourceTabs.findIndex((tab) => tab.tabId === tabId);
@@ -420,7 +427,7 @@ export function App() {
         };
       });
     },
-    [tabs]
+    []
   );
 
   /** A pane taking focus without its active tab changing — clicking its terminal, not a tab. */
@@ -436,10 +443,10 @@ export function App() {
     (projectId: string, preset: SplitPreset) => {
       setLayouts((current) => ({
         ...current,
-        [projectId]: applyPreset(layoutOf(current, projectId), preset, tabs[projectId] ?? [])
+        [projectId]: applyPreset(layoutOf(current, projectId), preset, tabsRef.current[projectId] ?? [])
       }));
     },
-    [tabs]
+    []
   );
 
   /** Shows a tab something outside its own pane opened: its project, then the tab itself. */
@@ -743,8 +750,8 @@ export function App() {
   );
   /** What the git pane may start, in the shape its views take it — for the project on screen. */
   const activeBranch = useMemo<BranchActions>(
-    () => ({ busy: branchAction?.projectId === activeProjectId, run: runActiveBranchAction }),
-    [branchAction, activeProjectId, runActiveBranchAction]
+    () => ({ busy: activeProjectId !== null && branchActions.has(activeProjectId), run: runActiveBranchAction }),
+    [branchActions, activeProjectId, runActiveBranchAction]
   );
 
   return (

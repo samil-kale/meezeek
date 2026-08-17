@@ -157,12 +157,17 @@ export function registerIpc({
     }
   );
 
-  ipcMain.handle("projects:open-path", async (_event, directory: string): Promise<Project> => {
+  ipcMain.handle("projects:open-path", async (_event, directory: string): Promise<AddRepositoryResult> => {
+    // Typed rather than picked, the folder may not exist — and a project that does not would
+    // watch nothing and spawn nothing, with only a notice per action to say why.
+    if (!(await fs.promises.stat(directory).then((stat) => stat.isDirectory(), () => false))) {
+      return { error: `${directory} is not a folder` };
+    }
     // Picking a subdirectory of a repository opens the repository itself: git reports every
     // path relative to the root, and the root is what branches and status describe.
     const project = store.add((await git.resolveRoot(directory).catch(() => undefined)) ?? directory);
     openProject(project);
-    return project;
+    return { project };
   });
 
   /** Clone and create both end the same way: the new folder becomes a project like any picked one. */

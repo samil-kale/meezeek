@@ -90,6 +90,9 @@ export class OpencodeServer {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      // A process group of its own, so killServerTree can take the launcher and the binary it
+      // starts down together — the POSIX half of what taskkill /t does on win32.
+      detached: process.platform !== "win32",
       // Same precedence as spawnAgentProcess: what the caller passes are defaults a
       // variable the user already has set still wins over — we must not silently replace
       // their own OPENCODE_CONFIG_DIR. The password is ours alone and does win.
@@ -113,10 +116,10 @@ export class OpencodeServer {
 
   /**
    * Every endpoint we use is scoped by `directory`, so it's added here rather than at each
-   * call site. Paths carry no query string of their own.
+   * call site, behind whatever query a path already carries.
    */
   async request(path: string, cwd: string, init?: RequestInit): Promise<Response> {
-    const url = `${this.url}${path}?directory=${encodeURIComponent(cwd)}`;
+    const url = `${this.url}${path}${path.includes("?") ? "&" : "?"}directory=${encodeURIComponent(cwd)}`;
     const response = await fetch(url, {
       ...init,
       headers: { ...init?.headers, Authorization: this.authorization }
@@ -417,5 +420,5 @@ function killTree(child: ChildProcess): void {
     return;
   }
   forgetServer(child.pid);
-  killServerTree(child.pid);
+  void killServerTree(child.pid);
 }

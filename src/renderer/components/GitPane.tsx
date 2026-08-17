@@ -40,7 +40,9 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
   const [selected, setSelected] = useState<string[]>([]);
   /** Where a shift-click measures its range from: the row that was clicked plainly last. */
   const [anchor, setAnchor] = useState<string | null>(null);
-  const [acting, setActing] = useState(false);
+  /** The projects a file action is running in — one pane serves every project. */
+  const [actingIn, setActingIn] = useState<ReadonlySet<string>>(() => new Set());
+  const acting = actingIn.has(project.id);
   const [menu, setMenu] = useState<{ x: number; y: number; change: FileChange } | null>(null);
 
   const query = filter.trim().toLowerCase();
@@ -55,6 +57,12 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
   const canSync = remote !== undefined && !state.detached;
   const syncLocked = branch.busy || acting;
 
+  // Another project's files: nothing chosen among them yet.
+  useEffect(() => {
+    setSelected([]);
+    setAnchor(null);
+  }, [project.id]);
+
   // A file that stopped being changed — committed in a terminal, or discarded here — is gone
   // from the list, and holding on to it would let a later change reappear pre-selected.
   useEffect(() => {
@@ -66,14 +74,21 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
 
   /** Runs a file action against the repository and reports what it says when it failed. */
   const act = (action: () => Promise<GitActionResult>): void => {
-    setActing(true);
+    const { id } = project;
+    setActingIn((current) => new Set(current).add(id));
     void action()
       .then((result) => {
         if (!result.ok) {
           notify("error", result.error ?? "Git command failed");
         }
       })
-      .finally(() => setActing(false));
+      .finally(() =>
+        setActingIn((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        })
+      );
   };
 
   /** VS Code's list selection: plain replaces, ctrl toggles, shift takes the range. */
