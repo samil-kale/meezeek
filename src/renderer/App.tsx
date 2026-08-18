@@ -716,6 +716,8 @@ export function App() {
   }, [gitOpen, setGitOpen, showNeedsAttention, cycleTab, newShellTab]);
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
+  /** The project whose file the diff dialog is showing — gone, the dialog goes with it. */
+  const diffProject = diffFile ? projects.find((project) => project.id === diffFile.projectId) : undefined;
   const activeState = (activeProjectId ? states[activeProjectId] : undefined) ?? EMPTY_REPOSITORY_STATE;
 
   // Stable handles for what the views below take, so a memoized view re-renders for a change in
@@ -874,11 +876,13 @@ export function App() {
           reloads when what it shows can have changed — HEAD, or this file's own status — and
           not with every other file an agent touches: a reload reads the diff again and colours
           all of it again, hundreds of milliseconds on the renderer for a long file. */}
-      {diffFile && (
+      {diffFile && diffProject && (
         <DiffDialog
-          projectId={diffFile.projectId}
+          project={diffProject}
           path={diffFile.path}
           version={diffVersion(states[diffFile.projectId], diffFile.path)}
+          changes={(states[diffFile.projectId] ?? EMPTY_REPOSITORY_STATE).changes}
+          onOpenDiff={openDiff}
           onClose={closeDiff}
         />
       )}

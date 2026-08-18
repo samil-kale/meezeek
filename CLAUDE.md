@@ -53,7 +53,13 @@ Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for
 - one git pane for all projects; unlike terminals, it holds nothing a project loses by switching
   away
 - the diff is a **dialog** over the whole window, opened by double-clicking a changed file or
-  ctrl-clicking a path in a terminal. `DiffDialog` and `SettingsDialog` are deliberately not part
+  ctrl-clicking a path in a terminal. It carries the changed files down its left side — the same
+  `ChangesList` the git pane's LOCAL CHANGES is (filter, selection, context menu), with a plain
+  click and ↑/↓ switching the file, so the next diff doesn't mean closing and double-clicking
+  again. The list's own file actions (discard, ignore) show on that pane's own header bar, not
+  the diff's. The dialog takes keyboard focus while up and hands it back on close: xterm swallows
+  every key it is given, so the arrows would otherwise go to the terminal a path was
+  ctrl-clicked in. `DiffDialog` and `SettingsDialog` are deliberately not part
   of `Dialog.tsx`: that file is for questions, built around a form with two buttons
 - git commands go in an ordinary terminal tab, not a console of the pane's own
 - panes between all of that are draggable (`src/renderer/components/Sash.tsx`)
@@ -499,6 +505,8 @@ bar beside it.
   (reading the diff, then colouring it) — no longer bubbled up to `App` at all. Since the bar
   reports it, `DiffView` itself writes no "Loading..." of its own — it just goes empty while one
   of the two is running.
+  The changed-file pane beside it has a bar of its own under its LOCAL CHANGES header, for a
+  discard or an ignore started from that list — a different pane, a different reason.
 - **The command list**: its own bar under COMMANDS, for the wand reading the project — the wand's
   icon used to turn into a spinner instead; taken back out once every other action button in a
   pane with its own bar (fetch, pull, push, stash) stayed a plain icon and only dimmed, which is

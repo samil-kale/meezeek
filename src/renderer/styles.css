@@ -1118,12 +1118,14 @@ option {
   background: rgb(0 0 0 / 40%);
 }
 
+/* The changed files on the left, the diff on the right, the sash between them: a row, and each
+   half a column of its own. Focusable so the keys are the dialog's while it is up (↑/↓ walk the
+   list), without a ring — nothing in the window draws one for a whole pane. */
 .diff-dialog {
   display: flex;
-  flex-direction: column;
   width: 100%;
   height: 100%;
-  max-width: 1400px;
+  max-width: 1600px;
   min-width: 0;
   min-height: 0;
   background: var(--vscode-editor-background);
@@ -1131,6 +1133,25 @@ option {
   border-radius: 6px;
   box-shadow: 0 8px 24px var(--vscode-widget-shadow);
   overflow: hidden;
+  outline: none;
+}
+
+/* The git pane's LOCAL CHANGES again — same header, same list, same background — sized by the
+   sash the way the git pane is beside the terminals. */
+.diff-files {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-width: 0;
+  background: var(--vscode-sideBar-background);
+}
+
+.diff-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* The tab strip's height again, with the file it is showing, its whitespace switch and the way out. */

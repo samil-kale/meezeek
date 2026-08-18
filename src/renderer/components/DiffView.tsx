@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ThemedToken } from "shiki/core";
 import type { DiffLine, FileDiff, ImageDiff } from "../../shared/types";
 import { highlightDiff } from "../diff-highlight";
@@ -81,7 +81,9 @@ function ImageView({ image }: { image: ImageDiff }) {
   );
 }
 
-export function DiffView({
+// Memoized: the dialog around it re-renders with every push of its repository's changed files, and
+// with the same diff there is nothing here to redo — a long file is thousands of rows.
+export const DiffView = memo(function DiffView({
   projectId,
   diff,
   loading,
@@ -275,4 +277,4 @@ export function DiffView({
   };
 
   return <div className="diff">{body()}</div>;
-}
+});
