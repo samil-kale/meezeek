@@ -7,7 +7,9 @@ import type {
   AppSettings,
   CheckoutTarget,
   DiffOptions,
+  FileContent,
   FileDiff,
+  FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
   Notice,
@@ -118,6 +120,13 @@ export interface TETApi {
     diff(projectId: string, path: string, options: DiffOptions): Promise<FileDiff>;
     /** Lines `from` to `to` of the file as it is now, for a gap the diff view opens. */
     fileLines(projectId: string, path: string, from: number, to: number): Promise<string[]>;
+    /** Every file in the repository (tracked and untracked, `.gitignore` respected) — the diff
+     *  dialog's FILES tree, not the changed-files list. */
+    listFiles(projectId: string): Promise<string[]>;
+    /** A file's content for the diff dialog's editor. */
+    readFile(projectId: string, path: string): Promise<FileContent>;
+    /** Writes a file's content; `expectedMtimeMs` must match what's on disk or nothing is written. */
+    writeFile(projectId: string, path: string, content: string, expectedMtimeMs: number): Promise<FileWriteResult>;
     /** Fires whenever a repository's state changed (git command, file watcher or refresh). */
     onState(listener: (payload: { projectId: string; state: RepositoryState }) => void): Unsubscribe;
   };
@@ -197,9 +206,9 @@ export interface TETApi {
   shell: {
     openUrl(url: string): Promise<void>;
     /**
-     * Opens a path the user activated in a terminal. Resolves to the repository-relative
-     * path when the file has local changes — the caller then opens its diff —
-     * and to null when it was handed to the OS instead (or could not be opened).
+     * Opens a path the user activated in a terminal. Resolves to the repository-relative path
+     * for any file inside the repository — the caller opens it in the diff dialog — and to null
+     * when it was handed to the OS instead (outside the repository, or could not be opened).
      */
     openFile(projectId: string, path: string): Promise<string | null>;
     /** Shows a repository-relative path in the OS file manager, selected. */

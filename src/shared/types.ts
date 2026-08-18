@@ -287,6 +287,24 @@ export interface DiffOptions {
   ignoreWhitespace?: boolean;
 }
 
+/** A file's content for the diff dialog's editor — read once per open, not streamed. */
+export interface FileContent {
+  path: string;
+  content: string;
+  /** Compared against on save, so a write started here never clobbers an outside edit. */
+  mtimeMs: number;
+  binary: boolean;
+  tooLarge: boolean;
+  error?: string;
+}
+
+/** What a save reports: written, or why not — a stale `mtimeMs` never overwrites silently. */
+export interface FileWriteResult {
+  ok: boolean;
+  mtimeMs?: number;
+  error?: string;
+}
+
 /** What any git action the UI starts reports back: it worked, or what git said when it didn't. */
 export interface GitActionResult {
   ok: boolean;

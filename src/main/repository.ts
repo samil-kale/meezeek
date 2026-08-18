@@ -5,7 +5,9 @@ import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
   CheckoutTarget,
   DiffOptions,
+  FileContent,
   FileDiff,
+  FileWriteResult,
   GitActionResult,
   NoticeSeverity,
   Project,
@@ -42,6 +44,8 @@ const AUTO_FETCH_INTERVAL_MS = 10 * 60_000;
  */
 const WATCH_RETRY_MS = 1000;
 const WATCH_RETRY_MAX_MS = 60_000;
+/** Above this, the editor shows "too large" instead of reading the file into the renderer. */
+const MAX_EDIT_BYTES = 4 * 1024 * 1024;
 
 /**
  * Paths whose changes never affect what the UI shows, but which change constantly —
@@ -499,6 +503,69 @@ export class Repository {
   fileLines(filePath: string, from: number, to: number): Promise<string[]> {
     // Same as when the file cannot be read: no lines, so the gap simply stays closed.
     return git.readFileLines(this.project.path, filePath, from, to).catch(() => []);
+  }
+
+  /** Every file in the repository — the diff dialog's FILES tree. */
+  listFiles(): Promise<string[]> {
+    return git.listFiles(this.project.path).catch((error: Error) => {
+      this.onNotice("error", `${this.project.name}: ${error.message}`);
+      return [];
+    });
+  }
+
+  /** A repository-relative path resolved to an absolute one, or undefined if it escapes the root. */
+  private resolveInside(filePath: string): string | undefined {
+    const absolute = path.resolve(this.project.path, filePath);
+    const relative = path.relative(this.project.path, absolute);
+    return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? absolute : undefined;
+  }
+
+  /** A file's content for the diff dialog's editor. */
+  async readFile(filePath: string): Promise<FileContent> {
+    const base = { path: filePath, content: "", mtimeMs: 0, binary: false, tooLarge: false };
+    const absolute = this.resolveInside(filePath);
+    if (!absolute) {
+      return { ...base, error: "Path is outside the repository" };
+    }
+    try {
+      const stat = await fs.promises.stat(absolute);
+      if (!stat.isFile()) {
+        return { ...base, error: "Not a file" };
+      }
+      if (stat.size > MAX_EDIT_BYTES) {
+        return { ...base, mtimeMs: stat.mtimeMs, tooLarge: true };
+      }
+      const buffer = await fs.promises.readFile(absolute);
+      const binary = buffer.includes(0);
+      return { ...base, mtimeMs: stat.mtimeMs, binary, content: binary ? "" : buffer.toString("utf8") };
+    } catch (error) {
+      return { ...base, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * Writes a file's content, refusing when it changed on disk since it was read — the mtime the
+   * editor opened is the only thing standing between a save and silently overwriting someone
+   * else's edit. Written in place: this is the user's own source file, not one of the files
+   * other processes read that `rename`-into-place protects (see CLAUDE.md), and in-place keeps
+   * its mode and any hard links.
+   */
+  async writeFile(filePath: string, content: string, expectedMtimeMs: number): Promise<FileWriteResult> {
+    const absolute = this.resolveInside(filePath);
+    if (!absolute) {
+      return { ok: false, error: "Path is outside the repository" };
+    }
+    try {
+      const before = await fs.promises.stat(absolute);
+      if (before.mtimeMs !== expectedMtimeMs) {
+        return { ok: false, error: "The file changed on disk since it was opened" };
+      }
+      await fs.promises.writeFile(absolute, content, "utf8");
+      const after = await fs.promises.stat(absolute);
+      return { ok: true, mtimeMs: after.mtimeMs };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private startWatching(): void {

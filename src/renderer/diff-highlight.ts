@@ -10,7 +10,7 @@ import type { DiffLine, FileDiff } from "../shared/types";
  * per grammar scope, of which there are hundreds, and Shiki hands them back per token. The
  * theme below is the token half of the "Dark Modern" the rest of the UI is styled after.
  */
-const THEME = "dark-plus";
+export const THEME = "dark-plus";
 
 /**
  * The grammars tet bundles. The renderer is one file with no code splitting, so a language
@@ -90,7 +90,9 @@ let core: Promise<HighlighterCore> | undefined;
 /** One load per grammar, kept as the promise so two files of a kind don't race it. */
 const grammars = new Map<string, Promise<void>>();
 
-function highlighter(): Promise<HighlighterCore> {
+/** The one shiki instance, shared by the diff view and the editor (see editor.ts) — one dark-plus
+ *  theme, grammars loaded lazily and kept once loaded either way. */
+export function highlighter(): Promise<HighlighterCore> {
   core ??= createHighlighterCore({
     // Spelled out rather than built from THEME: esbuild can only bundle an import whose
     // path it can read off the call.
@@ -104,13 +106,19 @@ function highlighter(): Promise<HighlighterCore> {
   return core;
 }
 
-function loadGrammar(shiki: HighlighterCore, language: string): Promise<void> {
+export function loadGrammar(shiki: HighlighterCore, language: string): Promise<void> {
   let pending = grammars.get(language);
   if (!pending) {
     pending = shiki.loadLanguage(GRAMMARS[language]());
     grammars.set(language, pending);
   }
   return pending;
+}
+
+/** The grammar a path's extension colors as — shared by the diff view and the editor. */
+export function languageForPath(filePath: string): string | undefined {
+  const name = filePath.slice(filePath.lastIndexOf("/") + 1).toLowerCase();
+  return EXTENSIONS[name.slice(name.lastIndexOf(".") + 1)];
 }
 
 /** A run of lines that were contiguous in one version of the file, and their code. */
@@ -171,8 +179,7 @@ function blocksOf(lines: readonly DiffLine[]): Block[] {
  * already has on screen rather than repaint it.
  */
 export async function highlightDiff(diff: FileDiff): Promise<(ThemedToken[] | undefined)[] | undefined> {
-  const name = diff.path.slice(diff.path.lastIndexOf("/") + 1).toLowerCase();
-  const language = EXTENSIONS[name.slice(name.lastIndexOf(".") + 1)];
+  const language = languageForPath(diff.path);
   if (!language) {
     return undefined;
   }

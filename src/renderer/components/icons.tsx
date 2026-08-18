@@ -415,3 +415,35 @@ export function LayoutGrid2x2Icon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Browsing the repository's files — two overlapping pages, the front one folded at the corner. */
+export function FilesIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={11.99} cx={8} cy={8.5}>
+      <path d="M6 3h4l3 3v8H6z" />
+      <path d="M10 3v3h3" />
+      <path d="M4 5H3v9h6" />
+    </Svg>
+  );
+}
+
+/** The diff dialog's Diff/Edit toggle. */
+export function PencilIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={12} cx={8.25} cy={7.75}>
+      <path d="M11.5 2.5l2 2L5 13H3v-2z" />
+      <path d="M9.5 4.5l2 2" />
+    </Svg>
+  );
+}
+
+/** Saving the file open in the editor — a floppy disk, GitHub Desktop's own shorthand for it. */
+export function SaveIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={12.25} cx={8.25} cy={8}>
+      <path d="M3 2.5h8.5l2 2V13.5H3z" />
+      <path d="M5 2.5v3.5h5V2.5" />
+      <path d="M5 13.5v-4h6v4" />
+    </Svg>
+  );
+}

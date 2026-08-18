@@ -12,7 +12,9 @@ import type {
   AppSettings,
   CheckoutTarget,
   DiffOptions,
+  FileContent,
   FileDiff,
+  FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
   Project,
@@ -329,6 +331,29 @@ export function registerIpc({
     }
   );
 
+  ipcMain.handle("repo:files", async (_event, projectId: string): Promise<string[]> => {
+    return (await repositories.get(projectId)?.listFiles()) ?? [];
+  });
+
+  ipcMain.handle("repo:file-read", async (_event, projectId: string, filePath: string): Promise<FileContent> => {
+    const repository = repositories.get(projectId);
+    if (!repository) {
+      return { path: filePath, content: "", mtimeMs: 0, binary: false, tooLarge: false, error: MISSING_REPOSITORY.error };
+    }
+    return repository.readFile(filePath);
+  });
+
+  ipcMain.handle(
+    "repo:file-write",
+    async (_event, projectId: string, filePath: string, content: string, expectedMtimeMs: number): Promise<FileWriteResult> => {
+      const repository = repositories.get(projectId);
+      if (!repository) {
+        return { ok: false, error: MISSING_REPOSITORY.error };
+      }
+      return repository.writeFile(filePath, content, expectedMtimeMs);
+    }
+  );
+
   ipcMain.handle("commands:list", async (_event, projectId: string): Promise<ProjectCommand[] | null> => {
     const project = store.get(projectId);
     return project ? readCommands(project.path) : [];
@@ -459,9 +484,10 @@ export function registerIpc({
   });
 
   /**
-   * A path the user ctrl-clicked in a terminal. A file with local changes is answered with
-   * its repository-relative path, which the renderer opens the diff of; anything else is
-   * handed to the OS here, where the filesystem actually is.
+   * A path the user ctrl-clicked in a terminal. A file inside the repository is answered with
+   * its repository-relative path, which the renderer opens in the diff dialog (as a diff when
+   * it has local changes, as plain content otherwise); anything else is handed to the OS here,
+   * where the filesystem actually is.
    */
   ipcMain.handle("shell:open-file", async (_event, projectId: string, rawPath: string): Promise<string | null> => {
     const repository = repositories.get(projectId);
@@ -483,9 +509,9 @@ export function registerIpc({
       return null;
     }
     // git reports every path relative to the root with forward slashes, so match in that shape.
-    const relative = path.relative(root, resolved).replace(/\\/g, "/");
-    if (repository.getState().changes.some((change) => change.path === relative)) {
-      return relative;
+    const relativeRaw = path.relative(root, resolved);
+    if (relativeRaw !== "" && !relativeRaw.startsWith("..") && !path.isAbsolute(relativeRaw)) {
+      return relativeRaw.replace(/\\/g, "/");
     }
     const error = await shell.openPath(resolved);
     if (error) {

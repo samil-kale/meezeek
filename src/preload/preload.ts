@@ -64,6 +64,10 @@ const api: TETApi = {
     diff: (projectId, filePath, options) => ipcRenderer.invoke("repo:diff", projectId, filePath, options),
     fileLines: (projectId, filePath, from, to) =>
       ipcRenderer.invoke("repo:file-lines", projectId, filePath, from, to),
+    listFiles: (projectId) => ipcRenderer.invoke("repo:files", projectId),
+    readFile: (projectId, filePath) => ipcRenderer.invoke("repo:file-read", projectId, filePath),
+    writeFile: (projectId, filePath, content, expectedMtimeMs) =>
+      ipcRenderer.invoke("repo:file-write", projectId, filePath, content, expectedMtimeMs),
     onState: (listener) => subscribe("repo:state-changed", listener)
   },
   commands: {

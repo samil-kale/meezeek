@@ -21,6 +21,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@shikijs/langs": "^4.4.3",
+    "@shikijs/monaco": "^4.4.3",
     "@shikijs/themes": "^4.4.3",
     "@types/node": "^20.19.0",
     "@types/react": "^19.2.0",
@@ -32,6 +33,8 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
+    "monaco-editor": "^0.56.0",
+    "monaco-editor-core": "^0.56.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "shiki": "^4.4.3",

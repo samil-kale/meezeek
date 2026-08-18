@@ -90,8 +90,9 @@ interface TerminalsPaneProps {
   /** Bootstrap's own session listing, before any tab exists yet to carry `starting` itself — the
       one project-wide reason left with no tab of its own to show on, so it falls to pane "a". */
   externalBusy: boolean;
-  /** A file ctrl-clicked in a terminal; it opens over everything as a diff. */
-  onOpenDiff: (projectId: string, path: string) => void;
+  /** A file ctrl-clicked in a terminal opens over everything as a diff; "Browse files" (below)
+   *  opens the same dialog with nothing chosen yet, hence the path being optional here. */
+  onOpenDiff: (projectId: string, path?: string) => void;
   /** This project's split state — preset, focus, and which pane every tab and its selection live in. */
   layout: ProjectLayout;
   onActivateTab: (projectId: string, tabId: string, paneId?: PaneId) => void;
@@ -140,6 +141,9 @@ export const TerminalsPane = memo(function TerminalsPane({
 
   // Ctrl+clicking a changed file in a terminal opens that file's diff over everything.
   useEffect(() => setRevealHandler(project.id, (path) => onOpenDiff(project.id, path)), [project.id, onOpenDiff]);
+
+  /** "Browse files": the same dialog, opened with nothing chosen yet. */
+  const browseFiles = useCallback(() => onOpenDiff(project.id), [project.id, onOpenDiff]);
 
   // The xterm instances live outside React, keyed by tab id — a tab gone for good (not just
   // moved to another pane) is where they are let go of.
@@ -311,6 +315,7 @@ export const TerminalsPane = memo(function TerminalsPane({
       // The picker sits at the actual right edge — `TOP_RIGHT_PANE`, not always this project's
       // first pane, which is only ever the top-*left* one once there is more than one column.
       onPresetChange={paneId === TOP_RIGHT_PANE[layout.preset] ? onPresetChangeHere : undefined}
+      onBrowseFiles={paneId === TOP_RIGHT_PANE[layout.preset] ? browseFiles : undefined}
       onOpenSettings={paneId === TOP_RIGHT_PANE[layout.preset] ? onOpenSettings : undefined}
       // Pane "a" also carries whatever project-wide reason has no tab of its own to point at;
       // every other pane only ever shows its own.

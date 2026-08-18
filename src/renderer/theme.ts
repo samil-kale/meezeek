@@ -70,3 +70,58 @@ export function buildXtermTheme(agentId: AgentId): ITheme {
 
   return theme;
 }
+
+/** monaco color id to the --vscode-* variable it reads — see editor.ts's `applyChrome`. */
+const MONACO_CSS_VARS: Record<string, string> = {
+  "editor.background": "--vscode-editor-background",
+  "editor.foreground": "--vscode-editor-foreground",
+  "editorLineNumber.foreground": "--vscode-editorLineNumber-foreground",
+  "editorLineNumber.activeForeground": "--vscode-editorLineNumber-activeForeground",
+  "editorCursor.foreground": "--vscode-editorCursor-foreground",
+  "editor.selectionBackground": "--vscode-editor-selectionBackground",
+  "editor.inactiveSelectionBackground": "--vscode-editor-inactiveSelectionBackground",
+  "editor.lineHighlightBorder": "--vscode-editor-lineHighlightBorder",
+  "editor.findMatchBackground": "--vscode-editor-findMatchBackground",
+  "editor.findMatchHighlightBackground": "--vscode-editor-findMatchHighlightBackground",
+  "editorIndentGuide.background1": "--vscode-editorIndentGuide-background1",
+  "editorIndentGuide.activeBackground1": "--vscode-editorIndentGuide-activeBackground1",
+  "editorWidget.background": "--vscode-editorWidget-background",
+  "editorWidget.border": "--vscode-editorWidget-border",
+  "widget.shadow": "--vscode-widget-shadow",
+  "input.background": "--vscode-input-background",
+  "input.foreground": "--vscode-input-foreground",
+  "input.border": "--vscode-input-border",
+  "input.placeholderForeground": "--vscode-input-placeholderForeground",
+  focusBorder: "--vscode-focusBorder",
+  "scrollbarSlider.background": "--vscode-scrollbarSlider-background",
+  "scrollbarSlider.hoverBackground": "--vscode-scrollbarSlider-hoverBackground",
+  "scrollbarSlider.activeBackground": "--vscode-scrollbarSlider-activeBackground",
+  "menu.background": "--vscode-menu-background",
+  "menu.foreground": "--vscode-menu-foreground",
+  "menu.border": "--vscode-menu-border",
+  "menu.selectionBackground": "--vscode-menu-selectionBackground",
+  "menu.selectionForeground": "--vscode-menu-selectionForeground",
+  "menu.separatorBackground": "--vscode-menu-separatorBackground",
+  "list.hoverBackground": "--vscode-list-hoverBackground",
+  "list.activeSelectionBackground": "--vscode-list-activeSelectionBackground",
+  "list.activeSelectionForeground": "--vscode-list-activeSelectionForeground"
+};
+
+/**
+ * The editor's chrome (background, gutter, selection, widgets...) as monaco color overrides,
+ * read the same way `buildXtermTheme` reads xterm's — everything else (bracket match, hover
+ * widget, suggest widget...) is left to monaco's own vs-dark defaults, which are VS Code's own
+ * values anyway. Without this the editor stays shiki's dark-plus chrome (`#1e1e1e`, not tet's
+ * `#1f1f1f`) — see editor.ts's `applyChrome`.
+ */
+export function buildMonacoColors(): Record<string, string> {
+  const styles = getComputedStyle(document.documentElement);
+  const colors: Record<string, string> = {};
+  for (const [id, cssVar] of Object.entries(MONACO_CSS_VARS)) {
+    const value = styles.getPropertyValue(cssVar).trim();
+    if (value) {
+      colors[id] = value;
+    }
+  }
+  return colors;
+}

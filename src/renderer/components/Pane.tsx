@@ -12,6 +12,7 @@ import {
   CloseIcon,
   CommentIcon,
   ExclamationIcon,
+  FilesIcon,
   GearIcon,
   LayoutCols2Icon,
   LayoutCols3Icon,
@@ -91,6 +92,11 @@ interface PaneProps {
    */
   onPresetChange?: (preset: SplitPreset) => void;
   /**
+   * Browsing the repository's files — the diff dialog with nothing open yet — right of the
+   * layout picker, present on exactly the pane `onPresetChange` is and for the same reason.
+   */
+  onBrowseFiles?: () => void;
+  /**
    * The settings, right of the layout picker — present on exactly the pane `onPresetChange` is,
    * for the same reason: it belongs to the window rather than to a project, so it sits at the
    * window's own right edge, wherever the preset puts that.
@@ -133,6 +139,7 @@ export const Pane = memo(function Pane({
   waitingTabIds,
   chrome,
   onPresetChange,
+  onBrowseFiles,
   onOpenSettings,
   showProgress,
   dragOver,
@@ -513,6 +520,11 @@ export const Pane = memo(function Pane({
             >
               <PresetIcon preset={preset} />
             </button>
+            {onBrowseFiles && (
+              <button className="icon-button" title="Browse files" onClick={onBrowseFiles}>
+                <FilesIcon />
+              </button>
+            )}
             {onOpenSettings && (
               <button className="icon-button" title="Settings" onClick={onOpenSettings}>
                 <GearIcon />

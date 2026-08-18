@@ -189,8 +189,8 @@ export function App() {
     }, GIT_SLIDE_MS);
     return () => clearTimeout(stop);
   }, [gitOpen]);
-  /** The file whose diff is open over everything, if any. */
-  const [diffFile, setDiffFile] = useState<{ projectId: string; path: string } | null>(null);
+  /** The diff dialog over everything, if any — `path` null once it's open with nothing chosen. */
+  const [diffFile, setDiffFile] = useState<{ projectId: string; path: string | null } | null>(null);
   /** Whether the add-repository dialog (clone, add, create) is up. */
   const [addOpen, setAddOpen] = useState(false);
   /** Whether the settings are up; they belong to the window, not to a project. */
@@ -733,7 +733,7 @@ export function App() {
   const hasFinished = useCallback((projectId: string) => (marks[projectId]?.finished.length ?? 0) > 0, [marks]);
   const hasWaiting = useCallback((projectId: string) => (marks[projectId]?.waiting.length ?? 0) > 0, [marks]);
   const toggleGit = useCallback(() => setGitOpen(!gitOpen), [gitOpen, setGitOpen]);
-  const openDiff = useCallback((projectId: string, path: string) => setDiffFile({ projectId, path }), []);
+  const openDiff = useCallback((projectId: string, path?: string) => setDiffFile({ projectId, path: path ?? null }), []);
   const openActiveDiff = useCallback(
     (path: string) => {
       if (activeProjectId) {
@@ -880,7 +880,7 @@ export function App() {
         <DiffDialog
           project={diffProject}
           path={diffFile.path}
-          version={diffVersion(states[diffFile.projectId], diffFile.path)}
+          version={diffVersion(states[diffFile.projectId], diffFile.path ?? "")}
           changes={(states[diffFile.projectId] ?? EMPTY_REPOSITORY_STATE).changes}
           onOpenDiff={openDiff}
           onClose={closeDiff}

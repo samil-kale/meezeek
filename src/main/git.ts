@@ -969,3 +969,15 @@ export async function readFileLines(cwd: string, filePath: string, from: number,
     return [];
   }
 }
+
+/** Every file in the repository, tracked and untracked, `.gitignore` respected — the diff
+ *  dialog's FILES tree. A file deleted in the working tree but still tracked is still listed;
+ *  its `changes` entry is `deleted`, so opening it there stays diff-only. */
+export async function listFiles(cwd: string): Promise<string[]> {
+  const result = await git(cwd, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+  if (result.code !== 0) {
+    throw new Error((result.stderr || result.stdout).trim() || "git ls-files failed");
+  }
+  // -z separates with NUL and never quotes a path, unlike git's default newline output.
+  return result.stdout.split("\0").filter(Boolean).sort();
+}

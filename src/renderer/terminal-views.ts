@@ -55,9 +55,9 @@ function openUrl(url: string): void {
 }
 
 function openFile(projectId: string, filePath: string): void {
-  void window.tet.shell.openFile(projectId, filePath).then((changedPath) => {
-    if (changedPath) {
-      revealHandlers.get(projectId)?.(changedPath);
+  void window.tet.shell.openFile(projectId, filePath).then((repoPath) => {
+    if (repoPath) {
+      revealHandlers.get(projectId)?.(repoPath);
     }
   });
 }

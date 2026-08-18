@@ -56,6 +56,23 @@ const rendererConfig = {
   outfile: path.join(dist, "renderer.js"),
   platform: "browser",
   format: "iife",
+  target: "chrome130",
+  // monaco's CSS pulls in codicon.ttf; without a loader for it the build fails outright.
+  loader: { ".ttf": "file" },
+  // monaco reads `import.meta.url` as a worker-location fallback (unreached — see editor.ts's
+  // `getWorker`); esbuild replaces `import.meta` with `{}` under `format: "iife"` and warns at
+  // every such site, which would otherwise bury real warnings in noise.
+  logOverride: { "empty-import-meta": "silent" }
+};
+
+/** The editor's own web worker (tokenization, etc. off the main thread) — see editor.ts. */
+/** @type {import('esbuild').BuildOptions} */
+const editorWorkerConfig = {
+  ...common,
+  entryPoints: [require.resolve("monaco-editor/editor/editor.worker.js")],
+  outfile: path.join(dist, "editor.worker.js"),
+  platform: "browser",
+  format: "iife",
   target: "chrome130"
 };
 
@@ -69,7 +86,7 @@ function copyStaticAssets() {
 async function build() {
   copyStaticAssets();
 
-  const configs = [mainConfig, gitHostConfig, preloadConfig, rendererConfig];
+  const configs = [mainConfig, gitHostConfig, preloadConfig, rendererConfig, editorWorkerConfig];
   if (watch) {
     const contexts = await Promise.all(configs.map((config) => esbuild.context(config)));
     await Promise.all(contexts.map((context) => context.watch()));

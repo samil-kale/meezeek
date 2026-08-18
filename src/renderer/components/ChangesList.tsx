@@ -14,10 +14,11 @@ interface ChangesListProps {
   /** A file to look at. */
   onOpenDiff: (path: string) => void;
   /**
-   * The file whose diff is open — the diff dialog's list. Given, a plain click and ↑/↓ open a
-   * file, where the git pane's list opens on a double-click and a plain click only selects.
+   * The file whose diff is open — the diff dialog's list. Given (including `null`, for the
+   * dialog open with nothing selected yet), a plain click and ↑/↓ open a file, where the git
+   * pane's list opens on a double-click and a plain click only selects.
    */
-  active?: string;
+  active?: string | null;
 }
 
 const STATUS_LETTER: Record<ChangeStatus, string> = {
@@ -55,7 +56,7 @@ export async function confirmDiscard(projectId: string, paths: string[], act: Fi
 export function ChangesList({ project, changes, act, onOpenDiff, active }: ChangesListProps) {
   const [filter, setFilter] = useState("");
   /** Ctrl- and shift-click extend it, so one discard can cover several files. */
-  const [selected, setSelected] = useState<string[]>(() => (active === undefined ? [] : [active]));
+  const [selected, setSelected] = useState<string[]>(() => (active ? [active] : []));
   /** Where a shift-click measures its range from: the row that was clicked plainly last. */
   const [anchor, setAnchor] = useState<string | null>(active ?? null);
   const [menu, setMenu] = useState<{ x: number; y: number; change: FileChange } | null>(null);
@@ -84,6 +85,16 @@ export function ChangesList({ project, changes, act, onOpenDiff, active }: Chang
     });
   }, [changes]);
 
+  // The dialog's own choice of file can move without a click here — the FILES tree, a
+  // ctrl-clicked terminal path, or a cancelled "discard unsaved changes?" leaving the open file
+  // where it was. This is what keeps the highlight following it either way.
+  useEffect(() => {
+    if (active) {
+      setSelected([active]);
+      setAnchor(active);
+    }
+  }, [active]);
+
   /** Chooses one file the way a plain click does, and opens it. */
   const open = (path: string): void => {
     setSelected([path]);
@@ -94,13 +105,20 @@ export function ChangesList({ project, changes, act, onOpenDiff, active }: Chang
   // ↑/↓ step through the list as it is filtered, from the open file — or from either end when
   // that file is not in the list (a path ctrl-clicked in a terminal need not be changed at
   // all). Not while a question or a menu is up: the question's own keys come first, and the
-  // menu acts on the selection this would move from under it.
+  // menu acts on the selection this would move from under it. Not while an editor in the dialog
+  // has the key either — its own cursor movement already claimed it (`defaultPrevented`), or
+  // the key started inside it for a monaco widget that hasn't claimed it yet (find, suggest).
   useEffect(() => {
     if (active === undefined) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if ((event.key !== "ArrowUp" && event.key !== "ArrowDown") || document.querySelector(".dialog-overlay, .context-menu")) {
+      if (
+        (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
+        event.defaultPrevented ||
+        document.querySelector(".dialog-overlay, .context-menu") ||
+        (event.target instanceof Element && event.target.closest(".monaco-editor"))
+      ) {
         return;
       }
       const index = visible.findIndex((change) => change.path === active);

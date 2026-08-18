@@ -538,9 +538,26 @@ option {
 /* HEAD, marked the way the sidebar already marks the active project: a background rather than
    a recolored label, which also keeps a track badge on this row legible instead of turning it
    the same blue as the branch name. */
-.tree-item.current {
+.tree-item.current,
+.tree-item.selected {
   background: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground);
+}
+
+/* The diff dialog's FILES tree — its own filter and rows sit in `.tree` above, unindented by
+   `.tree-item`'s own fixed values: it nests to whatever depth a repository's folders do, so its
+   rows set `padding-left` inline instead (see FileTree.tsx). */
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Denser than the shared `--list-row-height`: a repository's tree runs many rows deeper than the
+   flat lists that size shares with, and this is the one place too much air between them shows. */
+.file-tree .tree-item {
+  height: 20px;
 }
 
 .tree-icon,
@@ -1125,7 +1142,7 @@ option {
   display: flex;
   width: 100%;
   height: 100%;
-  max-width: 1600px;
+  max-width: 1800px;
   min-width: 0;
   min-height: 0;
   background: var(--vscode-editor-background);
@@ -1136,13 +1153,15 @@ option {
   outline: none;
 }
 
-/* The git pane's LOCAL CHANGES again — same header, same list, same background — sized by the
+/* FILES over LOCAL CHANGES, the git pane's own BRANCHES-over-LOCAL-CHANGES shape (`.git-section`,
+   `.git-section.grows`, a horizontal `Sash` between) — same background, sized by the vertical
    sash the way the git pane is beside the terminals. */
 .diff-files {
   display: flex;
   flex-direction: column;
   flex: none;
   min-width: 0;
+  min-height: 0;
   background: var(--vscode-sideBar-background);
 }
 
@@ -1152,6 +1171,20 @@ option {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+/* Where monaco mounts itself — sized like `.diff`, the read-only view it swaps places with. */
+.editor-host {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Ctrl+S turns this on the moment a keystroke lands, off again once it reaches disk. */
+.diff-dialog-dirty {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground);
 }
 
 /* The tab strip's height again, with the file it is showing, its whitespace switch and the way out. */
@@ -1168,6 +1201,16 @@ option {
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
+/* The section label the two lists beside it already have (FILES, LOCAL CHANGES) — this pane's
+   own, so all three read as one row of titled sections rather than two headers and a toolbar. */
+.diff-dialog-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--vscode-sideBarSectionHeader-foreground);
+}
+
 .diff-dialog-path {
   flex: 1;
   min-width: 0;
@@ -1175,6 +1218,7 @@ option {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* `min-height: 0` matters here: a flex item defaults to the height of its content, and a long

@@ -1,17 +1,21 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { FileChange, FileDiff, Project } from "../../shared/types";
+import type { FileChange, FileContent, FileDiff, Project } from "../../shared/types";
 import { ChangesList, type FileAct } from "./ChangesList";
+import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiffView } from "./DiffView";
-import { CloseIcon, WhitespaceIcon } from "./icons";
+import { FileTree } from "./FileTree";
+import { CloseIcon, PencilIcon, SaveIcon, WhitespaceIcon } from "./icons";
+import { confirm } from "./Dialog";
 import { notify } from "./Notices";
 import { useEscape } from "./use-escape";
 import { ProgressBar } from "./ProgressBar";
-import { MIN_CONTENT_WIDTH, MIN_PANE_WIDTH, Sash, usePaneSize } from "./Sash";
+import { MIN_CONTENT_WIDTH, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, Sash, usePaneSize } from "./Sash";
 
 interface DiffDialogProps {
   project: Project;
-  /** Repository-relative path of the file being looked at. */
-  path: string;
+  /** Repository-relative path of the file being looked at; null with the dialog open on nothing
+   *  yet — "Browse files" over a project with no local changes to double-click into one. */
+  path: string | null;
   /** What the diff depends on besides the file — a change to it reloads while the dialog is open. */
   version: string;
   /** The repository's changed files, listed beside the diff so another one is a click away. */
@@ -21,35 +25,78 @@ interface DiffDialogProps {
   onClose: () => void;
 }
 
+/** Asks before losing an edit that hasn't reached disk — the same wording wherever it's asked. */
+async function confirmDiscardEdit(path: string): Promise<boolean> {
+  const answer = await confirm({
+    title: "Unsaved changes",
+    message: `Discard unsaved changes to ${path}?`,
+    confirmLabel: "Discard changes"
+  });
+  return answer.confirmed;
+}
+
 /**
- * One file's diff, over the whole window. A dialog rather than a pane because the git view sits
- * beside the terminals and has no room for it, and because looking at a diff is something you
- * come out of again, unlike the branch list next to it. The changed files stand beside it,
- * the same list as under LOCAL CHANGES, so moving on to the next file doesn't mean leaving.
+ * One file, over the whole window — a diff, or (see CLAUDE.md) an editor for the same file when
+ * it has none, or the user asked for one anyway. A dialog rather than a pane for the same reason
+ * as always: the git view has no room for it, and looking at (or briefly fixing) a file is
+ * something you come out of again, unlike the branch list next to it. FILES over LOCAL CHANGES on
+ * the left mirrors the git pane's own BRANCHES-over-LOCAL-CHANGES shape — a browser for any file
+ * above the changed ones, not a second file manager: no ↑/↓, no context menu, single click opens.
  *
  * Not part of Dialog.tsx: that file puts *questions* (confirm, prompt) and is built around a
- * form with two buttons. This asks nothing.
+ * form with two buttons. This asks nothing itself — it delegates the one question it does need
+ * (discard unsaved changes?) to that file, same as everything else that asks one.
  */
-export const DiffDialog = memo(function DiffDialog({
-  project,
-  path,
-  version,
-  changes,
-  onOpenDiff,
-  onClose
-}: DiffDialogProps) {
+export const DiffDialog = memo(function DiffDialog({ project, path, version, changes, onOpenDiff, onClose }: DiffDialogProps) {
+  const change = path ? changes.find((entry) => entry.path === path) : undefined;
+  const diffable = change !== undefined;
+
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
-  /** Reading the diff and colouring it, `DiffView`'s own two waits — this dialog's own bar. */
-  const [busy, setBusy] = useState(false);
+  /** Reading the diff and colouring it, `DiffView`'s own two waits. */
+  const [diffBusy, setDiffBusy] = useState(false);
   /** A file action started from the list beside the diff — that pane's own bar. */
   const [acting, setActing] = useState(false);
+
+  /** The user's own Diff/Edit choice — reset below whenever `path` changes, not on every render:
+   *  a save can flip `diffable` from false to true without the file leaving Edit mode. */
+  const [mode, setMode] = useState<"diff" | "edit">(diffable ? "diff" : "edit");
+  const [modeForPath, setModeForPath] = useState(path);
+  if (modeForPath !== path) {
+    setModeForPath(path);
+    setMode(diffable ? "diff" : "edit");
+  }
+
+  const [file, setFile] = useState<FileContent | null>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const editorRef = useRef<CodeEditorHandle>(null);
+
+  /** Bumped after a successful save so the diff reloads even when the watcher's own push does
+   *  not — `Repository.emit` only pushes a changed *state*, and modified→modified isn't one. */
+  const [savedAt, setSavedAt] = useState(0);
+
+  const [files, setFiles] = useState<string[] | undefined>(undefined);
+  const [listing, setListing] = useState(false);
+  const [treeHeight, setTreeHeight] = usePaneSize("diff-tree", 300, MIN_PANE_HEIGHT);
   const [filesWidth, setFilesWidth] = usePaneSize("diff-files", 260, MIN_PANE_WIDTH);
   const root = useRef<HTMLDivElement>(null);
 
-  // Reloads whenever the file, the repository state or the whitespace switch changes.
+  const canEdit = diffable ? change?.status !== "deleted" && !diff?.binary : !file?.binary && !file?.tooLarge;
+  const effective: "diff" | "edit" = diffable ? (canEdit ? mode : "diff") : "edit";
+
+  // Reloads whenever the file, the repository state, the whitespace switch or a save changes it.
+  // Not run at all for a file with nothing to diff — a tree file the changes list never named
+  // costs no git process just for being looked at.
   useEffect(() => {
+    if (!path || !diffable) {
+      setDiff(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     void window.tet.repository.diff(project.id, path, { ignoreWhitespace }).then((result) => {
@@ -65,7 +112,77 @@ export const DiffDialog = memo(function DiffDialog({
     return () => {
       cancelled = true;
     };
-  }, [project.id, path, version, ignoreWhitespace]);
+  }, [project.id, path, version, ignoreWhitespace, diffable, savedAt]);
+
+  // The file's content — read whenever there's nothing to diff (Edit is the only mode there is)
+  // or the user has switched to Edit for a file that also has one. Not on `version`/`savedAt`: a
+  // change from outside is instead folded into the open model in place, below, so it never
+  // clobbers what's being typed.
+  const wantsFile = path !== null && (!diffable || mode === "edit");
+  useEffect(() => {
+    if (!path || !wantsFile) {
+      setFile(null);
+      return;
+    }
+    let cancelled = false;
+    setFileLoading(true);
+    void window.tet.repository.readFile(project.id, path).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      if (result.error) {
+        notify("error", `${result.path}: ${result.error}`);
+      }
+      setFile(result);
+      setFileLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, path, wantsFile]);
+
+  // An outside edit (an agent, a terminal) changing the open file while it sits clean in the
+  // editor — folded into the model in place rather than remounting it, so undo history and the
+  // cursor survive. Left alone while dirty: the user's own unsaved edit wins until they act on
+  // it themselves (switch away, or save over a stale file and hit the mtime guard).
+  // Deliberately keyed on `version` alone — see the file read above for why not `file` itself.
+  useEffect(() => {
+    if (!path || effective !== "edit" || dirty || !file || file.error) {
+      return;
+    }
+    let cancelled = false;
+    void window.tet.repository.readFile(project.id, path).then((result) => {
+      if (cancelled || result.error || result.mtimeMs === file.mtimeMs) {
+        return;
+      }
+      setFile(result);
+      editorRef.current?.setContent(result.content);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  // The FILES tree — read on open, and again whenever a file starts or stops existing (added,
+  // removed, renamed, untracked). A plain edit leaves `changes` at "modified" for a path already
+  // in the tree, so it alone does not re-list.
+  const changesKey = changes
+    .filter((entry) => entry.status !== "modified")
+    .map((entry) => entry.path)
+    .join("\n");
+  useEffect(() => {
+    let cancelled = false;
+    setListing(true);
+    void window.tet.repository.listFiles(project.id).then((result) => {
+      if (!cancelled) {
+        setFiles(result);
+        setListing(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, changesKey]);
 
   // Takes the keyboard while it is up and hands it back on the way out: ↑/↓ step through the
   // files, and the terminal a path was ctrl-clicked in would otherwise still be the one
@@ -80,7 +197,66 @@ export const DiffDialog = memo(function DiffDialog({
     };
   }, []);
 
-  useEscape(onClose);
+  // Back from Edit to Diff (a toggle, a file that stops being edit-only) — refocus the root so
+  // ↑/↓ reach `ChangesList` again rather than whatever the editor left focused.
+  useEffect(() => {
+    if (effective === "diff") {
+      root.current?.focus();
+    }
+  }, [effective]);
+
+  const guardDirty = async (): Promise<boolean> => !dirty || (path !== null && (await confirmDiscardEdit(path)));
+
+  const requestOpen = async (next: string): Promise<void> => {
+    if (!(await guardDirty())) {
+      return;
+    }
+    setDirty(false);
+    onOpenDiff(project.id, next);
+  };
+
+  const requestToggle = async (): Promise<void> => {
+    if (!(await guardDirty())) {
+      return;
+    }
+    setDirty(false);
+    setMode((current) => (current === "edit" ? "diff" : "edit"));
+  };
+
+  const requestClose = async (): Promise<void> => {
+    if (!(await guardDirty())) {
+      return;
+    }
+    onClose();
+  };
+
+  useEscape(() => void requestClose(), { deferWithin: ".monaco-editor" });
+
+  const save = async (): Promise<void> => {
+    if (!path || !dirty || !file || !editorRef.current) {
+      return;
+    }
+    setSaving(true);
+    const content = editorRef.current.getValue();
+    const result = await window.tet.repository.writeFile(project.id, path, content, file.mtimeMs);
+    if (result.ok) {
+      setFile((current) => (current ? { ...current, content, mtimeMs: result.mtimeMs ?? current.mtimeMs } : current));
+      editorRef.current.markSaved();
+      setSavedAt((count) => count + 1);
+    } else {
+      notify("error", result.error ?? "Could not save the file");
+    }
+    setSaving(false);
+  };
+
+  const onDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    // Reaches here only when nothing inside — the editor included — already claimed the key: a
+    // save from the editor's own Ctrl+S never gets this far, so there is no double save.
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      void save();
+    }
+  };
 
   const act: FileAct = (action) => {
     setActing(true);
@@ -93,24 +269,38 @@ export const DiffDialog = memo(function DiffDialog({
       .finally(() => setActing(false));
   };
 
+  const busy = diffBusy || fileLoading || editorLoading || saving;
+
   return (
     <div className="diff-overlay">
-      <div className="diff-dialog" ref={root} tabIndex={-1}>
+      <div className="diff-dialog" ref={root} tabIndex={-1} onKeyDown={onDialogKeyDown}>
         <div className="diff-files" style={{ width: filesWidth }}>
-          <div className="sidebar-header">
-            <span>
-              LOCAL CHANGES <span className="count">({changes.length})</span>
-            </span>
-            {/* This pane's own bar — a discard or an ignore from its list. */}
-            {acting && <ProgressBar />}
+          <div className="git-section" style={{ height: treeHeight }}>
+            <div className="sidebar-header">
+              <span>
+                FILES <span className="count">({files?.length ?? 0})</span>
+              </span>
+              {listing && <ProgressBar />}
+            </div>
+            <FileTree files={files} selected={path} onOpen={(next) => void requestOpen(next)} />
           </div>
-          <ChangesList
-            project={project}
-            changes={changes}
-            act={act}
-            onOpenDiff={(next) => onOpenDiff(project.id, next)}
-            active={path}
-          />
+          <Sash orientation="horizontal" size={treeHeight} min={MIN_PANE_HEIGHT} minOther={MIN_PANE_HEIGHT} onResize={setTreeHeight} />
+          <div className="git-section grows">
+            <div className="sidebar-header">
+              <span>
+                LOCAL CHANGES <span className="count">({changes.length})</span>
+              </span>
+              {/* This pane's own bar — a discard or an ignore from its list. */}
+              {acting && <ProgressBar />}
+            </div>
+            <ChangesList
+              project={project}
+              changes={changes}
+              act={act}
+              onOpenDiff={(next) => void requestOpen(next)}
+              active={path}
+            />
+          </div>
         </div>
         <Sash
           orientation="vertical"
@@ -121,8 +311,10 @@ export const DiffDialog = memo(function DiffDialog({
         />
         <div className="diff-main">
           <div className="diff-dialog-bar">
-            <span className="diff-dialog-path">{path}</span>
-            {diff && !diff.binary && (
+            <span className="diff-dialog-label">FILE</span>
+            {dirty && <span className="diff-dialog-dirty">●</span>}
+            <span className="diff-dialog-path">{path ?? "No file open"}</span>
+            {effective === "diff" && diff && !diff.binary && (
               <button
                 className={`icon-button${ignoreWhitespace ? " active" : ""}`}
                 title={ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
@@ -131,18 +323,59 @@ export const DiffDialog = memo(function DiffDialog({
                 <WhitespaceIcon />
               </button>
             )}
-            <button className="icon-button" title="Close" onClick={onClose}>
+            {diffable && canEdit && (
+              <button
+                className={`icon-button${effective === "edit" ? " active" : ""}`}
+                title={effective === "edit" ? "Show diff" : "Edit file"}
+                onClick={() => void requestToggle()}
+              >
+                <PencilIcon />
+              </button>
+            )}
+            {path !== null && effective === "edit" && (
+              <button
+                className="icon-button"
+                title="Save (Ctrl+S)"
+                disabled={!dirty || saving}
+                onClick={() => void save()}
+              >
+                <SaveIcon />
+              </button>
+            )}
+            <button className="icon-button" title="Close" onClick={() => void requestClose()}>
               <CloseIcon />
             </button>
             {busy && <ProgressBar />}
           </div>
-          <DiffView
-            projectId={project.id}
-            diff={diff}
-            loading={loading}
-            onBusy={setBusy}
-            ignoreWhitespace={ignoreWhitespace}
-          />
+          {path === null ? (
+            <div className="placeholder">Select a file.</div>
+          ) : effective === "diff" ? (
+            <DiffView
+              projectId={project.id}
+              diff={diff}
+              loading={loading}
+              onBusy={setDiffBusy}
+              ignoreWhitespace={ignoreWhitespace}
+            />
+          ) : !file || file.path !== path ? null : file.error ? (
+            <div className="placeholder">{file.error}</div>
+          ) : file.binary ? (
+            <div className="placeholder">Binary file.</div>
+          ) : file.tooLarge ? (
+            <div className="placeholder">File too large to edit.</div>
+          ) : (
+            // Mounted only once `file` actually belongs to `path` — the fetch a path change
+            // starts is async, and rendering the editor before it lands would seed a fresh
+            // model with the *previous* file's text under the new file's path.
+            <CodeEditor
+              ref={editorRef}
+              path={path}
+              content={file.content}
+              onDirty={setDirty}
+              onSave={() => void save()}
+              onBusy={setEditorLoading}
+            />
+          )}
         </div>
       </div>
     </div>
