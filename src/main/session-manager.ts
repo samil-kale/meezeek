@@ -521,8 +521,8 @@ export class ProjectSessionManager {
 
   /**
    * A tab that runs one of the project's saved commands and ends with it. Its process *is* the
-   * command, and the command is its label, since a shell tab has no session to take a title
-   * from.
+   * command, and its label is the command's `name` if it has one, the command line otherwise,
+   * since a shell tab has no session to take a title from.
    *
    * The program is started directly, without a shell; `resolveCommand` is where the platform
    * difference is settled (a `.cmd` shim on win32 goes through cmd.exe). Only a command that
@@ -530,7 +530,7 @@ export class ProjectSessionManager {
    */
   createCommandTab(command: ProjectCommand): TerminalDescriptor | undefined {
     const shared = {
-      title: command.command,
+      title: command.name ?? command.command,
       // `resolve` rather than `join`, so a folder that is already absolute is left alone.
       cwd: command.cwd ? path.resolve(this.project.path, command.cwd) : undefined,
       env: command.env
