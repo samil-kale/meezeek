@@ -952,6 +952,20 @@ export async function readDiff(cwd: string, filePath: string, options: ReadDiffO
 }
 
 /**
+ * Every path `.gitignore` (and the rest of the exclude chain) hides, for a FILES tree asked to
+ * hide them too — files and, with `--directory`, whole ignored directories collapsed to one
+ * entry with a trailing `/`, so the walk can skip them without git naming each file inside.
+ * Repository-relative, forward-slashed, as git prints them. Empty when git has nothing to say.
+ */
+export async function listIgnored(cwd: string): Promise<string[]> {
+  const result = await git(cwd, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]);
+  if (result.code !== 0) {
+    return [];
+  }
+  return result.stdout.split("\0").filter((entry) => entry !== "");
+}
+
+/**
  * Lines `from` to `to` of the file as it is now, 1-based and inclusive — what the diff view
  * puts into a gap it was asked to open. Context lines are by definition the same in both
  * versions, so the working tree is the one place they have to be read from.

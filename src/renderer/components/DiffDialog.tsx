@@ -3,8 +3,17 @@ import type { FileChange, FileContent, FileDiff, FileListing, Project } from "..
 import { ChangesList, confirmDiscard, type FileAct } from "./ChangesList";
 import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiffView } from "./DiffView";
-import { FileTree } from "./FileTree";
-import { CloseIcon, DiscardIcon, PencilIcon, SaveIcon, WhitespaceIcon } from "./icons";
+import { FileTree, type FileTreeHandle } from "./FileTree";
+import {
+  CloseIcon,
+  CollapseAllIcon,
+  DiscardIcon,
+  NewFileIcon,
+  NewFolderIcon,
+  PencilIcon,
+  SaveIcon,
+  WhitespaceIcon
+} from "./icons";
 import { confirm } from "./Dialog";
 import { notify } from "./Notices";
 import { useEscape } from "./use-escape";
@@ -77,6 +86,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
   const [saving, setSaving] = useState(false);
   const [editorLoading, setEditorLoading] = useState(false);
   const editorRef = useRef<CodeEditorHandle>(null);
+  const fileTreeRef = useRef<FileTreeHandle>(null);
 
   /** Bumped after a successful save so the diff reloads even when the watcher's own push does
    *  not — `Repository.emit` only pushes a changed *state*, and modified→modified isn't one. */
@@ -176,9 +186,20 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
   }, [version]);
 
   // The FILES tree — read on open, again whenever a file starts or stops existing (added,
-  // removed, renamed, untracked), and again after the tree's own create/rename/delete. A plain
-  // edit leaves `changes` at "modified" for a path already in the tree, so it alone does not
-  // re-list.
+  // removed, renamed, untracked), again after the tree's own create/rename/delete, and again
+  // when the project's tet.json changed, since the listing carries that file's `folders`,
+  // `exclude` and sort settings — whoever wrote it, the tree's own menu, an editor or an agent.
+  // A plain edit leaves `changes` at "modified" for a path already in the tree, so it alone
+  // does not re-list.
+  useEffect(
+    () =>
+      window.tet.commands.onChanged((payload) => {
+        if (payload.projectId === project.id) {
+          setFilesVersion((count) => count + 1);
+        }
+      }),
+    [project.id]
+  );
   const changesKey = changes
     .filter((entry) => entry.status !== "modified")
     .map((entry) => entry.path)
@@ -293,9 +314,38 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
               <span>
                 FILES <span className="count-badge">({files?.files.length ?? 0})</span>
               </span>
+              {/* VS Code's own trio, in its order — "Refresh Explorer" is left out: the watcher
+                  already keeps this tree current on its own (see `onFilesChanged`). */}
+              <span className="section-header-actions">
+                <button
+                  className="icon-button"
+                  title="New File..."
+                  disabled={acting || !files}
+                  onClick={() => fileTreeRef.current?.newFile()}
+                >
+                  <NewFileIcon />
+                </button>
+                <button
+                  className="icon-button"
+                  title="New Folder..."
+                  disabled={acting || !files}
+                  onClick={() => fileTreeRef.current?.newFolder()}
+                >
+                  <NewFolderIcon />
+                </button>
+                <button
+                  className="icon-button"
+                  title="Collapse Folders in Explorer"
+                  disabled={!files}
+                  onClick={() => fileTreeRef.current?.collapseAll()}
+                >
+                  <CollapseAllIcon />
+                </button>
+              </span>
               {listing && <ProgressBar />}
             </div>
             <FileTree
+              ref={fileTreeRef}
               project={project}
               files={files}
               selected={path}

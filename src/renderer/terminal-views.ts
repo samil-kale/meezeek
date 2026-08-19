@@ -358,6 +358,11 @@ export function focusTerminal(projectId: string, tabId: string): void {
   views.get(viewKey(projectId, tabId))?.term.focus();
 }
 
+/** Wipes the scrollback and screen — what a restart clears once the command is running again. */
+export function clearTerminal(projectId: string, tabId: string): void {
+  views.get(viewKey(projectId, tabId))?.term.clear();
+}
+
 export function disposeTerminal(projectId: string, tabId: string): void {
   const key = viewKey(projectId, tabId);
   const view = views.get(key);

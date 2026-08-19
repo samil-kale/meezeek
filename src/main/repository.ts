@@ -15,6 +15,7 @@ import type {
   RepositoryState,
   StashCommand
 } from "../shared/types";
+import { addExclude, addFolder, readFileView, removeFolder } from "./commands";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { DiscardTargets } from "./git";
@@ -511,10 +512,34 @@ export class Repository {
    * see `FileListing`. A real scan rather than a git process: not on the index lock `runAction`
    * serialises, and `fs.promises` so a large `node_modules` doesn't hold the main process's
    * event loop — the same typing-lag reason git itself never runs there directly.
+   *
+   * What the project's tet.json says about its FILES tree is applied here: `exclude` globs and
+   * git's own ignore list (one `ls-files` process per listing, only when opted into — never on
+   * the refresh path) are skipped during the walk, a walk that covers only the configured
+   * `folders` where there are any — the outermost ones, since a root inside another root holds
+   * nothing the outer walk doesn't already pass. Modification times are read only for the one
+   * sort order that needs them: a `stat` per entry is not free on a large tree.
    */
   async listFiles(): Promise<FileListing> {
+    const view = await readFileView(this.project.path);
+    const ignored = view.excludeGitIgnore ? await git.listIgnored(this.project.path).catch(() => []) : [];
+    const ignoredFiles = new Set(ignored.filter((entry) => !entry.endsWith("/")));
+    const ignoredDirs = new Set(ignored.filter((entry) => entry.endsWith("/")).map((entry) => entry.slice(0, -1)));
+    const skip = (relativePath: string, isDirectory: boolean): boolean =>
+      (isDirectory ? ignoredDirs : ignoredFiles).has(relativePath) ||
+      view.exclude.some((pattern) => path.matchesGlob(relativePath, pattern));
+    const wantMtimes = view.sortOrder === "modified";
+
     const files: string[] = [];
     const emptyDirs: string[] = [];
+    const mtimes: Record<string, number> = {};
+    const stat = async (absolutePath: string, relativePath: string): Promise<void> => {
+      try {
+        mtimes[relativePath] = (await fs.promises.stat(absolutePath)).mtimeMs;
+      } catch {
+        // A vanished entry sorts with the oldest; the tree still lists it until the next read.
+      }
+    };
     const walk = async (absoluteDir: string, relativeDir: string): Promise<void> => {
       let entries: fs.Dirent[];
       try {
@@ -528,27 +553,53 @@ export class Repository {
         }
         return;
       }
-      const subdirs: Promise<void>[] = [];
+      const pending: Promise<void>[] = [];
       for (const entry of entries) {
         if (entry.name === ".git") {
           continue;
         }
         const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
-        if (entry.isDirectory()) {
-          subdirs.push(walk(path.join(absoluteDir, entry.name), relativePath));
-        } else if (entry.isFile() || entry.isSymbolicLink()) {
+        const absolutePath = path.join(absoluteDir, entry.name);
+        const isDirectory = entry.isDirectory();
+        if (!isDirectory && !entry.isFile() && !entry.isSymbolicLink()) {
+          continue;
+        }
+        if (skip(relativePath, isDirectory)) {
+          continue;
+        }
+        if (isDirectory) {
+          pending.push(walk(absolutePath, relativePath));
+        } else {
           // A symlink is listed as the file row it mostly is: a dirent reports a link as
           // neither file nor directory, so without this branch links vanish from the tree —
           // never descended into either way, which is also what keeps a link cycle harmless.
           files.push(relativePath);
         }
+        if (wantMtimes) {
+          pending.push(stat(absolutePath, relativePath));
+        }
       }
       // Sibling directories in parallel — the walk is readdir-bound, and the final sorts make
       // the listing deterministic regardless of which branch answers first.
-      await Promise.all(subdirs);
+      await Promise.all(pending);
     };
-    await walk(this.project.path, "");
-    return { files: files.sort(), emptyDirs: emptyDirs.sort() };
+    const roots = view.folders;
+    const outermost = roots.filter(
+      (root) => !roots.some((other) => other !== root && (other.path === "" || root.path.startsWith(`${other.path}/`)))
+    );
+    if (outermost.length === 0) {
+      await walk(this.project.path, "");
+    } else {
+      await Promise.all(outermost.map((root) => walk(path.join(this.project.path, root.path), root.path)));
+    }
+    return {
+      files: files.sort(),
+      emptyDirs: emptyDirs.sort(),
+      roots: roots.length > 0 ? roots : undefined,
+      compactFolders: view.compactFolders,
+      sortOrder: view.sortOrder,
+      mtimes: wantMtimes ? mtimes : undefined
+    };
   }
 
   /** A repository-relative path, checked to exist (or not) and resolved, or an error either way. */
@@ -623,6 +674,32 @@ export class Repository {
     try {
       await fs.promises.mkdir(path.dirname(to.absolute), { recursive: true });
       await fs.promises.rename(from, to.absolute);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * The FILES tree's three edits of the project's own tet.json — "Add Folder to Workspace",
+   * "Remove Folder from Workspace", "Exclude from Files". Reported like the file actions above
+   * (the tree runs all of them the same way); the watcher sees the write and re-lists.
+   */
+  addFolder(folderPath: string): Promise<GitActionResult> {
+    return this.editView(() => addFolder(this.project.path, folderPath));
+  }
+
+  removeFolder(folderPath: string): Promise<GitActionResult> {
+    return this.editView(() => removeFolder(this.project.path, folderPath));
+  }
+
+  excludePath(relPath: string): Promise<GitActionResult> {
+    return this.editView(() => addExclude(this.project.path, relPath));
+  }
+
+  private async editView(edit: () => Promise<void>): Promise<GitActionResult> {
+    try {
+      await edit();
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

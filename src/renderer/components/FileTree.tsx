@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { FileListing, Project } from "../../shared/types";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { FileListing, FileRoot, FileSortOrder, Project } from "../../shared/types";
 import { languageForPath } from "../diff-highlight";
 import { absolutePath, revealLabel } from "../platform";
 import { type FileAct } from "./ChangesList";
@@ -65,11 +65,21 @@ const LANGUAGE_ICONS: Record<string, (props: IconProps) => React.ReactElement> =
 };
 
 interface TreeNode {
+  /**
+   * What `expanded`, the row map and React keys go by. The path alone, until the project lists
+   * `folders`: then the same file can sit under two roots, so each root prefixes its own
+   * index — "1:src/a.ts" — and the two rows fold and scroll independently.
+   */
+  id: string;
+  /** The label; a compacted chain's is `a/b/c`. */
   name: string;
-  /** Repository-relative, forward-slashed — the same shape `changes` paths already have. */
+  /** Repository-relative, forward-slashed — the same shape `changes` paths already have. For a
+   *  compacted chain, the innermost folder's, which is the one every action acts on. */
   path: string;
   /** Present for a folder, absent for a file — what tells the two apart while rendering. */
   children?: TreeNode[];
+  /** A `folders` entry's top-level node: open by default, removable, never compacted. */
+  root?: true;
 }
 
 /* VS Code's explorer geometry (abstractTree.ts / explorerViewer.ts), shrunk 2px across the board
@@ -82,43 +92,84 @@ const INDENT_BASE = 6;
 const TWISTIE_WIDTH = 16;
 const TWISTIE_GAP = 4;
 
-/** Folders before files, then alphabetical — VS Code's own explorer order. */
-function compareNodes(a: TreeNode, b: TreeNode): number {
-  if (!!a.children !== !!b.children) {
-    return a.children ? -1 : 1;
-  }
+/** Name order as VS Code's explorer compares: case-insensitive, locale-aware. */
+function compareNames(a: TreeNode, b: TreeNode): number {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
-function sortTree(nodes: TreeNode[]): void {
-  nodes.sort(compareNodes);
+/** Folders before files (or the other way round), then by name. */
+function compareGrouped(a: TreeNode, b: TreeNode, foldersFirst: boolean): number {
+  if (!!a.children !== !!b.children) {
+    return (a.children ? -1 : 1) * (foldersFirst ? 1 : -1);
+  }
+  return compareNames(a, b);
+}
+
+function extensionOf(name: string): string {
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(index + 1).toLowerCase() : "";
+}
+
+/**
+ * VS Code's `explorer.sortOrder` values, one comparator each: `default` (and
+ * `foldersNestsFiles`, the same without file nesting) is folders before files then name;
+ * `mixed` name alone; `filesFirst` the reverse grouping; `type` folders first, files by
+ * extension then name; `modified` newest first, folders and files alike, name on a tie.
+ */
+function comparatorFor(order: FileSortOrder, mtimes: Record<string, number>): (a: TreeNode, b: TreeNode) => number {
+  switch (order) {
+    case "mixed":
+      return compareNames;
+    case "filesFirst":
+      return (a, b) => compareGrouped(a, b, false);
+    case "type":
+      return (a, b) => {
+        if (a.children || b.children) {
+          return compareGrouped(a, b, true);
+        }
+        return extensionOf(a.name).localeCompare(extensionOf(b.name)) || compareNames(a, b);
+      };
+    case "modified":
+      return (a, b) => (mtimes[b.path] ?? 0) - (mtimes[a.path] ?? 0) || compareNames(a, b);
+    default:
+      return (a, b) => compareGrouped(a, b, true);
+  }
+}
+
+function sortTree(nodes: TreeNode[], compare: (a: TreeNode, b: TreeNode) => number): void {
+  nodes.sort(compare);
   for (const node of nodes) {
     if (node.children) {
-      sortTree(node.children);
+      sortTree(node.children, compare);
     }
   }
 }
 
 /**
- * Every file, split on `/` into nested folders, plus any directory `files` alone wouldn't imply
- * (see `FileListing`) — inserted the same way, except its own leaf is a folder node too.
+ * Every file under `under` ("" for all of them), split on `/` into nested folders, plus any
+ * directory `files` alone wouldn't imply (see `FileListing`) — inserted the same way, except
+ * its own leaf is a folder node too. Paths stay repository-relative whatever `under` is; `idOf`
+ * is what a root prefixes them with (see `TreeNode.id`).
  */
-function buildTree(files: string[], emptyDirs: string[]): TreeNode[] {
-  const root: TreeNode[] = [];
+function buildTree(files: string[], emptyDirs: string[], under: string, idOf: (path: string) => string): TreeNode[] {
+  const top: TreeNode[] = [];
   const folders = new Map<string, TreeNode>();
   const ensureFolder = (folderPath: string, name: string, siblings: TreeNode[]): TreeNode => {
     let folder = folders.get(folderPath);
     if (!folder) {
-      folder = { name, path: folderPath, children: [] };
+      folder = { id: idOf(folderPath), name, path: folderPath, children: [] };
       folders.set(folderPath, folder);
       siblings.push(folder);
     }
     return folder;
   };
   const insert = (entryPath: string, isDirectory: boolean): void => {
-    const parts = entryPath.split("/");
-    let siblings = root;
-    let prefix = "";
+    if (under && !entryPath.startsWith(`${under}/`)) {
+      return;
+    }
+    const parts = (under ? entryPath.slice(under.length + 1) : entryPath).split("/");
+    let siblings = top;
+    let prefix = under;
     for (let depth = 0; depth < parts.length - 1; depth++) {
       prefix = prefix ? `${prefix}/${parts[depth]}` : parts[depth];
       siblings = ensureFolder(prefix, parts[depth], siblings).children!;
@@ -127,7 +178,7 @@ function buildTree(files: string[], emptyDirs: string[]): TreeNode[] {
     if (isDirectory) {
       ensureFolder(entryPath, name, siblings);
     } else {
-      siblings.push({ name, path: entryPath });
+      siblings.push({ id: idOf(entryPath), name, path: entryPath });
     }
   };
   for (const file of files) {
@@ -136,8 +187,59 @@ function buildTree(files: string[], emptyDirs: string[]): TreeNode[] {
   for (const dir of emptyDirs) {
     insert(dir, true);
   }
-  sortTree(root);
-  return root;
+  return top;
+}
+
+/**
+ * VS Code's `explorer.compactFolders`: a folder whose only child is another folder becomes one
+ * row with that child — `src/main/java` — down the whole chain. The row *is* the innermost
+ * folder (its id, its path, its children), so folding, reveal and the context menu all act on
+ * that one; VS Code's per-segment click is not reproduced. Roots are left as they are, as there.
+ */
+function compactTree(nodes: TreeNode[]): TreeNode[] {
+  return nodes.map((node) => {
+    if (!node.children) {
+      return node;
+    }
+    let folded = node;
+    while (!folded.root && folded.children!.length === 1 && folded.children![0].children) {
+      const inner = folded.children![0];
+      folded = { id: inner.id, name: `${folded.name}/${inner.name}`, path: inner.path, children: inner.children };
+    }
+    return { ...folded, children: compactTree(folded.children!) };
+  });
+}
+
+/**
+ * The whole tree: one of every file where the project names no `folders`, otherwise one subtree
+ * per root under a top-level node carrying its name — the same file under two overlapping roots
+ * twice, each row its own. Sorted by the project's `sortOrder` either way.
+ */
+function buildForest(files: FileListing): TreeNode[] {
+  const compare = comparatorFor(files.sortOrder, files.mtimes ?? {});
+  if (!files.roots) {
+    const tree = buildTree(files.files, files.emptyDirs, "", (path) => path);
+    sortTree(tree, compare);
+    return tree;
+  }
+  return files.roots.map((root, index) => {
+    const children = buildTree(files.files, files.emptyDirs, root.path, (path) => `${index}:${path}`);
+    sortTree(children, compare);
+    return { id: `${index}:`, name: root.name, path: root.path, children, root: true };
+  });
+}
+
+/** The root whose subtree a path is revealed in: the innermost one containing it — VS Code's
+ *  `getWorkspaceFolder` — or undefined when it lies under none. */
+function rootIndexFor(roots: FileRoot[], filePath: string): number | undefined {
+  let best: number | undefined;
+  roots.forEach((root, index) => {
+    const inside = root.path === "" || filePath.startsWith(`${root.path}/`);
+    if (inside && (best === undefined || root.path.length > roots[best].path.length)) {
+      best = index;
+    }
+  });
+  return best;
 }
 
 /** Everything up to but not including a path's own last segment — its parent folder, "" at the
@@ -188,7 +290,7 @@ interface RowsProps {
   nodes: TreeNode[];
   depth: number;
   expanded: Record<string, boolean>;
-  toggle: (path: string) => void;
+  toggle: (node: TreeNode) => void;
   forceExpanded: boolean;
   selected: string | null;
   onOpen: (path: string) => void;
@@ -201,22 +303,23 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
     <>
       {nodes.map((node) => {
         const isFolder = node.children !== undefined;
-        const open = forceExpanded || (expanded[node.path] ?? false);
+        // A root starts open, the way VS Code's workspace folders do; everything else closed.
+        const open = forceExpanded || (expanded[node.id] ?? node.root === true);
         const LangIcon = isFolder ? undefined : LANGUAGE_ICONS[languageForPath(node.path) ?? ""];
         return (
-          <div key={node.path}>
+          <div key={node.id}>
             <button
               ref={(element) => {
                 if (element) {
-                  rows.set(node.path, element);
+                  rows.set(node.id, element);
                 } else {
-                  rows.delete(node.path);
+                  rows.delete(node.id);
                 }
               }}
               className={`tree-item${!isFolder && selected === node.path ? " selected" : ""}`}
               style={{ paddingLeft: INDENT_BASE + depth * INDENT_STEP }}
-              title={node.path}
-              onClick={() => (isFolder ? toggle(node.path) : onOpen(node.path))}
+              title={node.path || "."}
+              onClick={() => (isFolder ? toggle(node) : onOpen(node.path))}
               onContextMenu={(event) => onContextMenu(event, node)}
             >
               <span
@@ -271,6 +374,15 @@ interface FileTreeProps {
   /** A create, rename or delete settled — nothing else would tell the tree to read the listing
    *  again: an empty new folder, unlike a new file, never touches git status. */
   onFilesChanged: () => void;
+  ref?: React.Ref<FileTreeHandle>;
+}
+
+/** What the FILES header's own title-bar buttons reach in — VS Code's "New File...", "New
+ *  Folder..." and "Collapse Folders in Explorer", the same trio its explorer carries. */
+export interface FileTreeHandle {
+  newFile(): void;
+  newFolder(): void;
+  collapseAll(): void;
 }
 
 /**
@@ -278,42 +390,65 @@ interface FileTreeProps {
  * LOCAL CHANGES beside it — a way in for the occasional file that has no diff. No ↑/↓ (stays with
  * `ChangesList`), but otherwise GitHub Desktop's own file actions plus the handful VS Code's
  * explorer adds for a tree rather than a flat list: new file, new folder, rename, delete.
+ *
+ * How it is shown is the project's own say, from its tet.json and carried in by the listing
+ * (see `FileListing`): `folders` make it VS Code's multi-root explorer — one top-level node per
+ * entry, overlapping allowed, the file revealed in the innermost root containing it — while
+ * `exclude`/`excludeGitIgnore` have already thinned the listing before it gets here, and
+ * `sortOrder`/`compactFolders` are applied on the way to the screen.
  */
-export function FileTree({ project, files, selected, onOpen, act, onFilesChanged }: FileTreeProps) {
+export function FileTree({ project, files, selected, onOpen, act, onFilesChanged, ref }: FileTreeProps) {
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode | null } | null>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
 
-  const tree = useMemo(() => buildTree(files?.files ?? [], files?.emptyDirs ?? []), [files]);
+  const tree = useMemo(() => (files ? buildForest(files) : []), [files]);
   const query = filter.trim().toLowerCase();
   const filtering = query.length > 0;
-  const shown = useMemo(() => (filtering ? filterTree(tree, query) : tree), [tree, query, filtering]);
+  // Compacted last, on what is actually shown: a filter that prunes a folder down to one
+  // subfolder folds the two together, as VS Code's does.
+  const shown = useMemo(() => {
+    const filtered = filtering ? filterTree(tree, query) : tree;
+    return files?.compactFolders ? compactTree(filtered) : filtered;
+  }, [tree, query, filtering, files?.compactFolders]);
 
   // Reveals the file the rest of the dialog opened (a ChangesList click, a ctrl-clicked path):
   // its folders expand and it scrolls into view, the same way VS Code's explorer follows the
-  // active editor.
+  // active editor. Under `folders`, in the innermost root containing it — or nowhere, when no
+  // root does.
+  const roots = files?.roots;
   const pendingReveal = useRef<string | null>(null);
   useEffect(() => {
     if (!selected) {
       return;
     }
-    pendingReveal.current = selected;
-    const ancestors = ancestorsOf(selected);
-    if (ancestors.length > 0) {
-      setExpanded((current) => {
-        const next = { ...current };
-        let changed = false;
-        for (const ancestor of ancestors) {
-          if (!next[ancestor]) {
-            next[ancestor] = true;
-            changed = true;
-          }
-        }
-        return changed ? next : current;
-      });
+    let idOf = (path: string): string => path;
+    const ids: string[] = [];
+    if (roots) {
+      const index = rootIndexFor(roots, selected);
+      if (index === undefined) {
+        return;
+      }
+      idOf = (path) => `${index}:${path}`;
+      ids.push(idOf(""));
     }
-  }, [selected]);
+    pendingReveal.current = idOf(selected);
+    // Every ancestor, the ones a compacted chain folded away included — an id no row carries
+    // is simply never read.
+    ids.push(...ancestorsOf(selected).map(idOf));
+    setExpanded((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const id of ids) {
+        if (!next[id]) {
+          next[id] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [selected, roots]);
   // The scroll itself, one effect later: a row inside a still-collapsed folder is not in the
   // DOM on the pass that expands it, so scrolling right after `setExpanded` above found nothing
   // to scroll to — exactly the case a reveal exists for. Watching `expanded` too runs this
@@ -329,7 +464,32 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
     }
   }, [selected, expanded]);
 
-  const toggle = (path: string): void => setExpanded((current) => ({ ...current, [path]: !current[path] }));
+  const toggle = (node: TreeNode): void =>
+    setExpanded((current) => ({ ...current, [node.id]: !(current[node.id] ?? node.root === true) }));
+
+  /** VS Code's "Collapse Folders in Explorer": every folder shut at once, roots included — so
+   *  each has to be written explicitly, not merely left out of the map (a root defaults open,
+   *  see `toggle`). Walks the unfiltered, uncompacted `tree`: a compacted chain's row keeps its
+   *  innermost folder's id (see `compactTree`), which this still collects. */
+  const collapseAll = (): void => {
+    const ids: string[] = [];
+    const collect = (nodes: TreeNode[]): void => {
+      for (const node of nodes) {
+        if (node.children) {
+          ids.push(node.id);
+          collect(node.children);
+        }
+      }
+    };
+    collect(tree);
+    setExpanded((current) => {
+      const next = { ...current };
+      for (const id of ids) {
+        next[id] = false;
+      }
+      return next;
+    });
+  };
 
   /** `act`, plus telling the FILES header to read the listing again once the action lands. */
   const run: FileAct = (action) =>
@@ -389,11 +549,26 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
     }
   };
 
-  /** GitHub Desktop's changed-file menu (`ChangesList`'s own), minus what only makes sense for a
-   *  change, plus VS Code's new/rename/delete for a tree of every file. */
+  // The FILES header's own title-bar buttons — same target as right-clicking the empty space
+  // below the tree (`menuEntries` with `node: null`): the repository root.
+  useImperativeHandle(ref, () => ({
+    newFile: () => void askNewFile(""),
+    newFolder: () => void askNewFolder(""),
+    collapseAll
+  }));
+
+  /**
+   * GitHub Desktop's changed-file menu (`ChangesList`'s own), minus what only makes sense for a
+   * change, plus VS Code's new/rename/delete for a tree of every file, and its explorer's
+   * workspace entries — "Add Folder to Workspace" on a folder, "Remove Folder from Workspace" on
+   * a root — with one VS Code keeps in its settings editor, "Exclude from Files". All three edit
+   * the project's tet.json (see CLAUDE.md, "Files view"). A root is neither renamed nor deleted
+   * from here: it is a view onto a folder, not the folder.
+   */
   const menuEntries = (node: TreeNode | null): ContextMenuEntry[] => {
     const dir = node ? (node.children !== undefined ? node.path : parentOf(node.path)) : "";
     const isFile = node !== null && node.children === undefined;
+    const isRoot = node?.root === true;
 
     const openEntries: ContextMenuEntry[] = isFile
       ? [
@@ -402,21 +577,51 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
           SEPARATOR
         ]
       : [];
-    const nodeEntries: ContextMenuEntry[] = node
+    const editEntries: ContextMenuEntry[] =
+      node && !isRoot
+        ? [
+            SEPARATOR,
+            { label: "Rename...", run: () => void askRename(node) },
+            { label: "Delete...", run: () => void askDelete(node) }
+          ]
+        : [];
+    const viewEntries: ContextMenuEntry[] = [];
+    if (node) {
+      viewEntries.push(SEPARATOR);
+      if (isRoot) {
+        viewEntries.push({
+          label: "Remove Folder from Workspace",
+          run: () => run(() => window.tet.repository.removeFolder(project.id, node.path))
+        });
+      } else {
+        if (!isFile) {
+          viewEntries.push({
+            label: "Add Folder to Workspace",
+            run: () => run(() => window.tet.repository.addFolder(project.id, node.path))
+          });
+        }
+        viewEntries.push({
+          label: "Exclude from Files",
+          run: () => run(() => window.tet.repository.excludePath(project.id, node.path))
+        });
+      }
+    }
+    const pathEntries: ContextMenuEntry[] = node
       ? [
-          SEPARATOR,
-          { label: "Rename...", run: () => void askRename(node) },
-          { label: "Delete...", run: () => void askDelete(node) },
           SEPARATOR,
           { label: revealLabel(), run: () => void window.tet.shell.revealFile(project.id, node.path) },
           {
             label: isFile ? "Copy file path" : "Copy path",
             run: () => void navigator.clipboard.writeText(absolutePath(project.path, node.path))
           },
-          {
-            label: isFile ? "Copy relative file path" : "Copy relative path",
-            run: () => void navigator.clipboard.writeText(node.path)
-          }
+          ...(node.path
+            ? [
+                {
+                  label: isFile ? "Copy relative file path" : "Copy relative path",
+                  run: () => void navigator.clipboard.writeText(node.path)
+                }
+              ]
+            : [])
         ]
       : [];
 
@@ -424,7 +629,9 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
       ...openEntries,
       { label: "New File...", run: () => void askNewFile(dir) },
       { label: "New Folder...", run: () => void askNewFolder(dir) },
-      ...nodeEntries
+      ...editEntries,
+      ...viewEntries,
+      ...pathEntries
     ];
   };
 
@@ -445,7 +652,7 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
           }
         }}
       >
-        {files !== undefined && files.files.length === 0 && files.emptyDirs.length === 0 && (
+        {files !== undefined && !files.roots && files.files.length === 0 && files.emptyDirs.length === 0 && (
           <div className="placeholder">No files.</div>
         )}
         <Rows

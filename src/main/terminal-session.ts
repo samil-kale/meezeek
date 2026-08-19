@@ -45,6 +45,11 @@ export class TerminalSession {
   private process: IPty | undefined;
   private status: TerminalStatus = "missing";
   private intentionalStop = false;
+  /** The size of the last `ensureStarted` call — what `restart` respawns at. */
+  private lastCols: number | undefined;
+  private lastRows: number | undefined;
+  /** Set while a running process is being killed for a restart, so a second click can't queue another. */
+  private restartQueued = false;
 
   constructor(
     private readonly executable: string,
@@ -72,6 +77,8 @@ export class TerminalSession {
    * forwards resizes.
    */
   ensureStarted(cols: number, rows: number): void {
+    this.lastCols = cols;
+    this.lastRows = rows;
     if (this.process) {
       // A pty that has just died is still held here until node-pty's own exit event arrives,
       // and resizing one throws rather than reporting anything — which took the whole main
@@ -135,6 +142,34 @@ export class TerminalSession {
     if (this.process) {
       this.intentionalStop = true;
       this.process.kill();
+    }
+  }
+
+  /**
+   * Kills the current process, if any, and spawns it again at the same size once it is gone —
+   * a saved command run once more in the tab it already has. Registered on the process's own
+   * exit rather than spawning right away: `start`'s exit handler is what clears `this.process`,
+   * and an immediate second spawn would have its own reference clobbered by that handler firing
+   * late. No-op before the first `ensureStarted`, since there is no size to respawn at yet.
+   */
+  restart(): void {
+    if (this.lastCols === undefined || this.lastRows === undefined || this.restartQueued) {
+      return;
+    }
+    const cols = this.lastCols;
+    const rows = this.lastRows;
+    const respawn = (): void => {
+      this.restartQueued = false;
+      this.setStatus("ready");
+      this.start(cols, rows);
+    };
+    if (this.process) {
+      this.restartQueued = true;
+      this.intentionalStop = true;
+      this.process.onExit(respawn);
+      this.process.kill();
+    } else {
+      respawn();
     }
   }
 }

@@ -78,7 +78,7 @@ one `switch` in `TerminalsPane` instead of a tree, a generic sash composition an
 did you mean" for every action. `src/renderer/pane-layout.ts` holds the model and every rule about
 it; `TerminalsPane` lays the panes out; `Pane` is one of them, the strip-and-stack that
 `TerminalsPane` used to be by itself. The first pane (always top-left) carries one row of plain
-icon buttons — git toggle, layout picker, browse-files, settings, in that order — all on pane "a"
+icon buttons — git toggle, browse-files, layout picker, settings, in that order — all on pane "a"
 regardless of preset, so a split layout's right edge carries none of them. The progress bar is a
 bundle of its own again, on neither: it
 follows whichever pane the slow thing is actually in — see "One progress indicator per pane".
@@ -307,6 +307,8 @@ Each of these was paid for once and measured; the numbers are in the comment at 
 - Starting git is what costs, so count *invocations*. `readState` gets by with two (`git status
   --branch` reports branch and changes; only detached HEAD needs a third); anything added to the
   refresh path has to earn its process — `readStashes` is the third one a refresh spends.
+  `listIgnored` (the files view's `excludeGitIgnore`) is deliberately *not* on that path: one
+  process per listing of the FILES tree, and only when a project opted in.
 - A refresh finding events waiting goes back through `scheduleRefresh` rather than re-running at
   once — the immediate path bypassed the debounce and turned a busy working tree into an unbroken
   chain of git processes.
@@ -412,6 +414,45 @@ One `CommandList` serves every project, so anything it starts must name the proj
 when it returns. Projects being looked up are kept as a set; the result only shows if that project
 is still the one on screen.
 
+## Files view
+
+The diff dialog's FILES tree (`FileTree.tsx`, fed by `Repository.listFiles`) is configured from
+the same `tet.json` as the commands, under keys named after what VS Code calls them — they are
+VS Code's behaviours, read by `readFileView` in `commands.ts` as defensively as the commands and
+handed to the renderer *inside* the `FileListing`, so the tree gets data and configuration in one
+read and never parses the file itself:
+
+- `folders` — `[{"path": "src/main/frontend", "name": "frontend"}, {"path": "."}]`, VS Code's
+  multi-root workspace: one top-level node per entry, labelled `name` or the folder's own name,
+  open by default, overlap allowed (`.` contains `src/main/frontend` again). Each file is listed
+  once; the renderer builds one subtree per root, keyed `<rootIndex>:<path>` so the same file
+  under two roots folds and scrolls independently, and reveals a selection in the *innermost*
+  root containing it (VS Code's `getWorkspaceFolder`). The walk covers only the outermost roots.
+  Missing or empty means the whole repository as one tree — an empty explorer is useless, so
+  removing the last root deletes the key rather than leaving `[]`.
+- `exclude` — `files.exclude`'s shape, a map glob → `true`, matched with `path.matchesGlob`
+  against the **repository-relative** path of every entry during the walk (so `**/node_modules`
+  hides them at any depth, `node_modules` only the top-level one); a matched folder is not
+  entered. Repository-relative rather than per-root, as VS Code does it, so the menu entry and
+  the file mean the same path. `.git` is hidden regardless.
+- `excludeGitIgnore` — `explorer.excludeGitIgnore`, default off: one `git ls-files --others
+  --ignored --exclude-standard --directory` per listing (see "count its invocations"), files and
+  collapsed directories skipped by the same walk.
+- `compactFolders` — `explorer.compactFolders`, **default on**: a folder whose only child is a
+  folder becomes one row (`src/main/java`), applied last on what is shown — after the filter — the
+  row being the innermost folder for folding, reveal and the menu. Roots are never compacted.
+- `sortOrder` — `explorer.sortOrder`, default `default`; `modified` is the one value that costs,
+  a `stat` per entry, so mtimes are only read for it.
+
+Three of these are reachable from the tree's context menu, all writing `tet.json` through
+`commands.ts`'s `patch`-style helpers and reported like create/rename/delete (`GitActionResult`,
+the LOCAL CHANGES bar): "Add Folder to Workspace" on a folder (the first add writes `.` down
+alongside it, VS Code's move when a single-folder window gets a second), "Remove Folder from
+Workspace" on a root, "Exclude from Files" on a folder or file (the exact path as pattern).
+`name`, `excludeGitIgnore`, `compactFolders` and `sortOrder` are file-only — as in VS Code, whose
+explorer offers none of them either. The watcher already reports every write of `tet.json` as
+`commands:changed`, so the dialog re-lists on it whoever wrote the file.
+
 ## Settings
 
 One dialog for everything TET keeps about *itself* rather than a repository — the one button in
@@ -450,10 +491,11 @@ pane where it happens. A plain function, not a prop or hook — modelled on VS C
 `window.showErrorMessage` — so anything that fails reports without a threaded callback. The main
 process uses the same channel: `app:notice` carries a `Notice`, handed straight to `notify`.
 
-`error` and `warning` stay until clicked away; only `info` disappears on its own. An identical
-message already standing is dropped, not stacked. They sit over the window's bottom right corner
-rather than the column with everything else — arriving must not resize panes underneath — and only
-the messages themselves take the pointer.
+All three severities behave the same: a notice disappears after 8 seconds or on click, whichever
+comes first — `error` and `warning` no longer stand until dismissed by hand. An identical message
+already standing is dropped, not stacked. They sit over the window's bottom right corner rather
+than the column with everything else — arriving must not resize panes underneath — and only the
+messages themselves take the pointer.
 
 Not a notice: a status — a tab colored for an uninstalled agent, the progress bar, the head shown
 next to a project's name. Those are conditions a view draws for as long as they hold.

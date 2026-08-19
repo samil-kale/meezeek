@@ -326,6 +326,9 @@ export function registerIpc({
   onRepository("repo:rename-path", (repository, fromPath: string, toPath: string) =>
     repository.renamePath(fromPath, toPath)
   );
+  onRepository("repo:add-folder", (repository, folderPath: string) => repository.addFolder(folderPath));
+  onRepository("repo:remove-folder", (repository, folderPath: string) => repository.removeFolder(folderPath));
+  onRepository("repo:exclude-path", (repository, relPath: string) => repository.excludePath(relPath));
 
   ipcMain.handle(
     "repo:diff",
@@ -346,7 +349,14 @@ export function registerIpc({
   );
 
   ipcMain.handle("repo:files", async (_event, projectId: string): Promise<FileListing> => {
-    return (await repositories.get(projectId)?.listFiles()) ?? { files: [], emptyDirs: [] };
+    return (
+      (await repositories.get(projectId)?.listFiles()) ?? {
+        files: [],
+        emptyDirs: [],
+        compactFolders: true,
+        sortOrder: "default"
+      }
+    );
   });
 
   ipcMain.handle("repo:file-read", async (_event, projectId: string, filePath: string): Promise<FileContent> => {
@@ -460,6 +470,10 @@ export function registerIpc({
 
   ipcMain.handle("terminal:rename", async (_event, projectId: string, tabId: string, title: string): Promise<void> => {
     await sessions.get(projectId)?.renameTab(tabId, title);
+  });
+
+  ipcMain.handle("terminal:restart", (_event, projectId: string, tabId: string): void => {
+    sessions.get(projectId)?.restartTab(tabId);
   });
 
   /**

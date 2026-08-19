@@ -86,12 +86,13 @@ interface PaneProps {
   chrome?: PaneChrome;
   /**
    * Present only for the pane that carries the layout picker — the same pane `chrome` is on
-   * (pane "a"), right beside the git toggle.
+   * (pane "a"), right of the browse-files button.
    */
   onPresetChange?: (preset: SplitPreset) => void;
   /**
-   * Browsing the repository's files — the diff dialog with nothing open yet — right of the
-   * layout picker, present on exactly the pane `onPresetChange` is and for the same reason.
+   * Browsing the repository's files — the diff dialog reopened on whatever it last showed —
+   * right of the git toggle, present on exactly the pane `onPresetChange` is and for the same
+   * reason.
    */
   onBrowseFiles?: () => void;
   /**
@@ -241,6 +242,11 @@ export const Pane = memo(function Pane({
     [projectId]
   );
 
+  const restartTab = useCallback(
+    (tabId: string) => void window.tet.terminals.restart(projectId, tabId),
+    [projectId]
+  );
+
   const closeTabMenu = useCallback(() => setTabMenu(null), []);
 
   const askRename = useCallback(
@@ -297,6 +303,7 @@ export const Pane = memo(function Pane({
   const tabMenuEntries = (tabId: string): ContextMenuEntry[] => {
     const ids = tabs.map((tab) => tab.tabId);
     const renamable = tabs.find((tab) => tab.tabId === tabId && tab.sessionId !== undefined);
+    const restartable = tabs.find((tab) => tab.tabId === tabId && tab.savedCommand === true);
     const closeAction = (label: string, targets: string[]): ContextMenuEntry => ({
       label,
       run: targets.length > 0 ? () => closeTabs(targets) : undefined
@@ -314,6 +321,11 @@ export const Pane = memo(function Pane({
           ]
         : [];
     return [
+      {
+        label: "Restart",
+        run: restartable ? () => restartTab(tabId) : undefined
+      },
+      SEPARATOR,
       closeAction("Close", [tabId]),
       closeAction(
         "Close Others",
@@ -387,8 +399,8 @@ export const Pane = memo(function Pane({
     >
       <div className="tab-strip">
         {/* Where the git tab used to be, and no longer a tab: toggling it shows a pane of its own
-            beside this one rather than taking its place. Grouped with the layout picker, browse-
-            files and settings — none of them about a tab, all of them window chrome rather than
+            beside this one rather than taking its place. Grouped with browse-files, the layout
+            picker and settings — none of them about a tab, all of them window chrome rather than
             anything a project's own tab strip owns. Present only on pane "a". */}
         {(chrome || onPresetChange) && (
           <div className="tab-strip-actions">
@@ -399,6 +411,11 @@ export const Pane = memo(function Pane({
                 title={chrome.gitOpen ? "Hide the repository" : "Show the repository"}
               >
                 <GitIcon />
+              </button>
+            )}
+            {onBrowseFiles && (
+              <button className="icon-button" title="Browse files" onClick={onBrowseFiles}>
+                <FilesIcon />
               </button>
             )}
             {onPresetChange && (
@@ -415,11 +432,6 @@ export const Pane = memo(function Pane({
                 }}
               >
                 <PresetIcon preset={preset} />
-              </button>
-            )}
-            {onBrowseFiles && (
-              <button className="icon-button" title="Browse files" onClick={onBrowseFiles}>
-                <FilesIcon />
               </button>
             )}
             {onOpenSettings && (

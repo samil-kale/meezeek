@@ -2,8 +2,9 @@ import { useSyncExternalStore } from "react";
 import type { NoticeSeverity } from "../../shared/types";
 import { SeverityIcon } from "./icons";
 
-/** Long enough to read a line, short enough not to sit in the way. VS Code's own is similar. */
-const INFO_DISMISS_MS = 5000;
+/** Long enough to read a line, short enough not to sit in the way. Same for every severity — a
+ *  notice you didn't click away still shouldn't outlive the moment it was about. */
+const DISMISS_MS = 8000;
 
 interface ShownNotice {
   id: number;
@@ -36,9 +37,7 @@ export function notify(severity: NoticeSeverity, message: string): void {
     return;
   }
   publish([...shown, { id, severity, message }]);
-  if (severity === "info") {
-    setTimeout(() => dismissNotice(id), INFO_DISMISS_MS);
-  }
+  setTimeout(() => dismissNotice(id), DISMISS_MS);
 }
 
 function dismissNotice(id: number): void {

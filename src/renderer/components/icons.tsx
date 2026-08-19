@@ -457,6 +457,40 @@ export function FilesIcon(props: IconProps) {
   );
 }
 
+/** The FILES header's own "New File...", a page with a fold and a plus badge — VS Code's pair. */
+export function NewFileIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={11.96} cx={9.25} cy={8.25}>
+      <path d="M4.5 2.5h4l2.5 2.5v4.3" />
+      <path d="M8.5 2.5v2.5h2.5" />
+      <path d="M4.5 2.5v10a1 1 0 0 0 1 1H8" />
+      <path d="M11.5 9v5M9 11.5h5" />
+    </Svg>
+  );
+}
+
+/** The FILES header's own "New Folder...", next to `NewFileIcon`. */
+export function NewFolderIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={13.07} cx={7.75} cy={8.65}>
+      <path d="M1.5 4.3a1 1 0 0 1 1-1H5l1 1.4h3.5" />
+      <path d="M1.5 4.3h8a1 1 0 0 1 1 1v2" />
+      <path d="M11.5 9v5M9 11.5h5" />
+      <path d="M1.5 4.3v6.7a1 1 0 0 0 1 1H7" />
+    </Svg>
+  );
+}
+
+/** "Collapse Folders in Explorer": two chevrons folding everything up at once. */
+export function CollapseAllIcon(props: IconProps) {
+  return (
+    <Svg {...props} extent={9.99}>
+      <path d="M4 7l4-3.5L12 7" />
+      <path d="M4 12.5l4-3.5 4 3.5" />
+    </Svg>
+  );
+}
+
 /** The diff dialog's Diff/Edit toggle. */
 export function PencilIcon(props: IconProps) {
   return (

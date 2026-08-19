@@ -193,8 +193,18 @@ function toDescriptor(tab: TabState, starting: boolean): TerminalDescriptor {
     busy,
     waitingAt,
     starting,
-    sessionId
+    sessionId,
+    savedCommand: isSavedCommandTab(tab)
   };
+}
+
+/**
+ * A saved command's own program (non-shell) or its shell arguments (`"shell": true`) — either
+ * is set only for a tab created by `createCommandTab`, never for a plain interactive shell tab
+ * or an agent tab.
+ */
+function isSavedCommandTab(tab: TabState): boolean {
+  return tab.executable !== undefined || tab.runArgs !== undefined;
 }
 
 /**
@@ -833,6 +843,19 @@ export class ProjectSessionManager {
       tab.title = previousTitle;
     }
     this.postTabs();
+  }
+
+  /**
+   * Kills a saved command's process and spawns it again in the same tab, at the same size, with
+   * the same executable, arguments, cwd and env it was started with — a no-op for any other kind
+   * of tab, or one whose process was never spawned in the first place.
+   */
+  restartTab(tabId: string): void {
+    const tab = this.tabs.find((candidate) => candidate.tabId === tabId);
+    if (!tab || !isSavedCommandTab(tab)) {
+      return;
+    }
+    this.sessions.get(tabId)?.restart();
   }
 
   /**

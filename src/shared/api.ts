@@ -135,6 +135,14 @@ export interface TETApi {
     deletePath(projectId: string, path: string): Promise<GitActionResult>;
     /** Renames or moves a file or directory — the FILES tree's "Rename...". */
     renamePath(projectId: string, from: string, to: string): Promise<GitActionResult>;
+    /** Adds a folder to the project's `folders` list in tet.json — the FILES tree's "Add Folder
+     *  to Workspace". */
+    addFolder(projectId: string, path: string): Promise<GitActionResult>;
+    /** Removes one again — "Remove Folder from Workspace"; the last one gone restores the whole
+     *  repository as one tree. */
+    removeFolder(projectId: string, path: string): Promise<GitActionResult>;
+    /** Adds the path to the project's `exclude` map in tet.json — "Exclude from Files". */
+    excludePath(projectId: string, path: string): Promise<GitActionResult>;
     diff(projectId: string, path: string, options: DiffOptions): Promise<FileDiff>;
     /** Lines `from` to `to` of the file as it is now, for a gap the diff view opens. */
     fileLines(projectId: string, path: string, from: number, to: number): Promise<string[]>;
@@ -178,6 +186,8 @@ export interface TETApi {
     /** Closes tabs and deletes the sessions behind them. */
     close(projectId: string, tabIds: string[]): Promise<void>;
     rename(projectId: string, tabId: string, title: string): Promise<void>;
+    /** Kills a saved command's process and spawns it again in the same tab. */
+    restart(projectId: string, tabId: string): Promise<void>;
     /**
      * The tab is on screen, which clears the `finishedAt` a finished turn left on it. Called
      * for the active tab of the project on screen — the main process cannot tell which that

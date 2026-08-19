@@ -69,6 +69,9 @@ const api: TETApi = {
     createDirectory: (projectId, dirPath) => ipcRenderer.invoke("repo:create-directory", projectId, dirPath),
     deletePath: (projectId, filePath) => ipcRenderer.invoke("repo:delete-path", projectId, filePath),
     renamePath: (projectId, fromPath, toPath) => ipcRenderer.invoke("repo:rename-path", projectId, fromPath, toPath),
+    addFolder: (projectId, folderPath) => ipcRenderer.invoke("repo:add-folder", projectId, folderPath),
+    removeFolder: (projectId, folderPath) => ipcRenderer.invoke("repo:remove-folder", projectId, folderPath),
+    excludePath: (projectId, relPath) => ipcRenderer.invoke("repo:exclude-path", projectId, relPath),
     diff: (projectId, filePath, options) => ipcRenderer.invoke("repo:diff", projectId, filePath, options),
     fileLines: (projectId, filePath, from, to) =>
       ipcRenderer.invoke("repo:file-lines", projectId, filePath, from, to),
@@ -90,6 +93,7 @@ const api: TETApi = {
     create: (projectId, agentId) => ipcRenderer.invoke("terminal:create", projectId, agentId),
     close: (projectId, tabIds) => ipcRenderer.invoke("terminal:close", projectId, tabIds),
     rename: (projectId, tabId, title) => ipcRenderer.invoke("terminal:rename", projectId, tabId, title),
+    restart: (projectId, tabId) => ipcRenderer.invoke("terminal:restart", projectId, tabId),
     seen: (projectId, tabId) => ipcRenderer.send("terminal:seen", projectId, tabId),
     input: (projectId, tabId, data) => ipcRenderer.send("terminal:input", projectId, tabId, data),
     resize: (projectId, tabId, cols, rows) => ipcRenderer.send("terminal:resize", projectId, tabId, cols, rows),

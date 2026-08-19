@@ -19,7 +19,7 @@ import {
   usePaneToggle
 } from "./components/Sash";
 import { TerminalsPane } from "./components/TerminalsPane";
-import { disposeProjectTerminals } from "./terminal-views";
+import { clearTerminal, disposeProjectTerminals } from "./terminal-views";
 import { PlusIcon } from "./components/icons";
 import { matchesShortcut } from "./shortcuts";
 import {
@@ -215,14 +215,21 @@ export function App() {
       ),
       // A status arrives on its own rather than as a whole list, so it is patched into the one
       // tab it names instead of replacing the project's.
-      window.tet.terminals.onStatus(({ projectId, tabId, status }) =>
+      window.tet.terminals.onStatus(({ projectId, tabId, status }) => {
+        // A saved command's restart kills the running process before respawning it, and the kill
+        // itself writes a trailing "^C" — clearing here, once the respawned process is actually
+        // running, is what keeps that off screen: the old process's last output has already
+        // arrived by the time this fires, and the new one's hasn't yet.
+        if (status === "running" && tabsRef.current[projectId]?.some((tab) => tab.tabId === tabId && tab.savedCommand)) {
+          clearTerminal(projectId, tabId);
+        }
         setTabs((current) => {
           const list = current[projectId];
           return list
             ? { ...current, [projectId]: list.map((tab) => (tab.tabId === tabId ? { ...tab, status } : tab)) }
             : current;
-        })
-      ),
+        });
+      }),
       window.tet.terminals.onStartupProgress(({ projectId, show }) =>
         setStarting((current) => (current[projectId] === show ? current : { ...current, [projectId]: show }))
       )

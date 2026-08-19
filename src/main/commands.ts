@@ -2,13 +2,15 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isSameCommand } from "../shared/command";
-import type { ProjectCommand } from "../shared/types";
+import type { FileRoot, FileSortOrder, ProjectCommand } from "../shared/types";
 import { resolveCommand } from "./pty";
 
 /**
- * Shell commands a project keeps around — "npm run build", a deploy script, whatever is typed
- * often enough to be worth a button. They live in the repository rather than in tet's own
- * storage, so they travel with it like any other project file.
+ * What a project keeps about itself in its own root: shell commands — "npm run build", a deploy
+ * script, whatever is typed often enough to be worth a button — and how its FILES tree is shown
+ * (`folders`, `exclude`, `excludeGitIgnore`, `compactFolders`, `sortOrder`; see `readFileView`).
+ * They live in the repository rather than in tet's own storage, so they travel with it like any
+ * other project file.
  */
 const FILE = "tet.json";
 
@@ -23,7 +25,32 @@ type StoredCommand =
 
 interface ProjectFile {
   commands?: StoredCommand[];
+  folders?: unknown;
+  exclude?: unknown;
+  excludeGitIgnore?: unknown;
+  compactFolders?: unknown;
+  sortOrder?: unknown;
 }
+
+/**
+ * How the FILES tree shows this project — VS Code's `folders` list and `files.exclude` /
+ * `explorer.*` settings, read the same defensive way as the commands: anything not of the
+ * expected shape is its default, never an error.
+ */
+export interface FileView {
+  /** Top-level nodes; empty means the whole repository as one tree. */
+  folders: FileRoot[];
+  /** `files.exclude`'s globs, matched against repository-relative paths. */
+  exclude: string[];
+  /** `explorer.excludeGitIgnore`: hide what git ignores too. */
+  excludeGitIgnore: boolean;
+  /** `explorer.compactFolders`: fold `src/main/java` into one row. */
+  compactFolders: boolean;
+  /** `explorer.sortOrder`. */
+  sortOrder: FileSortOrder;
+}
+
+const SORT_ORDERS: readonly FileSortOrder[] = ["default", "mixed", "filesFirst", "type", "modified", "foldersNestsFiles"];
 
 /** How many characters of a command's or an agent's output a notice is worth. */
 const MAX_OUTPUT = 600;
@@ -68,11 +95,20 @@ async function read(root: string): Promise<ProjectFile | null> {
 
 /** Writes one key, keeping every other the file already holds. */
 async function patch(root: string, changes: Partial<ProjectFile>): Promise<void> {
+  await write(root, { ...(await readForPatch(root)), ...changes });
+}
+
+/** The file as it is, for an edit — the one a broken file must not be written over by. */
+async function readForPatch(root: string): Promise<ProjectFile> {
   const content = (await read(root)) ?? {};
   if (content === UNREADABLE) {
     throw new Error(`${FILE} is not valid JSON`);
   }
-  await fs.writeFile(file(root), `${JSON.stringify({ ...content, ...changes }, undefined, 2)}\n`, "utf8");
+  return content;
+}
+
+function write(root: string, content: ProjectFile): Promise<void> {
+  return fs.writeFile(file(root), `${JSON.stringify(content, undefined, 2)}\n`, "utf8");
 }
 
 /** Only the string values of an `env`; anything else in there is not an environment. */
@@ -130,6 +166,112 @@ export function writeCommands(root: string, commands: ProjectCommand[]): Promise
       command.name || command.cwd || command.env || command.shell ? command : command.command
     )
   });
+}
+
+/**
+ * A `folders` entry's path the way the tree keys everything: repository-relative with forward
+ * slashes, "" for the root. Undefined for anything that is not a path inside the repository —
+ * an absolute path, one climbing out with `..`, a non-string — which is simply skipped, like a
+ * command with no command line.
+ */
+function toFolderPath(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = path.posix.normalize(value.trim().replace(/\\/g, "/")).replace(/\/+$/, "");
+  if (normalized === "" || normalized === ".") {
+    return "";
+  }
+  if (path.posix.isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized) || normalized.split("/").includes("..")) {
+    return undefined;
+  }
+  return normalized;
+}
+
+/** The path of a stored entry — `{ path }` or, tolerated, a bare string. */
+function storedPath(entry: unknown): string | undefined {
+  return toFolderPath(typeof entry === "string" ? entry : (entry as { path?: unknown } | null)?.path);
+}
+
+/** `folders` as stored, turned into roots; a duplicate path is one root. */
+function toFolders(value: unknown, root: string): FileRoot[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const folders: FileRoot[] = [];
+  for (const entry of value) {
+    const folderPath = storedPath(entry);
+    if (folderPath === undefined || folders.some((folder) => folder.path === folderPath)) {
+      continue;
+    }
+    const stored = typeof entry === "object" && entry !== null ? (entry as { name?: unknown }).name : undefined;
+    const name = typeof stored === "string" ? stored.trim() : "";
+    folders.push({ path: folderPath, name: name || path.basename(folderPath || path.resolve(root)) });
+  }
+  return folders;
+}
+
+/** `exclude`'s patterns: VS Code's map of glob → true; only the ones set to true count. */
+function toExclude(value: unknown): string[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return [];
+  }
+  return Object.entries(value)
+    .filter(([pattern, enabled]) => enabled === true && pattern.trim())
+    .map(([pattern]) => pattern);
+}
+
+export async function readFileView(root: string): Promise<FileView> {
+  const content = (await read(root)) ?? {};
+  return {
+    folders: toFolders(content.folders, root),
+    exclude: toExclude(content.exclude),
+    excludeGitIgnore: content.excludeGitIgnore === true,
+    compactFolders: content.compactFolders !== false,
+    sortOrder: SORT_ORDERS.find((order) => order === content.sortOrder) ?? "default"
+  };
+}
+
+/**
+ * The FILES tree's "Add Folder to Workspace". A project with no `folders` yet is the whole
+ * repository as one tree, so the first add writes that root down alongside the new folder —
+ * VS Code's own move when a single-folder window gets a second folder — rather than narrowing
+ * the view to the new one. Entries are kept as written, so a `name` survives.
+ */
+export async function addFolder(root: string, folderPath: string): Promise<void> {
+  const content = await readForPatch(root);
+  const folders = Array.isArray(content.folders) ? (content.folders as unknown[]) : [];
+  if (folders.some((entry) => storedPath(entry) === folderPath)) {
+    return;
+  }
+  const kept = folders.length === 0 ? [{ path: "." }] : folders;
+  await write(root, { ...content, folders: [...kept, { path: folderPath }] });
+}
+
+/** "Remove Folder from Workspace": the last one gone means no `folders` at all — the whole
+ *  repository again, not an empty tree. */
+export async function removeFolder(root: string, folderPath: string): Promise<void> {
+  const content = await readForPatch(root);
+  const folders = (Array.isArray(content.folders) ? (content.folders as unknown[]) : []).filter(
+    (entry) => storedPath(entry) !== folderPath
+  );
+  if (folders.length > 0) {
+    await write(root, { ...content, folders });
+    return;
+  }
+  const rest: ProjectFile = { ...content };
+  delete rest.folders;
+  await write(root, rest);
+}
+
+/** "Exclude from Files": the path itself as a pattern, set to true the way VS Code stores it. */
+export async function addExclude(root: string, relPath: string): Promise<void> {
+  const content = await readForPatch(root);
+  const existing =
+    typeof content.exclude === "object" && content.exclude !== null && !Array.isArray(content.exclude)
+      ? (content.exclude as Record<string, unknown>)
+      : {};
+  await write(root, { ...content, exclude: { ...existing, [relPath]: true } });
 }
 
 
