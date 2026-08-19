@@ -353,19 +353,19 @@ function RemoteTab({ onClone }: RemoteTabProps) {
 
   return (
     <div className="remote-tab">
-      <div className="remote-accounts">
+      <div className="account-list">
         {(accounts ?? []).map((account) => (
           <div
             key={account.id}
-            className={account.id === selectedId && !adding ? "remote-account active" : "remote-account"}
+            className={account.id === selectedId && !adding ? "account-item active" : "account-item"}
             onClick={() => {
               setSelectedId(account.id);
               setAdding(false);
             }}
           >
-            <div className="remote-account-label">
-              <span className="remote-account-user">{account.user}</span>
-              <span className="remote-account-host">
+            <div className="account-label">
+              <span className="account-user">{account.user}</span>
+              <span className="account-host">
                 {PROVIDER_LABEL[account.provider]} · {account.host}
               </span>
             </div>
@@ -381,7 +381,7 @@ function RemoteTab({ onClone }: RemoteTabProps) {
             </button>
           </div>
         ))}
-        <button type="button" className="remote-add-account" onClick={() => setAdding(true)}>
+        <button type="button" className="add-account" onClick={() => setAdding(true)}>
           <PlusIcon />
           <span>Add account...</span>
         </button>
@@ -395,7 +395,6 @@ function RemoteTab({ onClone }: RemoteTabProps) {
           <>
             <input
               type="text"
-              className="remote-filter"
               placeholder="Search"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
@@ -418,20 +417,20 @@ function RemoteTab({ onClone }: RemoteTabProps) {
                 <ChevronIcon expanded className="select-arrow" />
               </div>
             )}
-            <div className="remote-repos">
+            <div className="repository-list">
               {loading && (
-                <div className="remote-loading">
+                <div className="repository-loading">
                   <SpinnerIcon className="spinning" />
                 </div>
               )}
               {!loading &&
                 filtered.map((repo) => (
-                  <div className="remote-repo" key={repo.fullName}>
-                    <span className="remote-repo-name">{repo.fullName}</span>
-                    {repo.private && <span className="remote-repo-private">Private</span>}
+                  <div className="repository-item" key={repo.fullName}>
+                    <span className="repository-name">{repo.fullName}</span>
+                    {repo.private && <span className="repository-private">Private</span>}
                     <button
                       type="button"
-                      className="button secondary remote-repo-clone"
+                      className="button secondary repository-clone"
                       onClick={() => onClone(repo, selectedId)}
                     >
                       Clone
@@ -660,7 +659,7 @@ export function AddRepositoryDialog({ onAdded, onClose }: AddRepositoryDialogPro
   return (
     <div className="dialog-overlay">
       <form
-        className="dialog add-repository"
+        className="dialog add-repository-dialog"
         onSubmit={(event) => {
           event.preventDefault();
           if (ready && !busy) {

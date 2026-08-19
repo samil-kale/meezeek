@@ -247,7 +247,7 @@ export function ChangesList({ project, changes, act, onOpenDiff, active }: Chang
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
       />
-      <div className="changes-files">
+      <div className="changes-list-items">
         {visible.map((change) => (
           <button
             key={change.path}

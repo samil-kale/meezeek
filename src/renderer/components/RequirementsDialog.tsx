@@ -4,7 +4,7 @@ import { SpinnerIcon } from "./icons";
 /** Name on the left, what the check found on the right, and where to get it when it is missing. */
 function RequirementRow({ requirement }: { requirement: Requirement }) {
   return (
-    <div className="requirement">
+    <div className="requirement-item">
       <span className="requirement-name">{requirement.name}</span>
       <span className="requirement-command">{requirement.command}</span>
       {requirement.installed ? (
@@ -51,11 +51,11 @@ export function RequirementsDialog({ requirements, checking, onRecheck }: Requir
             Git runs the whole git side, and an agent is what the terminals are for. Install what is
             missing, then check again.
           </p>
-          <div className="requirements-list">
+          <div className="requirement-list">
             <RequirementRow requirement={requirements.git} />
           </div>
           <p className="dialog-detail">At least one of these:</p>
-          <div className="requirements-list">
+          <div className="requirement-list">
             {requirements.agents.map((agent) => (
               <RequirementRow key={agent.name} requirement={agent} />
             ))}

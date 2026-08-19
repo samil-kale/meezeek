@@ -37,9 +37,9 @@ export function ProgressBar() {
   // From fully hidden past the left edge to fully hidden past the right one.
   const travel = width + BIT_WIDTH;
   return (
-    <div className="tab-progress" ref={bar}>
+    <div className="progress-bar" ref={bar}>
       <div
-        className="tab-progress-bit"
+        className="progress-bar-bit"
         style={
           {
             width: BIT_WIDTH,

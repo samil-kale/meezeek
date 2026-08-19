@@ -290,12 +290,12 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
   ];
 
   return (
-    <div className="command-list" style={{ height }}>
-      <div className="sidebar-header">
+    <div className="section" style={{ height }}>
+      <div className="section-header">
         <span>
-          COMMANDS <span className="count">({commands.length})</span>
+          COMMANDS <span className="count-badge">({commands.length})</span>
         </span>
-        <span className="sidebar-header-actions">
+        <span className="section-header-actions">
           <button
             className="icon-button"
             title={suggesting ? "Looking for commands..." : "Have an agent find this project's commands"}
@@ -311,7 +311,7 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
         {/* This pane's own bar — an agent reading the repository for its commands. */}
         {suggesting && <ProgressBar />}
       </div>
-      <div className="command-items" {...listProps}>
+      <div className="command-list" {...listProps}>
         {commands.map((command, index) => (
           <div
             // The position, not the command — see the hook's payload above.
@@ -326,8 +326,8 @@ export const CommandList = memo(function CommandList({ projectId, height, onOpen
           >
             {/* Its name where it has one: a long invocation is not what the row is for, and the
                 line itself is a tooltip away. */}
-            <span className="command-item-main">
-              <span className="command-line">{command.name ?? command.command}</span>
+            <span className="command-main">
+              <span className="command-label">{command.name ?? command.command}</span>
               {/* What it runs with, where anything is set and the row is still showing the command
                   line itself — the line alone would otherwise look like it runs with a plain
                   environment. A named row says nothing of the kind and stays a label; its tooltip

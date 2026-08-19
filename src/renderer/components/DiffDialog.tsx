@@ -284,13 +284,13 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
   const busy = diffBusy || fileLoading || editorLoading || saving;
 
   return (
-    <div className="diff-overlay">
+    <div className="diff-dialog-overlay">
       <div className="diff-dialog" ref={root} tabIndex={-1} onKeyDown={onDialogKeyDown}>
-        <div className="diff-files" style={{ width: filesWidth }}>
-          <div className="git-section" style={{ height: treeHeight }}>
-            <div className="sidebar-header">
+        <div className="diff-dialog-files" style={{ width: filesWidth }}>
+          <div className="section" style={{ height: treeHeight }}>
+            <div className="section-header">
               <span>
-                FILES <span className="count">({files?.files.length ?? 0})</span>
+                FILES <span className="count-badge">({files?.files.length ?? 0})</span>
               </span>
               {listing && <ProgressBar />}
             </div>
@@ -304,10 +304,10 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
             />
           </div>
           <Sash orientation="horizontal" size={treeHeight} min={MIN_PANE_HEIGHT} minOther={MIN_PANE_HEIGHT} onResize={setTreeHeight} />
-          <div className="git-section grows">
-            <div className="sidebar-header">
+          <div className="section grows">
+            <div className="section-header">
               <span>
-                LOCAL CHANGES <span className="count">({changes.length})</span>
+                LOCAL CHANGES <span className="count-badge">({changes.length})</span>
               </span>
               {/* Only "Discard all" here, unlike the git pane's three — commit and stash both
                   name what they do to the *repository* (a message, a stash entry), which reads
@@ -316,7 +316,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
                   `acting` alone, not a `branch.busy` as well: unlike that pane, nothing here sits
                   next to a BRANCHES section a fetch/pull/push could be run from while this dialog
                   is up — it covers the whole window. */}
-              <span className="sidebar-header-actions">
+              <span className="section-header-actions">
                 <button
                   className="icon-button"
                   title="Discard all changes"
@@ -344,7 +344,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
           minOther={MIN_CONTENT_WIDTH}
           onResize={setFilesWidth}
         />
-        <div className="diff-main">
+        <div className="diff-dialog-main">
           <div className="diff-dialog-bar">
             {dirty && <span className="diff-dialog-dirty">●</span>}
             <span className="diff-dialog-path">{path ?? "No file open"}</span>

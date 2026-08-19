@@ -54,12 +54,12 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
   };
 
   return (
-    <div className="git-pane">
+    <div className="git-pane-content">
       {/* Both halves are titled the way the navigation's are — same bar, same height. */}
-      <div className="git-section" style={{ height: treeHeight }}>
-        <div className="sidebar-header">
+      <div className="section" style={{ height: treeHeight }}>
+        <div className="section-header">
           <span>BRANCHES</span>
-          <span className="sidebar-header-actions">
+          <span className="section-header-actions">
             <button
               className="icon-button"
               title={remote ? `Fetch from ${remote}` : "This repository has no remote"}
@@ -107,15 +107,15 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
         minOther={MIN_PANE_HEIGHT}
         onResize={onTreeHeight}
       />
-      <div className="git-section grows">
-        <div className="sidebar-header">
+      <div className="section grows">
+        <div className="section-header">
           <span>
-            LOCAL CHANGES <span className="count">({state.changes.length})</span>
+            LOCAL CHANGES <span className="count-badge">({state.changes.length})</span>
           </span>
           {/* The three things that clear the whole list, in the order of what they cost: one
               keeps it, one puts it away and can be popped again, the last throws it out. Anything
               narrower than "all of it" is in the changes' own context menu. */}
-          <span className="sidebar-header-actions">
+          <span className="section-header-actions">
             <button
               className="icon-button"
               title="Commit all changes"

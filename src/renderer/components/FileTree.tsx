@@ -430,8 +430,8 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
 
   return (
     <div className="file-tree">
-      <div className="branch-filter">
-        <SearchIcon className="branch-filter-icon" />
+      <div className="filter-field">
+        <SearchIcon className="filter-icon" />
         <input type="text" placeholder="Filter files..." value={filter} onChange={(event) => setFilter(event.target.value)} />
       </div>
       <div

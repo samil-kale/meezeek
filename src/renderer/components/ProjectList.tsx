@@ -151,16 +151,16 @@ export const ProjectList = memo(function ProjectList({
   };
 
   return (
-    <div className="project-list">
-      <div className="sidebar-header">
+    <div className="section grows">
+      <div className="section-header">
         <span>
-          PROJECTS <span className="count">({projects.length})</span>
+          PROJECTS <span className="count-badge">({projects.length})</span>
         </span>
         <button className="icon-button" title="Add repository" onClick={onAdd}>
           <PlusIcon />
         </button>
       </div>
-      <div className="project-list-items" {...listProps}>
+      <div className="project-list" {...listProps}>
         {projects.map((project, index) => (
           <div
             key={project.id}
@@ -174,8 +174,8 @@ export const ProjectList = memo(function ProjectList({
               setMenu({ x: event.clientX, y: event.clientY, project });
             }}
           >
-            <span className="project-item-main">
-              <span className="project-item-label">{project.name}</span>
+            <span className="project-main">
+              <span className="project-label">{project.name}</span>
               {/* Where the repository stands, next to what a command runs with in the list below
                   and drawn the same way: context for the row, not part of its name. The git pane
                   says it for the project on screen only, and an agent switching a branch in a

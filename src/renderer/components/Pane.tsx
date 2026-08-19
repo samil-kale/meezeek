@@ -334,14 +334,14 @@ export const Pane = memo(function Pane({
 
   const newSessionEntries: ContextMenuEntry[] = agents.map((agent) => ({
     label: agent.displayName,
-    icon: <AgentIcon agentId={agent.id} className="terminal-tab-icon" />,
+    icon: <AgentIcon agentId={agent.id} className="tab-icon" />,
     run: () => void createTab(agent.id)
   }));
 
   const presetEntries: ContextMenuEntry[] = onPresetChange
     ? PRESETS.map((value) => ({
         label: PRESET_LABELS[value],
-        icon: <PresetIcon preset={value} className="terminal-tab-icon" />,
+        icon: <PresetIcon preset={value} className="tab-icon" />,
         run: () => onPresetChange(value)
       }))
     : [];
@@ -385,13 +385,13 @@ export const Pane = memo(function Pane({
       // `drop` nor `dragleave` if the pointer never left this pane — this still clears it.
       onDragEnd={() => onDragOverChange(paneId, false)}
     >
-      <div className="terminal-tabs">
+      <div className="tab-strip">
         {/* Where the git tab used to be, and no longer a tab: toggling it shows a pane of its own
             beside this one rather than taking its place. Grouped with the layout picker, browse-
             files and settings — none of them about a tab, all of them window chrome rather than
             anything a project's own tab strip owns. Present only on pane "a". */}
         {(chrome || onPresetChange) && (
-          <div className="layout-toggle">
+          <div className="tab-strip-actions">
             {chrome && (
               <button
                 className={`icon-button${chrome.gitOpen ? " active" : ""}`}
@@ -429,7 +429,7 @@ export const Pane = memo(function Pane({
             )}
           </div>
         )}
-        <div className="terminal-tab-strip" ref={strip}>
+        <div className="tabs" ref={strip}>
           {tabs.map((tab) => (
             <div
               key={tab.tabId}
@@ -440,7 +440,7 @@ export const Pane = memo(function Pane({
                   tabElements.current.delete(tab.tabId);
                 }
               }}
-              className={`terminal-tab${tab.tabId === activeTabId ? " active" : ""}${tab.status === "stopped" ? " inactive" : ""}`}
+              className={`tab${tab.tabId === activeTabId ? " active" : ""}${tab.status === "stopped" ? " inactive" : ""}`}
               // Only once there is somewhere else to drop it: in a single pane the drag would
               // frame the pane it started in and go nowhere.
               draggable={siblingPanes.length > 0}
@@ -475,21 +475,21 @@ export const Pane = memo(function Pane({
                   last one ended is the newer truth, and the mark is still there underneath for when
                   it stops. */}
               {tab.status === "missing" || tab.status === "error" ? (
-                <ExclamationIcon className="terminal-tab-icon session-mark session-mark-error" />
+                <ExclamationIcon className="tab-icon session-mark session-mark-error" />
               ) : waitingTabIds.includes(tab.tabId) ? (
-                <QuestionIcon className="terminal-tab-icon session-mark" />
+                <QuestionIcon className="tab-icon session-mark" />
               ) : tab.busy && tab.waitingAt === undefined ? (
                 // Not merely the ranking above: a question is *hidden* on the tab in front of the
                 // user (`waitingTabIds` leaves it out), and the spinner must not step in for it —
                 // a session stopped on a question is not working, on screen or off, the same rule
                 // `hasBusyTab` applies to the project row.
-                <SpinnerIcon className="terminal-tab-icon session-mark spinning" />
+                <SpinnerIcon className="tab-icon session-mark spinning" />
               ) : markedTabIds.includes(tab.tabId) ? (
-                <CommentIcon className="terminal-tab-icon session-mark" />
+                <CommentIcon className="tab-icon session-mark" />
               ) : (
-                <AgentIcon agentId={tab.agentId} className="terminal-tab-icon" />
+                <AgentIcon agentId={tab.agentId} className="tab-icon" />
               )}
-              <span className="terminal-tab-label">{tabLabel(tab)}</span>
+              <span className="tab-label">{tabLabel(tab)}</span>
               <button
                 className="icon-button"
                 title={tab.sessionId !== undefined ? "Close tab and delete its session" : "Close tab"}
@@ -508,7 +508,7 @@ export const Pane = memo(function Pane({
             bootstrap). Every pane carries the reason that is its own, so an agent opened in
             another pane no longer lights up the bar the user is not looking at. */}
         {showProgress && <ProgressBar />}
-        <div className="new-terminal">
+        <div className="new-tab">
           <button
             className="icon-button"
             title="New session"

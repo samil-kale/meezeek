@@ -260,8 +260,8 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
 
   return (
     <div className={`branch-tree${branch.busy ? " busy" : ""}`}>
-      <div className="branch-filter">
-        <SearchIcon className="branch-filter-icon" />
+      <div className="filter-field">
+        <SearchIcon className="filter-icon" />
         <input
           type="text"
           placeholder="Search branches..."
@@ -275,7 +275,7 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
           <button className="tree-header" onClick={() => toggle("local")}>
             <ChevronIcon expanded={!isCollapsed("local")} />
             <span>LOCAL BRANCHES</span>
-            <span className="count">({state.localBranches.length})</span>
+            <span className="count-badge">({state.localBranches.length})</span>
           </button>
           {!isCollapsed("local") &&
             localBranches.map((localBranch) => {
@@ -315,7 +315,7 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
           <button className="tree-header" onClick={() => toggle("remotes")}>
             <ChevronIcon expanded={!isCollapsed("remotes")} />
             <span>REMOTES</span>
-            <span className="count">({state.remotes.length})</span>
+            <span className="count-badge">({state.remotes.length})</span>
           </button>
           {!isCollapsed("remotes") &&
             remotes.map((entry) => (
@@ -324,7 +324,7 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
                   <ChevronIcon expanded={!isCollapsed(`remote:${entry.name}`)} />
                   <RemoteIcon className="tree-icon" />
                   <span className="tree-label">{entry.name}</span>
-                  <span className="count">({entry.branches.length})</span>
+                  <span className="count-badge">({entry.branches.length})</span>
                 </button>
                 {!isCollapsed(`remote:${entry.name}`) &&
                   entry.branches.map((remoteBranch) => (
@@ -349,7 +349,7 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
           <button className="tree-header" onClick={() => toggle("tags")}>
             <ChevronIcon expanded={!isCollapsed("tags")} />
             <span>TAGS</span>
-            <span className="count">({state.tags.length})</span>
+            <span className="count-badge">({state.tags.length})</span>
           </button>
           {!isCollapsed("tags") &&
             tags.map((tag) => (
@@ -370,7 +370,7 @@ export const BranchTree = memo(function BranchTree({ projectId, state, branch }:
           <button className="tree-header" onClick={() => toggle("stashes")}>
             <ChevronIcon expanded={!isCollapsed("stashes")} />
             <span>STASHES</span>
-            <span className="count">({state.stashes.length})</span>
+            <span className="count-badge">({state.stashes.length})</span>
           </button>
           {!isCollapsed("stashes") &&
             state.stashes.map((stash) => (

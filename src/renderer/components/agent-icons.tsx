@@ -8,7 +8,7 @@ import { LARGER, fitIcon, fitStroke } from "./icons";
  * the agent's own setup code into this one.
  *
  * Adding an agent therefore means a folder, an entry in `src/agents/index.ts`, and a case
- * below. A tab icon's size is `.terminal-tab-icon`'s to state, for these and for the git
+ * below. A tab icon's size is `.tab-icon`'s to state, for these and for the git
  * toggle's own icon alike.
  */
 interface AgentIconProps {

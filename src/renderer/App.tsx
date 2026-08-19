@@ -34,7 +34,7 @@ import {
 } from "./pane-layout";
 import type { PaneId, ProjectLayout, SplitPreset } from "./pane-layout";
 
-/** A little over `.git-pane-host.sliding`'s 0.15s, so the class outlives the transition. */
+/** A little over `.git-pane.sliding`'s 0.15s, so the class outlives the transition. */
 const GIT_SLIDE_MS = 180;
 
 /**
@@ -159,7 +159,7 @@ export function App() {
   const [gitMounted, setGitMounted] = useState(gitOpen);
   const [gitExpanded, setGitExpanded] = useState(gitOpen);
   /**
-   * Whether that slide is running right now, which is what `.git-pane-host.sliding` transitions
+   * Whether that slide is running right now, which is what `.git-pane.sliding` transitions
    * on. The transition may not stay on the pane: the sash sets the very same width, and an
    * animated one lags the pointer by its whole duration.
    */
@@ -809,7 +809,7 @@ export function App() {
         {gitMounted && activeProject && (
           <>
             <div
-              className={`git-pane-host${gitSliding ? " sliding" : ""}`}
+              className={`git-pane${gitSliding ? " sliding" : ""}`}
               style={{ width: gitExpanded ? gitPanelsWidth : 0 }}
             >
               <GitPane

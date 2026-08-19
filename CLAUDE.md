@@ -379,7 +379,7 @@ out of whatever they moved to.
 
 Because a saved command's process ends every run, `TerminalSession` tells the two apart by exit
 code: `stopped` for a clean one (or anything TET killed), `error` only for a process that failed
-on its own. **Nothing draws the difference yet** — the tab strip marks both `.terminal-tab.inactive`.
+on its own. **Nothing draws the difference yet** — the tab strip marks both `.tab.inactive`.
 Worth doing, deliberately still open — don't invent the look.
 
 Reading a `tet.json` that's missing, unparseable or oddly shaped is simply no commands — it's
@@ -416,7 +416,7 @@ is still the one on screen.
 
 One dialog for everything TET keeps about *itself* rather than a repository — the one button in
 the window belonging to neither a project nor a pane. It sits right of the layout picker, in the
-`.layout-toggle` of pane "a" (see "Split view"), handed down the same way as `onPresetChange` —
+`.tab-strip-actions` of pane "a" (see "Split view"), handed down the same way as `onPresetChange` —
 beside the git toggle regardless of preset. An ordinary `.icon-button`, the same as the git toggle
 and layout picker beside it. It lived at the title bar's end once, drawn as a platform window
 control; the title bar is now the app's name and the drag region alone.
@@ -476,13 +476,13 @@ Only ask before something irreversible. A question always answered the same way 
 ## One progress indicator per pane
 
 Not one per project, and not one shared bar for the whole window: every pane that can be slow
-carries its own `.tab-progress`, showing only what is happening in *it*, never a reason that
+carries its own `.progress-bar`, showing only what is happening in *it*, never a reason that
 belongs to another — a terminal pane's own agent starting, the git pane's own branch command or
 file action, the diff dialog's own read. What is slow is drawn where it is happening, not
 centralised out of habit; a single spot for the whole app was tried first and read as "something,
 somewhere" instead of pointing at the one thing actually running. One component serves all of them:
 `ProgressBar` (`src/renderer/components/ProgressBar.tsx`), dropped into whichever header or bar
-around it declares `position: relative` (a pane's own tab strip, a `.sidebar-header`,
+around it declares `position: relative` (a pane's own tab strip, a `.section-header`,
 `.diff-dialog-bar`), so every pane's bar looks identical without a rule of its own. Its bit is a
 fixed number of pixels moving at a fixed number of pixels per second — measured width, derived
 duration — not VS Code's 2%-of-the-width recipe, which made a narrow section's worm a third the
@@ -893,7 +893,7 @@ binding and label can't drift apart.
   follows the TOML layout instead (`[tui]\ntheme = "..."`, `codex-rs/config/src/types.rs`), and
   only the dotted form actually takes effect.
 - Measurements are shared, not invented per view: a bar along an edge is 35px, the tab strip's
-  height — title bar, both sidebar headers (`.sidebar-header`) and the diff dialog's bar all use it.
+  height — title bar, both sidebar headers (`.section-header`) and the diff dialog's bar all use it.
   Same for the 22px action button and the 1px `--vscode-panel-border` between panes. Check the
   neighbouring view's size before inventing a new one.
 - **An icon is one size everywhere, and it takes two numbers.** The box is `--icon-size`, 13px

@@ -284,32 +284,37 @@ option {
   border-right: 1px solid var(--vscode-panel-border);
 }
 
-.project-list {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: var(--pane-min-height);
-}
-
-/* Its height is dragged and remembered; the projects above take what is left. It may still be
-   shrunk to the floor above, so a height dragged in a taller window doesn't push it off the
-   bottom in a shorter one — the same reason the git pane's upper section can. */
-.command-list {
+/* One titled section of a column — the sidebar's PROJECTS and COMMANDS, the git pane's BRANCHES
+   and LOCAL CHANGES, the diff dialog's FILES and LOCAL CHANGES. One of each pair is sized by the
+   sash between them and may still be shrunk to the floor below, so a height dragged in a taller
+   window doesn't push it off the bottom in a shorter one; the other (`.grows`) takes what is
+   left. */
+.section {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
   min-height: var(--pane-min-height);
+}
+
+.section.grows {
+  flex: 1;
+}
+
+/* The line between two sections of one column — the sash over it is transparent until it is
+   grabbed. The first section draws none: the line above it comes from whatever the column sits
+   under, `.body` for all of them today. */
+.section ~ .section {
   border-top: 1px solid var(--vscode-panel-border);
 }
 
 /* A header with more than one action keeps them together at its right edge. */
-.sidebar-header-actions {
+.section-header-actions {
   display: flex;
   align-items: center;
   gap: 2px;
 }
 
-.command-items {
+.command-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -319,7 +324,7 @@ option {
   background: var(--vscode-list-hoverBackground);
 }
 
-.command-line {
+.command-label {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -330,11 +335,11 @@ option {
 
 /* Exactly as tall as the tab strip next to it, border included, so the sidebar's title and the
    tabs sit on one line and end on one. */
-/* Every section header in the sidebar: the tab strip's 35px, and a line below it. The line
+/* Every section header, in the sidebar and the git pane alike: the tab strip's 35px, and a line below it. The line
    above comes from whatever the section sits under — `.body` for the first one, the section's
    own top border for the ones after it — so no header draws two. */
-.sidebar-header {
-  /* What lets its own `.tab-progress` anchor to its bottom edge — the same bar every pane's own
+.section-header {
+  /* What lets its own `.progress-bar` anchor to its bottom edge — the same bar every pane's own
      header carries, not the terminal strip's alone. */
   position: relative;
   display: flex;
@@ -351,7 +356,7 @@ option {
   color: var(--vscode-sideBarSectionHeader-foreground);
 }
 
-.project-list-items {
+.project-list {
   flex: 1;
   overflow-y: auto;
 }
@@ -366,8 +371,8 @@ option {
 .command-item,
 .tree-item,
 .change-item,
-.remote-repo,
-.remote-add-account {
+.repository-item,
+.add-account {
   height: var(--list-row-height);
   flex: none;
 }
@@ -418,8 +423,8 @@ option {
 /* Takes the leftover width, so the close button stays at the row's right edge instead of
    following the label — and holds the label and its extra together at the row's left, rather
    than letting the label alone claim the space and push the extra out to the right edge. */
-.command-item-main,
-.project-item-main {
+.command-main,
+.project-main {
   flex: 1;
   display: flex;
   align-items: baseline;
@@ -427,7 +432,7 @@ option {
   min-width: 0;
 }
 
-.project-item-label {
+.project-label {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -467,18 +472,18 @@ option {
   cursor: progress;
 }
 
-.branch-filter {
+.filter-field {
   position: relative;
   padding: 8px 6px;
 }
 
 /* Leaves the search icon its own room, which is why this is not the plain input padding. */
-.branch-filter input {
+.filter-field input {
   width: 100%;
   padding-left: 28px;
 }
 
-.branch-filter-icon {
+.filter-icon {
   position: absolute;
   left: 13px;
   top: 50%;
@@ -584,7 +589,7 @@ option {
   white-space: nowrap;
 }
 
-.count {
+.count-badge {
   color: var(--vscode-descriptionForeground);
   font-weight: 400;
 }
@@ -592,8 +597,8 @@ option {
 /* Ahead/behind on a local branch row, sourcegit's own pair of arrows: only the direction that
    is not zero shows, each next to the count it belongs to. Pushed to the row's right edge on
    its own — `.tree-label`'s width still varies with the branch name, so this is a margin on
-   the track rather than a `flex: 1` on every row's label, which would also move `.count` on
-   the rows that carry no track at all. Deliberately not muted like `.count`: read as an icon
+   the track rather than a `flex: 1` on every row's label, which would also move `.count-badge` on
+   the rows that carry no track at all. Deliberately not muted like `.count-badge`: read as an icon
    with a number beside it, the same size and color as the label — the play button beside a
    command is the model, not a secondary annotation. */
 .tree-track {
@@ -632,7 +637,7 @@ option {
 
 /* Terminals ------------------------------------------------------------------------------ */
 
-.terminals-pane {
+.pane-layout {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -659,7 +664,7 @@ option {
   min-height: 0;
 }
 
-/* One pane: its own tab strip and its own terminal stack, exactly what `.terminals-pane` used
+/* One pane: its own tab strip and its own terminal stack, exactly what `.pane-layout` used
    to hold directly before it could hold more than one. Relative so `.drag-over`'s own overlay
    below can anchor to its box. A pane a divider sizes carries that one dimension inline; `min-*:
    0` is what lets a sized neighbour push the others below their content. */
@@ -695,7 +700,7 @@ option {
   pointer-events: none;
 }
 
-.terminal-tabs {
+.tab-strip {
   position: relative;
   display: flex;
   align-items: stretch;
@@ -709,13 +714,13 @@ option {
 /* Indeterminate: none of what this sits under reports real progress, only that it is or isn't
    done — a CLI starting, a branch command, a diff being read or coloured. One rule, anchored to
    whichever header or bar declares `position: relative` above (a pane's own tab strip, a git
-   section's `.sidebar-header`, the diff dialog's own bar) so every pane's own indicator looks
+   section's `.section-header`, the diff dialog's own bar) so every pane's own indicator looks
    identical without a rule of its own. Drawn only by `ProgressBar`, which sets the bit's width,
    its starting offset, how far it travels (`--travel`) and how long that takes: all absolute, so
    the bit is the same length and moves at the same speed in a 300px sidebar section and a 900px
    pane — a share of the width, VS Code's own recipe, is right for one bar and wrong for several
    side by side. */
-.tab-progress {
+.progress-bar {
   position: absolute;
   left: 0;
   right: 0;
@@ -724,7 +729,7 @@ option {
   overflow: hidden;
 }
 
-.tab-progress-bit {
+.progress-bar-bit {
   position: absolute;
   top: 0;
   height: 100%;
@@ -743,7 +748,7 @@ option {
 
 /* Only the tabs scroll: an overflow container would clip the new-session menu below it,
    and the + button stays reachable however many tabs there are. */
-.terminal-tab-strip {
+.tabs {
   display: flex;
   align-items: stretch;
   /* Only as wide as its tabs, so the + button sits right behind the last one; it shrinks
@@ -756,11 +761,11 @@ option {
 
 /* The tabs scroll by wheel and by the arrow keys, never by a bar of their own — and a
    ::-webkit-scrollbar rule elsewhere in the file outweighs scrollbar-width above. */
-.terminal-tab-strip::-webkit-scrollbar {
+.tabs::-webkit-scrollbar {
   display: none;
 }
 
-.terminal-tab {
+.tab {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -774,7 +779,7 @@ option {
   cursor: pointer;
 }
 
-.terminal-tab.active {
+.tab.active {
   color: var(--vscode-tab-activeForeground);
   background: var(--vscode-tab-activeBackground);
   box-shadow: inset 0 -1px 0 var(--vscode-focusBorder);
@@ -783,24 +788,24 @@ option {
 /* Git, then the layout picker, browse-files and settings: one row of plain icon buttons at the
    strip's start — none of them select anything here, so none is shaped like a tab. Its own
    separator on the right keeps it apart from the tabs that follow, the same box as
-   `.new-terminal` at the strip's other end. */
-.layout-toggle {
+   `.new-tab` at the strip's other end. */
+.tab-strip-actions {
   display: flex;
   align-items: center;
-  /* The same 2px `.sidebar-header-actions` keeps between the buttons of a section header. */
+  /* The same 2px `.section-header-actions` keeps between the buttons of a section header. */
   gap: 2px;
   flex: none;
   border-right: 1px solid var(--vscode-tab-border);
   padding: 0 4px;
 }
 
-.terminal-tab-label {
+.tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.terminal-tab.inactive .terminal-tab-label {
+.tab.inactive .tab-label {
   opacity: 0.6;
   text-decoration: line-through;
 }
@@ -825,14 +830,14 @@ option {
   color: var(--vscode-errorForeground);
 }
 
-.terminal-tab-icon {
+.tab-icon {
   flex: none;
   width: var(--icon-size);
   height: var(--icon-size);
   opacity: 0.9;
 }
 
-.new-terminal {
+.new-tab {
   display: flex;
   align-items: center;
   flex: none;
@@ -978,7 +983,7 @@ option {
 
 /* Its own column between the navigation and the terminals, shown while the git button in the
    tab strip is on. Width is dragged and remembered like the sidebar's. */
-.git-pane-host {
+.git-pane {
   display: flex;
   flex: none;
   /* No floor on the host itself: it is the box the slide animates to zero, and the pane's own
@@ -991,33 +996,17 @@ option {
 
 /* Only while it slides in or out. A transition left on for good animates the width the sash
    sets as well, so the pane trails the pointer by the whole duration of it. */
-.git-pane-host.sliding {
+.git-pane.sliding {
   transition: width 0.15s ease;
 }
 
 /* Branches on top, changed files below. No diff: that opens over the whole window. */
-.git-pane {
+.git-pane-content {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: var(--pane-min-width);
   min-height: 0;
-}
-
-/* One titled half of the pane: the upper one is sized by the sash, the lower one takes what
-   is left. Its header is the navigation's, so both columns line up. */
-.git-section {
-  display: flex;
-  flex-direction: column;
-  flex: 0 1 auto;
-  min-height: var(--pane-min-height);
-}
-
-/* The lower half takes what is left and draws the line between the two, the way the sidebar's
-   command list does — the sash over it is transparent until it is grabbed. */
-.git-section.grows {
-  flex: 1;
-  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .changes-list {
@@ -1031,7 +1020,7 @@ option {
   margin: 6px;
 }
 
-.changes-files {
+.changes-list-items {
   flex: 1;
   overflow: auto;
 }
@@ -1103,7 +1092,7 @@ option {
    is `padding-top` instead, and it has to be at least the title bar's 35px: anything less lets
    its bar reach under the platform's window controls, which the overlay can't draw above no
    matter its z-index — they're the browser chrome, not page content. */
-.diff-overlay {
+.diff-dialog-overlay {
   position: fixed;
   inset: 0;
   z-index: 28;
@@ -1132,10 +1121,10 @@ option {
   outline: none;
 }
 
-/* FILES over LOCAL CHANGES, the git pane's own BRANCHES-over-LOCAL-CHANGES shape (`.git-section`,
-   `.git-section.grows`, a horizontal `Sash` between) — same background, sized by the vertical
+/* FILES over LOCAL CHANGES, the git pane's own BRANCHES-over-LOCAL-CHANGES shape (`.section`,
+   `.section.grows`, a horizontal `Sash` between) — same background, sized by the vertical
    sash the way the git pane is beside the terminals. */
-.diff-files {
+.diff-dialog-files {
   display: flex;
   flex-direction: column;
   flex: none;
@@ -1144,7 +1133,7 @@ option {
   background: var(--vscode-sideBar-background);
 }
 
-.diff-main {
+.diff-dialog-main {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -1152,7 +1141,7 @@ option {
   min-height: 0;
 }
 
-/* Where monaco mounts itself — sized like `.diff`, the read-only view it swaps places with, and
+/* Where monaco mounts itself — sized like `.diff-view`, the read-only view it swaps places with, and
    for the same reason not clipped with `overflow: hidden`: monaco already contains its own
    content (lines, scrollbar, minimap) within its own root element, so the only thing clipping
    here would still catch is one of its own overlay widgets — the find widget's tooltips among
@@ -1205,7 +1194,7 @@ option {
 
 /* The tab strip's height again, with the file it is showing, its whitespace switch and the way out. */
 .diff-dialog-bar {
-  /* What lets its own `.tab-progress` anchor to its bottom edge while the diff is read or coloured. */
+  /* What lets its own `.progress-bar` anchor to its bottom edge while the diff is read or coloured. */
   position: relative;
   display: flex;
   align-items: center;
@@ -1228,7 +1217,7 @@ option {
 
 /* `min-height: 0` matters here: a flex item defaults to the height of its content, and a long
    diff would push its own scroll container past the bottom of the dialog. */
-.diff {
+.diff-view {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -1634,13 +1623,13 @@ option {
 
 /* Startup requirements ------------------------------------------------------------------- */
 
-.requirements-list {
+.requirement-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.requirement {
+.requirement-item {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -1678,14 +1667,14 @@ option {
 
 /* Add repository ------------------------------------------------------------------------- */
 
-.add-repository {
+.add-repository-dialog {
   width: 720px;
   /* Sized to the remote tab, the fullest one, and fixed: switching tabs must not resize the
      dialog under the pointer. The body stretches, so the buttons stay pinned to the bottom. */
   height: 440px;
 }
 
-.add-repository .dialog-body {
+.add-repository-dialog .dialog-body {
   flex: 1;
   min-height: 0;
 }
@@ -1698,7 +1687,7 @@ option {
   min-height: 0;
 }
 
-.remote-accounts {
+.account-list {
   display: flex;
   flex-direction: column;
   width: 220px;
@@ -1712,7 +1701,7 @@ option {
    not the shared row height; what it does take from the other lists is the space around that
    content: 5px is what a 28px row leaves above and below its text, so the gap to the entry
    below reads the same as everywhere else. */
-.remote-account {
+.account-item {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1721,43 +1710,43 @@ option {
   cursor: pointer;
 }
 
-.remote-account:hover {
+.account-item:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-.remote-account.active {
+.account-item.active {
   background: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground);
 }
 
-.remote-account-label {
+.account-label {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.remote-account-user,
-.remote-account-host {
+.account-user,
+.account-host {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.remote-account-host {
+.account-host {
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
 }
 
 /* Keeps the description readable on the selection blue, where its usual grey is not. */
-.remote-account.active .remote-account-host {
+.account-item.active .account-host {
   color: inherit;
   opacity: 0.8;
 }
 
 /* Shaped like a row of the list above it, not like a dialog button: it belongs to the list.
    Set off from it all the same — it is what comes after the accounts, not one of them. */
-.remote-add-account {
+.add-account {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1766,7 +1755,7 @@ option {
   color: var(--vscode-descriptionForeground);
 }
 
-.remote-add-account:hover {
+.add-account:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
@@ -1779,13 +1768,13 @@ option {
   min-height: 0;
 }
 
-.remote-repos {
+.repository-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
-.remote-loading {
+.repository-loading {
   display: flex;
   justify-content: center;
   padding: 24px;
@@ -1796,7 +1785,7 @@ option {
    read through and pick from once rather than navigation that is on screen all day. It is on
    the shared row height now: two lists in the same window that are nearly the same height read
    as a mistake, and the extra pixels were not worth that. */
-.remote-repo {
+.repository-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1804,11 +1793,11 @@ option {
   font-size: 13px;
 }
 
-.remote-repo:hover {
+.repository-item:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-.remote-repo-name {
+.repository-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1816,20 +1805,20 @@ option {
   white-space: nowrap;
 }
 
-.remote-repo-private {
+.repository-private {
   flex: none;
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
 }
 
 /* The row's action, VS Code's way: there on hover, not once per row all the time. */
-.remote-repo-clone {
+.repository-clone {
   visibility: hidden;
   padding: 1px 8px;
   font-size: 12px;
 }
 
-.remote-repo:hover .remote-repo-clone {
+.repository-item:hover .repository-clone {
   visibility: visible;
 }
 

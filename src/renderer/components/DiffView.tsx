@@ -276,5 +276,5 @@ export const DiffView = memo(function DiffView({
     );
   };
 
-  return <div className="diff">{body()}</div>;
+  return <div className="diff-view">{body()}</div>;
 });

@@ -455,7 +455,7 @@ export const TerminalsPane = memo(function TerminalsPane({
   };
 
   return (
-    <div className={`terminals-pane${visible ? "" : " pane-hidden"}`}>
+    <div className={`pane-layout${visible ? "" : " pane-hidden"}`}>
       <div className="panes-grid" ref={gridRef}>
         {renderGrid()}
       </div>
