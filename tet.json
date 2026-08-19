@@ -1,4 +1,11 @@
 {
+  "exclude": {
+    "node_modules": true,
+    ".github/workflows": true,
+    "dist": true,
+    "release": true,
+    ".claude": true
+  },
   "commands": [
     {
       "command": "npm run compile",
