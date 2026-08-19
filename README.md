@@ -26,17 +26,23 @@
 
 ## The problem
 
-Running an agent means a terminal. Running several means several terminals, each in its own repo
-checkout, each with its own git state — and switching between them loses track of which one is
-waiting on you, which one just finished, and what changed in the working tree while you weren't
-looking.
+Agentic coding changed where developers spend their time: less in the IDE, more in a terminal
+running the agent. The git client is what's left, opened again and again just to see what
+changed and check whether the agent did what was asked. With several projects running at once,
+that's a loop: switch console, switch git client, switch console, switch git client.
 
 ## The solution
 
-TET keeps a project's terminals and its git state on screen together. Git is there for
-**navigation and control** of the repository — branches, changes, diffs, stashes — not for doing
-the work. The actual work happens in the terminals, where a git command, a build, or an agent
-belongs.
+TET puts a project's terminals and its git state on one screen, for as many projects as are open
+at once: which session needs attention, which one is still running, what changed, without a
+separate git client window.
+
+TET doesn't add a new way of working, it matches the one already happening: most of it runs
+through a terminal now, and only a few things are still worth a click instead of a prompt. So
+that's what TET builds around: several terminals per project, and a git pane for the navigation
+and review that's left once the agent is done, with a diff view as a fallback for reading code
+directly. A feature becomes a button only where a click beats writing the prompt for it;
+everything else stays in the terminal it belongs to.
 
 ---
 
