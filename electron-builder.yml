@@ -50,3 +50,5 @@ publish:
   provider: github
   owner: samil-kale
   repo: tet
+  # electron-builder defaults to a draft release; publish straight to a real one.
+  releaseType: release
