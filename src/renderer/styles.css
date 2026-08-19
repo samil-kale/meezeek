@@ -527,15 +527,6 @@ option {
   padding-left: 40px;
 }
 
-/* Its own chevron plus the row's 5px gap eat 18px before the row's own icon even starts, so the
-   base 20px is cut down to 2px here — the same math the label would need worked out in reverse:
-   without it, a remote group's icon (and therefore its label) sits 12px right of a plain
-   `.tree-item`'s, the branch tree's own version of what FileTree.tsx's placeholder-icon trick
-   avoids by construction. */
-.tree-item.remote {
-  padding-left: 2px;
-}
-
 .tree-item:hover {
   background: var(--vscode-list-hoverBackground);
 }
