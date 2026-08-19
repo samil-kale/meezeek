@@ -1188,18 +1188,55 @@ option {
   min-height: 0;
 }
 
-/* Where monaco mounts itself — sized like `.diff`, the read-only view it swaps places with. */
+/* Where monaco mounts itself — sized like `.diff`, the read-only view it swaps places with, and
+   for the same reason not clipped with `overflow: hidden`: monaco already contains its own
+   content (lines, scrollbar, minimap) within its own root element, so the only thing clipping
+   here would still catch is one of its own overlay widgets — the find widget's tooltips among
+   them — trying to render slightly outside this box. */
 .editor-host {
   position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
 }
 
 /* Ctrl+S turns this on the moment a keystroke lands, off again once it reaches disk. */
 .diff-dialog-dirty {
   color: var(--vscode-gitDecoration-modifiedResourceForeground);
+}
+
+/* Monaco's own tooltip widget (button titles in the find widget, among other things) — turned
+   off rather than repositioned. `.workbench-hover-pointer` (the little arrow) is a sibling of
+   `.monaco-hover` inside this container, not a child of it, so hiding the bubble alone left the
+   arrow behind on its own; hiding the shared container catches both in one rule. */
+.editor-host .workbench-hover-container {
+  display: none !important;
+}
+
+/* The find widget's own buttons, made to look like every other icon-button in the app rather
+   than monaco's compact default: same box, same corner radius, same resting/hover opacity.
+   `!important` because monaco's findWidget.css is bundled after this file — same specificity
+   would otherwise lose on source order alone. Left out of `.toggle` (Aa/ab/.*): those sit
+   absolutely positioned inside the compact search field itself, and forcing them to a 24px box
+   would overflow it — only their corners and opacity are brought in line. */
+.editor-host .find-widget .button {
+  background-color: transparent !important;
+}
+
+.editor-host .find-widget .button:not(.toggle) {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 3px !important;
+  opacity: 0.9;
+}
+
+.editor-host .find-widget .button.toggle {
+  border-radius: 3px !important;
+  opacity: 0.9;
+}
+
+.editor-host .find-widget .button:not(.disabled):hover {
+  opacity: 1;
 }
 
 /* The tab strip's height again, with the file it is showing, its whitespace switch and the way out. */
@@ -1216,16 +1253,6 @@ option {
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
-/* The section label the two lists beside it already have (FILES, LOCAL CHANGES) — this pane's
-   own, so all three read as one row of titled sections rather than two headers and a toolbar. */
-.diff-dialog-label {
-  flex: none;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  color: var(--vscode-sideBarSectionHeader-foreground);
-}
-
 .diff-dialog-path {
   flex: 1;
   min-width: 0;
@@ -1233,7 +1260,6 @@ option {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: var(--vscode-descriptionForeground);
 }
 
 /* `min-height: 0` matters here: a flex item defaults to the height of its content, and a long

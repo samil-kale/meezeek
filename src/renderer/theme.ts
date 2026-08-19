@@ -93,6 +93,13 @@ const MONACO_CSS_VARS: Record<string, string> = {
   "input.border": "--vscode-input-border",
   "input.placeholderForeground": "--vscode-input-placeholderForeground",
   focusBorder: "--vscode-focusBorder",
+  // The find widget's Aa/ab/.* toggles: a plain, persistent background when on — the same
+  // translucent grey an action button already hovers with everywhere else — rather than monaco's
+  // own default of a `#007ACC` border and a recoloured icon. No colour at all, not even the
+  // shared accent: an icon-button toggle turning blue reads fine standing alone, but these three
+  // sit in a row together, and a row of icons some blue and some not reads as broken, not toggled.
+  "inputOption.activeForeground": "--vscode-foreground",
+  "inputOption.activeBackground": "--vscode-toolbar-hoverBackground",
   "scrollbarSlider.background": "--vscode-scrollbarSlider-background",
   "scrollbarSlider.hoverBackground": "--vscode-scrollbarSlider-hoverBackground",
   "scrollbarSlider.activeBackground": "--vscode-scrollbarSlider-activeBackground",
@@ -123,5 +130,7 @@ export function buildMonacoColors(): Record<string, string> {
       colors[id] = value;
     }
   }
+  // No border box around an active toggle — just the background set through the map above.
+  colors["inputOption.activeBorder"] = "#00000000";
   return colors;
 }

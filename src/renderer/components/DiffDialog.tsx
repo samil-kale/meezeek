@@ -311,7 +311,6 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
         />
         <div className="diff-main">
           <div className="diff-dialog-bar">
-            <span className="diff-dialog-label">FILE</span>
             {dirty && <span className="diff-dialog-dirty">●</span>}
             <span className="diff-dialog-path">{path ?? "No file open"}</span>
             {effective === "diff" && diff && !diff.binary && (

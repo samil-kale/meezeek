@@ -19,6 +19,9 @@ const api: TETApi = {
     get: () => ipcRenderer.invoke("settings:get"),
     save: (settings) => ipcRenderer.invoke("settings:save", settings)
   },
+  keybindings: {
+    get: () => ipcRenderer.invoke("keybindings:get")
+  },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     pickDirectory: (title, defaultPath) => ipcRenderer.invoke("projects:pick-directory", title, defaultPath),

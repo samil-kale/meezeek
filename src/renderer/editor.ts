@@ -50,7 +50,7 @@ export async function ensureLanguage(monaco: Monaco, language: string): Promise<
   // `monaco-editor`'s own re-export of the identical API — structurally the same shape, but TS
   // sees two different nominal origins for the same interfaces.
   shikiToMonaco(shiki, monaco as never);
-  applyChrome(monaco, shiki);
+  await applyChrome(monaco, shiki);
 }
 
 /**
@@ -59,13 +59,17 @@ export async function ensureLanguage(monaco: Monaco, language: string): Promise<
  * "layering" means rebuilding the same rules shiki already computed and adding colors — the
  * exact translation `@shikijs/monaco` does internally, exposed as `textmateThemeToMonacoTheme`.
  * Without this the editor stays shiki's dark-plus chrome (`#1e1e1e`), not tet's (`#1f1f1f`).
+ *
+ * Awaited by `ensureLanguage`, deliberately: this used to fire the import and move on, so
+ * `monaco.editor.create` below could run — and paint the editor once in monaco's own colors —
+ * before this ever resolved. `@shikijs/monaco` is already loaded by the time this runs (the
+ * `import` two lines up already brought it in), so the await costs a microtask, not a fetch.
  */
-function applyChrome(monaco: Monaco, shiki: HighlighterCore): void {
-  void import("@shikijs/monaco").then(({ textmateThemeToMonacoTheme }) => {
-    const base = textmateThemeToMonacoTheme(shiki.getTheme(THEME));
-    monaco.editor.defineTheme(THEME, { ...base, colors: { ...base.colors, ...buildMonacoColors() } });
-    monaco.editor.setTheme(THEME);
-  });
+async function applyChrome(monaco: Monaco, shiki: HighlighterCore): Promise<void> {
+  const { textmateThemeToMonacoTheme } = await import("@shikijs/monaco");
+  const base = textmateThemeToMonacoTheme(shiki.getTheme(THEME));
+  monaco.editor.defineTheme(THEME, { ...base, colors: { ...base.colors, ...buildMonacoColors() } });
+  monaco.editor.setTheme(THEME);
 }
 
 /**

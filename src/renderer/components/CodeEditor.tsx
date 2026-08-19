@@ -2,6 +2,7 @@ import { useEffect, useImperativeHandle, useRef } from "react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { languageForPath } from "../diff-highlight";
 import { editorOptions, ensureLanguage, loadMonaco } from "../editor";
+import { loadKeybindings, parseKeyCombo } from "../keybindings";
 
 export interface CodeEditorHandle {
   /** The model's current text, BOM preserved — see `Repository.writeFile`. */
@@ -78,7 +79,36 @@ export function CodeEditor({ path, content, onDirty, onSave, onBusy, ref }: Code
       });
       const fontFamily = getComputedStyle(document.documentElement).getPropertyValue("--vscode-editor-font-family").trim();
       editorRef.current = monaco.editor.create(hostRef.current, { ...editorOptions(fontFamily), model });
-      editorRef.current.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSaveRef.current());
+      // No keybinding here — every command tet adds gets one the same way, below, from
+      // keybindings.json (layered over that file's own defaults, "ctrl+s" among them).
+      editorRef.current.addAction({ id: "tet.save", label: "Save", run: () => onSaveRef.current() });
+      // Monaco's find/find-replace actions (Ctrl+F/Ctrl+H, both already bound by default) don't
+      // declare a context menu group of their own — VS Code's own right-click menu doesn't carry
+      // them either. Added here as their own group so they're reachable without the shortcuts.
+      editorRef.current.addAction({
+        id: "tet.find",
+        label: "Find",
+        contextMenuGroupId: "1_find",
+        contextMenuOrder: 1,
+        run: (instance) => void instance.getAction("actions.find")?.run()
+      });
+      editorRef.current.addAction({
+        id: "tet.findReplace",
+        label: "Find and Replace",
+        contextMenuGroupId: "1_find",
+        contextMenuOrder: 2,
+        run: (instance) => void instance.getAction("editor.action.startFindReplaceAction")?.run()
+      });
+      // The user's own keybindings.json, layered over tet's defaults for the commands above —
+      // and free to name any of monaco's own command ids too (see keybindings.ts). An entry
+      // whose key or command this editor doesn't recognise is skipped rather than guessed at.
+      const keybindings = await loadKeybindings();
+      for (const [combo, commandId] of Object.entries(keybindings)) {
+        const parsed = parseKeyCombo(monaco, combo);
+        if (parsed !== undefined) {
+          editorRef.current.addCommand(parsed, () => editorRef.current?.getAction(commandId)?.run());
+        }
+      }
       editorRef.current.focus();
       onBusy(false);
     })();

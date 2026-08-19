@@ -29,6 +29,7 @@ import type {
 import { PROVIDERS } from "../providers";
 import type { AccountStore } from "../providers/accounts";
 import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
+import { readKeybindings } from "./keybindings";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { ProjectStore } from "./projects";
@@ -142,6 +143,10 @@ export function registerIpc({
   // Written whole, like a project's saved commands: the dialog holds all of it and every
   // switch it draws is one the user could have flipped since it was opened.
   ipcMain.handle("settings:save", (_event, next: AppSettings): void => settings.save(next));
+
+  // The file-editor's own keybindings — read fresh, not cached: asked for once per editor
+  // opened, and a value held from before an edit would show the file as it used to be.
+  ipcMain.handle("keybindings:get", (): Promise<Record<string, string>> => readKeybindings(app.getPath("userData")));
 
   ipcMain.handle("projects:list", (): Project[] => store.list());
 

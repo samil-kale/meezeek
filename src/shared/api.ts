@@ -46,6 +46,13 @@ export interface TETApi {
     /** Writes all of it. Each switch applies to the agents set up after it — see the dialog. */
     save(settings: AppSettings): Promise<void>;
   };
+  /**
+   * The file-editor's own keybindings — a key-combo-to-command-id map the user edits directly
+   * in keybindings.json, tet's own userData; there is no dialog for this one, only the file.
+   */
+  keybindings: {
+    get(): Promise<Record<string, string>>;
+  };
   projects: {
     list(): Promise<Project[]>;
     /**
