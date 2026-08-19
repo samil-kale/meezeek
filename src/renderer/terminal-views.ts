@@ -328,15 +328,16 @@ export function attachTerminal(projectId: string, tabId: string, agentId: AgentI
 }
 
 /**
- * Resizes xterm to its container without telling the pty. Cheap and local — it only does
- * anything on a whole row or column — so it can run while a sash is dragged, and the pane never
- * shows an empty strip. The pty learns the size from `fitTerminal` once the dragging settles.
+ * Refits the terminal and reports the new size — this is what starts its process. Deliberately
+ * not split into an immediate local reflow plus a debounced pty notify: ConPTY can reflow its
+ * own internal screen buffer out from under a CLI's own cursor-relative redraw when a resize
+ * lands while one is in flight, corrupting the CLI's screen (an upstream Windows bug — VS Code
+ * hits the identical symptom, e.g. microsoft/vscode#230852, #260038, closed by xterm.js's own
+ * maintainer as unfixable from the application side). Reflowing xterm locally ahead of telling
+ * the pty widened that window for the whole length of a drag; every resize now reflows and
+ * notifies together, only once activity settles (see `RESIZE_DEBOUNCE_MS` in `Pane.tsx`) — a
+ * dragged sash can show an empty strip until it stops, which is the trade we take instead.
  */
-export function refitTerminal(projectId: string, tabId: string): void {
-  views.get(viewKey(projectId, tabId))?.fit.fit();
-}
-
-/** Refits the terminal and reports the new size — this is what starts its process. */
 export function fitTerminal(projectId: string, tabId: string): void {
   const view = views.get(viewKey(projectId, tabId));
   if (!view) {

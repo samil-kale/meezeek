@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentId, AgentInfo, TerminalDescriptor } from "../../shared/types";
-import { fitTerminal, focusTerminal, refitTerminal } from "../terminal-views";
+import { fitTerminal, focusTerminal } from "../terminal-views";
 import { PANE_LABELS, PRESETS, PRESET_LABELS, PRESET_PANES, TAB_DRAG_TYPE } from "../pane-layout";
 import type { PaneId, SplitPreset } from "../pane-layout";
 import { AgentIcon } from "./agent-icons";
@@ -212,13 +212,14 @@ export const Pane = memo(function Pane({
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // xterm follows the pane at once — dragging a sash would otherwise leave a strip of empty
-    // background until the debounce fires. Only the pty resize waits, since it repaints the CLI.
+    // Only ever the debounced pty resize, never an immediate local reflow — see `fitTerminal`'s
+    // own comment for why: reflowing xterm ahead of the pty is what let a CLI's own redraw land
+    // on a ConPTY buffer already reflowed for a size it does not know about yet. A dragged sash
+    // can show an empty strip of background until it settles; that is the trade for it.
     const observer = new ResizeObserver(() => {
       if (!visible || !activeTabId) {
         return;
       }
-      refitTerminal(projectId, activeTabId);
       clearTimeout(timer);
       timer = setTimeout(() => fitTerminal(projectId, activeTabId), RESIZE_DEBOUNCE_MS);
     });
