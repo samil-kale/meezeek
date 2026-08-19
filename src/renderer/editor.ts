@@ -30,27 +30,38 @@ export function loadMonaco(): Promise<Monaco> {
 
 /** One language registered at a time is enough for a re-run of `shikiToMonaco` below — see it. */
 const registered = new Set<string>();
+/** Whether `applyChrome` has run and still stands — false again after `shikiToMonaco` re-themes. */
+let chromeApplied = false;
 
 /**
  * Wires a language into monaco through shiki, so a token reads the same color here as in the
  * diff view: `shikiToMonaco` only sees languages loaded into shiki *and* registered with monaco
  * at the moment it runs, so it has to run again after every newly loaded grammar — which also
  * redefines the theme from shiki's own colors, wiping `applyChrome`'s override. Hence the fixed
- * order below, every time.
+ * order below. A language seen before skips all of that — nothing new for shiki to see, so a
+ * re-run would only redo identical theme work on every mount. What can never be skipped is the
+ * first `applyChrome`: without it the theme name `editorOptions` passes to `create` is unknown
+ * to monaco, which silently falls back to its built-in *light* theme — why this is called for
+ * a plaintext file too (`language: null`), which has no grammar to wire but still needs the
+ * theme to exist.
  */
-export async function ensureLanguage(monaco: Monaco, language: string): Promise<void> {
+export async function ensureLanguage(monaco: Monaco, language: string | null): Promise<void> {
   const shiki = await highlighter();
-  await loadGrammar(shiki, language);
-  if (!registered.has(language)) {
+  if (language && !registered.has(language)) {
+    await loadGrammar(shiki, language);
     monaco.languages.register({ id: language });
     registered.add(language);
+    const { shikiToMonaco } = await import("@shikijs/monaco");
+    // @shikijs/monaco types itself against the `monaco-editor-core` package rather than
+    // `monaco-editor`'s own re-export of the identical API — structurally the same shape, but TS
+    // sees two different nominal origins for the same interfaces.
+    shikiToMonaco(shiki, monaco as never);
+    chromeApplied = false;
   }
-  const { shikiToMonaco } = await import("@shikijs/monaco");
-  // @shikijs/monaco types itself against the `monaco-editor-core` package rather than
-  // `monaco-editor`'s own re-export of the identical API — structurally the same shape, but TS
-  // sees two different nominal origins for the same interfaces.
-  shikiToMonaco(shiki, monaco as never);
-  await applyChrome(monaco, shiki);
+  if (!chromeApplied) {
+    await applyChrome(monaco, shiki);
+    chromeApplied = true;
+  }
 }
 
 /**
@@ -62,8 +73,8 @@ export async function ensureLanguage(monaco: Monaco, language: string): Promise<
  *
  * Awaited by `ensureLanguage`, deliberately: this used to fire the import and move on, so
  * `monaco.editor.create` below could run — and paint the editor once in monaco's own colors —
- * before this ever resolved. `@shikijs/monaco` is already loaded by the time this runs (the
- * `import` two lines up already brought it in), so the await costs a microtask, not a fetch.
+ * before this ever resolved. On any colored open `@shikijs/monaco` is already loaded by the
+ * time this runs; only a plaintext-first open pays the one import here instead.
  */
 async function applyChrome(monaco: Monaco, shiki: HighlighterCore): Promise<void> {
   const { textmateThemeToMonacoTheme } = await import("@shikijs/monaco");

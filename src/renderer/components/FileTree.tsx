@@ -293,10 +293,12 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
   // Reveals the file the rest of the dialog opened (a ChangesList click, a ctrl-clicked path):
   // its folders expand and it scrolls into view, the same way VS Code's explorer follows the
   // active editor.
+  const pendingReveal = useRef<string | null>(null);
   useEffect(() => {
     if (!selected) {
       return;
     }
+    pendingReveal.current = selected;
     const ancestors = ancestorsOf(selected);
     if (ancestors.length > 0) {
       setExpanded((current) => {
@@ -311,8 +313,21 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
         return changed ? next : current;
       });
     }
-    rows.current.get(selected)?.scrollIntoView({ block: "nearest" });
   }, [selected]);
+  // The scroll itself, one effect later: a row inside a still-collapsed folder is not in the
+  // DOM on the pass that expands it, so scrolling right after `setExpanded` above found nothing
+  // to scroll to — exactly the case a reveal exists for. Watching `expanded` too runs this
+  // again on the render where the row finally exists; the pending ref keeps an ordinary fold
+  // toggle from yanking the view back to a long-since-revealed selection.
+  useEffect(() => {
+    if (pendingReveal.current) {
+      const row = rows.current.get(pendingReveal.current);
+      if (row) {
+        row.scrollIntoView({ block: "nearest" });
+        pendingReveal.current = null;
+      }
+    }
+  }, [selected, expanded]);
 
   const toggle = (path: string): void => setExpanded((current) => ({ ...current, [path]: !current[path] }));
 

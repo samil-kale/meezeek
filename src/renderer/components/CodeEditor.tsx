@@ -64,11 +64,15 @@ export function CodeEditor({ path, content, onDirty, onSave, onBusy, ref }: Code
     void (async () => {
       const monaco = await loadMonaco();
       // Only a grammar diff-highlight.ts bundles gets shiki's colors — same rule the diff view
-      // itself follows; anything else reads as monaco's built-in, uncolored "plaintext".
+      // itself follows; anything else reads as monaco's built-in, uncolored "plaintext". Called
+      // for plaintext too: the first call is also what defines the theme — see ensureLanguage.
       const language = languageForPath(path);
-      if (language) {
-        await ensureLanguage(monaco, language);
-      }
+      await ensureLanguage(monaco, language ?? null);
+      // The user's own keybindings.json, layered over tet's defaults for the commands added
+      // below — and free to name any of monaco's own command ids too (see keybindings.ts). Read
+      // before the editor exists: an unmount landing during this read must find nothing to
+      // dispose, not an editor the loop below would then reach for through a nulled ref.
+      const keybindings = await loadKeybindings();
       if (cancelled || !hostRef.current) {
         return;
       }
@@ -99,10 +103,8 @@ export function CodeEditor({ path, content, onDirty, onSave, onBusy, ref }: Code
         contextMenuOrder: 2,
         run: (instance) => void instance.getAction("editor.action.startFindReplaceAction")?.run()
       });
-      // The user's own keybindings.json, layered over tet's defaults for the commands above —
-      // and free to name any of monaco's own command ids too (see keybindings.ts). An entry
-      // whose key or command this editor doesn't recognise is skipped rather than guessed at.
-      const keybindings = await loadKeybindings();
+      // An entry whose key or command this editor doesn't recognise is skipped rather than
+      // guessed at — the combo at parse time, an unknown command id silently at run time.
       for (const [combo, commandId] of Object.entries(keybindings)) {
         const parsed = parseKeyCombo(monaco, combo);
         if (parsed !== undefined) {
@@ -118,6 +120,10 @@ export function CodeEditor({ path, content, onDirty, onSave, onBusy, ref }: Code
       editorRef.current?.dispose();
       model?.dispose();
       editorRef.current = null;
+      // The load above may still be in flight, and its own onBusy(false) never runs once
+      // cancelled — without this the dialog's bar would keep running for an editor that no
+      // longer exists (toggled back to Diff mid-load). Same hand-back DiffView's cleanup does.
+      onBusy(false);
     };
     // Mount-once, deliberately: `path` and `content` are this instance's fixed starting point,
     // never a later value to re-sync to — see the doc comment above for why that always holds.

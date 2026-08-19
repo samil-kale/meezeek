@@ -515,35 +515,37 @@ export class Repository {
   async listFiles(): Promise<FileListing> {
     const files: string[] = [];
     const emptyDirs: string[] = [];
-    const walk = async (absoluteDir: string, relativeDir: string): Promise<boolean> => {
+    const walk = async (absoluteDir: string, relativeDir: string): Promise<void> => {
       let entries: fs.Dirent[];
       try {
         entries = await fs.promises.readdir(absoluteDir, { withFileTypes: true });
       } catch {
-        return false;
+        return;
       }
       if (entries.length === 0) {
         if (relativeDir) {
           emptyDirs.push(relativeDir);
         }
-        return false;
+        return;
       }
-      let hasFile = false;
+      const subdirs: Promise<void>[] = [];
       for (const entry of entries) {
         if (entry.name === ".git") {
           continue;
         }
         const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-          if (await walk(path.join(absoluteDir, entry.name), relativePath)) {
-            hasFile = true;
-          }
-        } else if (entry.isFile()) {
+          subdirs.push(walk(path.join(absoluteDir, entry.name), relativePath));
+        } else if (entry.isFile() || entry.isSymbolicLink()) {
+          // A symlink is listed as the file row it mostly is: a dirent reports a link as
+          // neither file nor directory, so without this branch links vanish from the tree —
+          // never descended into either way, which is also what keeps a link cycle harmless.
           files.push(relativePath);
-          hasFile = true;
         }
       }
-      return hasFile;
+      // Sibling directories in parallel — the walk is readdir-bound, and the final sorts make
+      // the listing deterministic regardless of which branch answers first.
+      await Promise.all(subdirs);
     };
     await walk(this.project.path, "");
     return { files: files.sort(), emptyDirs: emptyDirs.sort() };

@@ -44,7 +44,6 @@ export const KEYBINDING_PRESETS: KeybindingPreset[] = [
       "ctrl+=": "editor.unfold",
       "ctrl+shift+-": "editor.foldAll",
       "ctrl+shift+=": "editor.unfoldAll",
-      "ctrl+/": "editor.action.commentLine",
       "ctrl+r": "editor.action.startFindReplaceAction"
     }
   },
@@ -59,7 +58,6 @@ export const KEYBINDING_PRESETS: KeybindingPreset[] = [
       "ctrl+shift+[": "editor.fold",
       "ctrl+shift+]": "editor.unfold",
       "ctrl+shift+d": "editor.action.copyLinesDownAction",
-      "ctrl+shift+k": "editor.action.deleteLines",
       "alt+shift+up": "editor.action.insertCursorAbove",
       "alt+shift+down": "editor.action.insertCursorBelow"
     }
@@ -102,8 +100,6 @@ export const KEYBINDING_PRESETS: KeybindingPreset[] = [
       "ctrl+shift+c": "editor.action.commentLine",
       "ctrl+alt+down": "editor.action.copyLinesDownAction",
       "ctrl+alt+up": "editor.action.copyLinesUpAction",
-      "alt+down": "editor.action.moveLinesDownAction",
-      "alt+up": "editor.action.moveLinesUpAction",
       "ctrl+d": "editor.action.deleteLines"
     }
   },
@@ -144,7 +140,6 @@ export const KEYBINDING_PRESETS: KeybindingPreset[] = [
       "ctrl+up": "editor.action.moveLinesUpAction",
       "ctrl+down": "editor.action.moveLinesDownAction",
       "ctrl+shift+d": "editor.action.copyLinesDownAction",
-      "ctrl+shift+k": "editor.action.deleteLines",
       "alt+ctrl+[": "editor.fold",
       "alt+ctrl+]": "editor.unfold",
       "alt+ctrl+shift+[": "editor.foldAll",

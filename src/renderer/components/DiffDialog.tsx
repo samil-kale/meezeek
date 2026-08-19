@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { FileContent, FileDiff, FileListing, Project, RepositoryState } from "../../shared/types";
+import type { FileChange, FileContent, FileDiff, FileListing, Project } from "../../shared/types";
 import { ChangesList, confirmDiscard, type FileAct } from "./ChangesList";
 import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiffView } from "./DiffView";
@@ -18,8 +18,8 @@ interface DiffDialogProps {
   path: string | null;
   /** What the diff depends on besides the file — a change to it reloads while the dialog is open. */
   version: string;
-  /** For the changed-files list beside the diff, and its header bar's commit/stash/discard. */
-  state: RepositoryState;
+  /** The repository's changed files — the list beside the diff and its header's discard-all. */
+  changes: FileChange[];
   /** The list's own choice of file — the same call the git pane's list makes. */
   onOpenDiff: (projectId: string, path: string) => void;
   onClose: () => void;
@@ -49,8 +49,8 @@ async function confirmDiscardEdit(path: string): Promise<boolean> {
  * form with two buttons. This asks nothing itself — it delegates the one question it does need
  * (discard unsaved changes?) to that file, same as everything else that asks one.
  */
-export const DiffDialog = memo(function DiffDialog({ project, path, version, state, onOpenDiff, onClose }: DiffDialogProps) {
-  const change = path ? state.changes.find((entry) => entry.path === path) : undefined;
+export const DiffDialog = memo(function DiffDialog({ project, path, version, changes, onOpenDiff, onClose }: DiffDialogProps) {
+  const change = path ? changes.find((entry) => entry.path === path) : undefined;
   const diffable = change !== undefined;
 
   const [diff, setDiff] = useState<FileDiff | null>(null);
@@ -131,6 +131,11 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, sta
       return;
     }
     let cancelled = false;
+    // Cleared before every read, not only when nothing wants a file: switching A→B and back
+    // fast enough lands here with `file` still holding A's *earlier* read — and an editor
+    // mounted from that copy, handed the fresh read's mtime, would save stale text right past
+    // the mtime guard.
+    setFile(null);
     setFileLoading(true);
     void window.tet.repository.readFile(project.id, path).then((result) => {
       if (cancelled) {
@@ -173,7 +178,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, sta
   // removed, renamed, untracked), and again after the tree's own create/rename/delete. A plain
   // edit leaves `changes` at "modified" for a path already in the tree, so it alone does not
   // re-list.
-  const changesKey = state.changes
+  const changesKey = changes
     .filter((entry) => entry.status !== "modified")
     .map((entry) => entry.path)
     .join("\n");
@@ -302,7 +307,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, sta
           <div className="git-section grows">
             <div className="sidebar-header">
               <span>
-                LOCAL CHANGES <span className="count">({state.changes.length})</span>
+                LOCAL CHANGES <span className="count">({changes.length})</span>
               </span>
               {/* Only "Discard all" here, unlike the git pane's three — commit and stash both
                   name what they do to the *repository* (a message, a stash entry), which reads
@@ -315,8 +320,8 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, sta
                 <button
                   className="icon-button"
                   title="Discard all changes"
-                  disabled={acting || state.changes.length === 0}
-                  onClick={() => void confirmDiscard(project.id, state.changes.map((entry) => entry.path), act)}
+                  disabled={acting || changes.length === 0}
+                  onClick={() => void confirmDiscard(project.id, changes.map((entry) => entry.path), act)}
                 >
                   <DiscardIcon />
                 </button>
@@ -325,7 +330,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, sta
             </div>
             <ChangesList
               project={project}
-              changes={state.changes}
+              changes={changes}
               act={act}
               onOpenDiff={(next) => void requestOpen(next)}
               active={path}
