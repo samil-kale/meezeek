@@ -2,10 +2,12 @@
   <img src="src/renderer/icon.png" alt="TET" width="128" />
 </p>
 
+<p align="center"><em>"Welcome home, Jack."</em></p>
+
 <h1 align="center">TET</h1>
 
 <p align="center">
-  <strong>A git workspace for coding agents.<br>Several repositories, each with its own git pane and its own terminals.</strong>
+  <strong>A workspace for coding agents.</strong>
 </p>
 
 <p align="center">
