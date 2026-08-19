@@ -7,6 +7,7 @@ import type {
   DiffOptions,
   FileContent,
   FileDiff,
+  FileListing,
   FileWriteResult,
   GitActionResult,
   NoticeSeverity,
@@ -505,12 +506,125 @@ export class Repository {
     return git.readFileLines(this.project.path, filePath, from, to).catch(() => []);
   }
 
-  /** Every file in the repository — the diff dialog's FILES tree. */
-  listFiles(): Promise<string[]> {
-    return git.listFiles(this.project.path).catch((error: Error) => {
-      this.onNotice("error", `${this.project.name}: ${error.message}`);
-      return [];
-    });
+  /**
+   * Every file in the repository, plus any directory nothing else in the listing would imply —
+   * see `FileListing`. A real scan rather than a git process: not on the index lock `runAction`
+   * serialises, and `fs.promises` so a large `node_modules` doesn't hold the main process's
+   * event loop — the same typing-lag reason git itself never runs there directly.
+   */
+  async listFiles(): Promise<FileListing> {
+    const files: string[] = [];
+    const emptyDirs: string[] = [];
+    const walk = async (absoluteDir: string, relativeDir: string): Promise<boolean> => {
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(absoluteDir, { withFileTypes: true });
+      } catch {
+        return false;
+      }
+      if (entries.length === 0) {
+        if (relativeDir) {
+          emptyDirs.push(relativeDir);
+        }
+        return false;
+      }
+      let hasFile = false;
+      for (const entry of entries) {
+        if (entry.name === ".git") {
+          continue;
+        }
+        const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          if (await walk(path.join(absoluteDir, entry.name), relativePath)) {
+            hasFile = true;
+          }
+        } else if (entry.isFile()) {
+          files.push(relativePath);
+          hasFile = true;
+        }
+      }
+      return hasFile;
+    };
+    await walk(this.project.path, "");
+    return { files: files.sort(), emptyDirs: emptyDirs.sort() };
+  }
+
+  /** A repository-relative path, checked to exist (or not) and resolved, or an error either way. */
+  private async resolveNew(filePath: string): Promise<{ absolute: string } | { error: string }> {
+    const absolute = this.resolveInside(filePath);
+    if (!absolute) {
+      return { error: "Path is outside the repository" };
+    }
+    if (fs.existsSync(absolute)) {
+      return { error: "Something already exists at this path" };
+    }
+    return { absolute };
+  }
+
+  /** An empty file, for the FILES tree's "New File..." — parent directories are created with it. */
+  async createFile(filePath: string): Promise<GitActionResult> {
+    const target = await this.resolveNew(filePath);
+    if ("error" in target) {
+      return { ok: false, error: target.error };
+    }
+    try {
+      await fs.promises.mkdir(path.dirname(target.absolute), { recursive: true });
+      await fs.promises.writeFile(target.absolute, "", { flag: "wx" });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** An empty directory, for the FILES tree's "New Folder...". */
+  async createDirectory(dirPath: string): Promise<GitActionResult> {
+    const target = await this.resolveNew(dirPath);
+    if ("error" in target) {
+      return { ok: false, error: target.error };
+    }
+    try {
+      await fs.promises.mkdir(target.absolute, { recursive: true });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * A file or directory, moved to the trash — the FILES tree's own "Delete...", same
+   * recoverability as `discard` gives an untracked file, since this one may not be tracked at
+   * all either.
+   */
+  async deletePath(filePath: string): Promise<GitActionResult> {
+    const absolute = this.resolveInside(filePath);
+    if (!absolute) {
+      return { ok: false, error: "Path is outside the repository" };
+    }
+    try {
+      await shell.trashItem(absolute);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Renames or moves a file or directory — the FILES tree's own "Rename...". */
+  async renamePath(fromPath: string, toPath: string): Promise<GitActionResult> {
+    const from = this.resolveInside(fromPath);
+    if (!from) {
+      return { ok: false, error: "Path is outside the repository" };
+    }
+    const to = await this.resolveNew(toPath);
+    if ("error" in to) {
+      return { ok: false, error: to.error };
+    }
+    try {
+      await fs.promises.mkdir(path.dirname(to.absolute), { recursive: true });
+      await fs.promises.rename(from, to.absolute);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** A repository-relative path resolved to an absolute one, or undefined if it escapes the root. */

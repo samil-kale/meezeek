@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FileListing, Project } from "../../shared/types";
 import { languageForPath } from "../diff-highlight";
+import { absolutePath, revealLabel } from "../platform";
+import { type FileAct } from "./ChangesList";
+import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
+import { confirm, prompt } from "./Dialog";
 import {
   ChevronIcon,
   CIcon,
@@ -94,28 +99,52 @@ function sortTree(nodes: TreeNode[]): void {
   }
 }
 
-/** Every file, split on `/` into nested folders — `git ls-files` reports a flat list. */
-function buildTree(files: string[]): TreeNode[] {
+/**
+ * Every file, split on `/` into nested folders, plus any directory `files` alone wouldn't imply
+ * (see `FileListing`) — inserted the same way, except its own leaf is a folder node too.
+ */
+function buildTree(files: string[], emptyDirs: string[]): TreeNode[] {
   const root: TreeNode[] = [];
   const folders = new Map<string, TreeNode>();
-  for (const file of files) {
-    const parts = file.split("/");
+  const ensureFolder = (folderPath: string, name: string, siblings: TreeNode[]): TreeNode => {
+    let folder = folders.get(folderPath);
+    if (!folder) {
+      folder = { name, path: folderPath, children: [] };
+      folders.set(folderPath, folder);
+      siblings.push(folder);
+    }
+    return folder;
+  };
+  const insert = (entryPath: string, isDirectory: boolean): void => {
+    const parts = entryPath.split("/");
     let siblings = root;
     let prefix = "";
     for (let depth = 0; depth < parts.length - 1; depth++) {
       prefix = prefix ? `${prefix}/${parts[depth]}` : parts[depth];
-      let folder = folders.get(prefix);
-      if (!folder) {
-        folder = { name: parts[depth], path: prefix, children: [] };
-        folders.set(prefix, folder);
-        siblings.push(folder);
-      }
-      siblings = folder.children!;
+      siblings = ensureFolder(prefix, parts[depth], siblings).children!;
     }
-    siblings.push({ name: parts[parts.length - 1], path: file });
+    const name = parts[parts.length - 1];
+    if (isDirectory) {
+      ensureFolder(entryPath, name, siblings);
+    } else {
+      siblings.push({ name, path: entryPath });
+    }
+  };
+  for (const file of files) {
+    insert(file, false);
+  }
+  for (const dir of emptyDirs) {
+    insert(dir, true);
   }
   sortTree(root);
   return root;
+}
+
+/** Everything up to but not including a path's own last segment — its parent folder, "" at the
+ *  root. */
+function parentOf(entryPath: string): string {
+  const index = entryPath.lastIndexOf("/");
+  return index === -1 ? "" : entryPath.slice(0, index);
 }
 
 /**
@@ -163,10 +192,11 @@ interface RowsProps {
   forceExpanded: boolean;
   selected: string | null;
   onOpen: (path: string) => void;
+  onContextMenu: (event: React.MouseEvent, node: TreeNode) => void;
   rows: Map<string, HTMLButtonElement>;
 }
 
-function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen, rows }: RowsProps) {
+function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen, onContextMenu, rows }: RowsProps) {
   return (
     <>
       {nodes.map((node) => {
@@ -187,6 +217,7 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
               style={{ paddingLeft: INDENT_BASE + depth * INDENT_STEP }}
               title={node.path}
               onClick={() => (isFolder ? toggle(node.path) : onOpen(node.path))}
+              onContextMenu={(event) => onContextMenu(event, node)}
             >
               <span
                 style={{
@@ -216,6 +247,7 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
                 forceExpanded={forceExpanded}
                 selected={selected}
                 onOpen={onOpen}
+                onContextMenu={onContextMenu}
                 rows={rows}
               />
             )}
@@ -227,25 +259,33 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
 }
 
 interface FileTreeProps {
+  project: Project;
   /** Undefined while the listing is still being read — the FILES header's own bar says so. */
-  files: string[] | undefined;
+  files: FileListing | undefined;
   /** The open file, if any — reveals and highlights it; not itself an ↑/↓ target (see CLAUDE.md). */
   selected: string | null;
   onOpen: (path: string) => void;
+  /** Runs a file-tree action, the way `ChangesList`'s own list runs a git one — the owner shows
+   *  it running on its own bar. */
+  act: FileAct;
+  /** A create, rename or delete settled — nothing else would tell the tree to read the listing
+   *  again: an empty new folder, unlike a new file, never touches git status. */
+  onFilesChanged: () => void;
 }
 
 /**
  * The diff dialog's file browser: every file in the repository, not just the changed ones under
- * LOCAL CHANGES beside it. Deliberately narrow next to that list — no ↑/↓ (stays with
- * `ChangesList`), no context menu, single click opens: this is a way in for the occasional file
- * that has no diff, not a second file manager.
+ * LOCAL CHANGES beside it — a way in for the occasional file that has no diff. No ↑/↓ (stays with
+ * `ChangesList`), but otherwise GitHub Desktop's own file actions plus the handful VS Code's
+ * explorer adds for a tree rather than a flat list: new file, new folder, rename, delete.
  */
-export function FileTree({ files, selected, onOpen }: FileTreeProps) {
+export function FileTree({ project, files, selected, onOpen, act, onFilesChanged }: FileTreeProps) {
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode | null } | null>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
 
-  const tree = useMemo(() => buildTree(files ?? []), [files]);
+  const tree = useMemo(() => buildTree(files?.files ?? [], files?.emptyDirs ?? []), [files]);
   const query = filter.trim().toLowerCase();
   const filtering = query.length > 0;
   const shown = useMemo(() => (filtering ? filterTree(tree, query) : tree), [tree, query, filtering]);
@@ -276,14 +316,123 @@ export function FileTree({ files, selected, onOpen }: FileTreeProps) {
 
   const toggle = (path: string): void => setExpanded((current) => ({ ...current, [path]: !current[path] }));
 
+  /** `act`, plus telling the FILES header to read the listing again once the action lands. */
+  const run: FileAct = (action) =>
+    act(() =>
+      action().then((result) => {
+        if (result.ok) {
+          onFilesChanged();
+        }
+        return result;
+      })
+    );
+
+  const askNewFile = async (dir: string): Promise<void> => {
+    const answer = await prompt({
+      title: "New File",
+      label: "Name",
+      detail: dir ? `Created inside ${dir}.` : "Created at the repository root.",
+      value: "",
+      confirmLabel: "Create"
+    });
+    if (answer) {
+      run(() => window.tet.repository.createFile(project.id, dir ? `${dir}/${answer.value}` : answer.value));
+    }
+  };
+
+  const askNewFolder = async (dir: string): Promise<void> => {
+    const answer = await prompt({
+      title: "New Folder",
+      label: "Name",
+      detail: dir ? `Created inside ${dir}.` : "Created at the repository root.",
+      value: "",
+      confirmLabel: "Create"
+    });
+    if (answer) {
+      run(() => window.tet.repository.createDirectory(project.id, dir ? `${dir}/${answer.value}` : answer.value));
+    }
+  };
+
+  const askRename = async (node: TreeNode): Promise<void> => {
+    const answer = await prompt({ title: "Rename", label: "Name", value: node.name, confirmLabel: "Rename" });
+    if (answer && answer.value !== node.name) {
+      const dir = parentOf(node.path);
+      run(() => window.tet.repository.renamePath(project.id, node.path, dir ? `${dir}/${answer.value}` : answer.value));
+    }
+  };
+
+  const askDelete = async (node: TreeNode): Promise<void> => {
+    const isFolder = node.children !== undefined;
+    const answer = await confirm({
+      title: isFolder ? "Delete folder" : "Delete file",
+      message: `Are you sure you want to delete ${node.path}?`,
+      detail: "Goes to the trash and can be restored from there.",
+      confirmLabel: "Delete"
+    });
+    if (answer.confirmed) {
+      run(() => window.tet.repository.deletePath(project.id, node.path));
+    }
+  };
+
+  /** GitHub Desktop's changed-file menu (`ChangesList`'s own), minus what only makes sense for a
+   *  change, plus VS Code's new/rename/delete for a tree of every file. */
+  const menuEntries = (node: TreeNode | null): ContextMenuEntry[] => {
+    const dir = node ? (node.children !== undefined ? node.path : parentOf(node.path)) : "";
+    const isFile = node !== null && node.children === undefined;
+
+    const openEntries: ContextMenuEntry[] = isFile
+      ? [
+          { label: "Open", run: () => onOpen(node.path) },
+          { label: "Open in external editor", run: () => void window.tet.shell.openFileExternally(project.id, node.path) },
+          SEPARATOR
+        ]
+      : [];
+    const nodeEntries: ContextMenuEntry[] = node
+      ? [
+          SEPARATOR,
+          { label: "Rename...", run: () => void askRename(node) },
+          { label: "Delete...", run: () => void askDelete(node) },
+          SEPARATOR,
+          { label: revealLabel(), run: () => void window.tet.shell.revealFile(project.id, node.path) },
+          {
+            label: isFile ? "Copy file path" : "Copy path",
+            run: () => void navigator.clipboard.writeText(absolutePath(project.path, node.path))
+          },
+          {
+            label: isFile ? "Copy relative file path" : "Copy relative path",
+            run: () => void navigator.clipboard.writeText(node.path)
+          }
+        ]
+      : [];
+
+    return [
+      ...openEntries,
+      { label: "New File...", run: () => void askNewFile(dir) },
+      { label: "New Folder...", run: () => void askNewFolder(dir) },
+      ...nodeEntries
+    ];
+  };
+
   return (
     <div className="file-tree">
       <div className="branch-filter">
         <SearchIcon className="branch-filter-icon" />
         <input type="text" placeholder="Filter files..." value={filter} onChange={(event) => setFilter(event.target.value)} />
       </div>
-      <div className="tree">
-        {files !== undefined && files.length === 0 && <div className="placeholder">No files.</div>}
+      <div
+        className="tree"
+        onContextMenu={(event) => {
+          // A row's own handler already fired and set `event.target` to itself; reaching here
+          // means the empty space below the last one was clicked instead.
+          if (event.target === event.currentTarget) {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, node: null });
+          }
+        }}
+      >
+        {files !== undefined && files.files.length === 0 && files.emptyDirs.length === 0 && (
+          <div className="placeholder">No files.</div>
+        )}
         <Rows
           nodes={shown}
           depth={0}
@@ -292,9 +441,14 @@ export function FileTree({ files, selected, onOpen }: FileTreeProps) {
           forceExpanded={filtering}
           selected={selected}
           onOpen={onOpen}
+          onContextMenu={(event, node) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, node });
+          }}
           rows={rows.current}
         />
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} entries={menuEntries(menu.node)} onClose={() => setMenu(null)} />}
     </div>
   );
 }

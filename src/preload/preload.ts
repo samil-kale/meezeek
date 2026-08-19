@@ -20,7 +20,8 @@ const api: TETApi = {
     save: (settings) => ipcRenderer.invoke("settings:save", settings)
   },
   keybindings: {
-    get: () => ipcRenderer.invoke("keybindings:get")
+    get: () => ipcRenderer.invoke("keybindings:get"),
+    set: (bindings) => ipcRenderer.invoke("keybindings:set", bindings)
   },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
@@ -64,6 +65,10 @@ const api: TETApi = {
     stash: (projectId, command, ref) => ipcRenderer.invoke("repo:stash", projectId, command, ref),
     discard: (projectId, paths) => ipcRenderer.invoke("repo:discard", projectId, paths),
     ignore: (projectId, filePath, scope) => ipcRenderer.invoke("repo:ignore", projectId, filePath, scope),
+    createFile: (projectId, filePath) => ipcRenderer.invoke("repo:create-file", projectId, filePath),
+    createDirectory: (projectId, dirPath) => ipcRenderer.invoke("repo:create-directory", projectId, dirPath),
+    deletePath: (projectId, filePath) => ipcRenderer.invoke("repo:delete-path", projectId, filePath),
+    renamePath: (projectId, fromPath, toPath) => ipcRenderer.invoke("repo:rename-path", projectId, fromPath, toPath),
     diff: (projectId, filePath, options) => ipcRenderer.invoke("repo:diff", projectId, filePath, options),
     fileLines: (projectId, filePath, from, to) =>
       ipcRenderer.invoke("repo:file-lines", projectId, filePath, from, to),

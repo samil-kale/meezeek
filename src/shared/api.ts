@@ -9,6 +9,7 @@ import type {
   DiffOptions,
   FileContent,
   FileDiff,
+  FileListing,
   FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
@@ -47,11 +48,13 @@ export interface TETApi {
     save(settings: AppSettings): Promise<void>;
   };
   /**
-   * The file-editor's own keybindings — a key-combo-to-command-id map the user edits directly
-   * in keybindings.json, tet's own userData; there is no dialog for this one, only the file.
+   * The file-editor's own keybindings — a key-combo-to-command-id map read from keybindings.json
+   * in tet's own userData. Normally hand-edited; `set` is only ever called by the settings
+   * dialog's preset picker, which overwrites the whole file rather than editing it in place.
    */
   keybindings: {
     get(): Promise<Record<string, string>>;
+    set(bindings: Record<string, string>): Promise<void>;
   };
   projects: {
     list(): Promise<Project[]>;
@@ -124,12 +127,20 @@ export interface TETApi {
     discard(projectId: string, paths: string[]): Promise<GitActionResult>;
     /** Appends the file, or its whole extension, to the repository's .gitignore. */
     ignore(projectId: string, path: string, scope: "file" | "extension"): Promise<GitActionResult>;
+    /** An empty file, parent directories created with it — the FILES tree's "New File...". */
+    createFile(projectId: string, path: string): Promise<GitActionResult>;
+    /** An empty directory — the FILES tree's "New Folder...". */
+    createDirectory(projectId: string, path: string): Promise<GitActionResult>;
+    /** Moves a file or directory to the trash — the FILES tree's "Delete...". */
+    deletePath(projectId: string, path: string): Promise<GitActionResult>;
+    /** Renames or moves a file or directory — the FILES tree's "Rename...". */
+    renamePath(projectId: string, from: string, to: string): Promise<GitActionResult>;
     diff(projectId: string, path: string, options: DiffOptions): Promise<FileDiff>;
     /** Lines `from` to `to` of the file as it is now, for a gap the diff view opens. */
     fileLines(projectId: string, path: string, from: number, to: number): Promise<string[]>;
-    /** Every file in the repository (tracked and untracked, `.gitignore` respected) — the diff
-     *  dialog's FILES tree, not the changed-files list. */
-    listFiles(projectId: string): Promise<string[]>;
+    /** Every file in the repository, plus any directory nothing else implies — the diff dialog's
+     *  FILES tree, not the changed-files list. */
+    listFiles(projectId: string): Promise<FileListing>;
     /** A file's content for the diff dialog's editor. */
     readFile(projectId: string, path: string): Promise<FileContent>;
     /** Writes a file's content; `expectedMtimeMs` must match what's on disk or nothing is written. */

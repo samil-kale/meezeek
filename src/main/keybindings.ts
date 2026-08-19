@@ -2,9 +2,10 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
 /**
- * The file-editor's own keybindings, a plain key-combo-to-command map the user edits directly —
- * there is no dialog for this one, only the file. Lives in tet's own userData, like settings.json
- * beside it: a personal preference, not something a project carries around.
+ * The file-editor's own keybindings, a plain key-combo-to-command map. Lives in tet's own
+ * userData, like settings.json beside it: a personal preference, not something a project carries
+ * around. Normally hand-edited; the settings dialog's preset picker is the one exception, and
+ * overwrites the whole file (`writeKeybindings`) rather than opening an editor of its own.
  *
  * Read fresh each time rather than cached: it is asked for once per editor opened, cheap either
  * way, and a value cached across an edit-then-reopen would show the file as it used to be.
@@ -34,4 +35,9 @@ export async function readKeybindings(userDataPath: string): Promise<Record<stri
   } catch {
     return {};
   }
+}
+
+/** Overwrites keybindings.json with a preset's bindings — the settings dialog's picker only. */
+export async function writeKeybindings(userDataPath: string, bindings: Record<string, string>): Promise<void> {
+  await fs.writeFile(path.join(userDataPath, FILE), JSON.stringify(bindings, null, 2) + "\n", "utf8");
 }

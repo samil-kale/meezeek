@@ -305,6 +305,20 @@ export interface FileWriteResult {
   error?: string;
 }
 
+/**
+ * Every file in the repository, for the diff dialog's FILES tree — a real filesystem scan, not
+ * `git ls-files`: git has no way to represent an empty directory at all, in any of its objects,
+ * so a scan is the only way one can ever show up. `emptyDirs` is only the directories that would
+ * otherwise be invisible (nothing to infer them from in `files`); a non-empty one is already
+ * implied by the paths that pass through it. Nothing but `.git` itself is filtered out — showing
+ * `node_modules` and the rest of what `.gitignore` hides is the price of not reimplementing its
+ * matching rules (see CLAUDE.md).
+ */
+export interface FileListing {
+  files: string[];
+  emptyDirs: string[];
+}
+
 /** What any git action the UI starts reports back: it worked, or what git said when it didn't. */
 export interface GitActionResult {
   ok: boolean;

@@ -1,8 +1,7 @@
 import { memo, useState } from "react";
 import type { Project, RepositoryState } from "../../shared/types";
 import { BranchTree, type BranchActions } from "./BranchTree";
-import { ChangesList, confirmDiscard, type FileAct } from "./ChangesList";
-import { prompt } from "./Dialog";
+import { askCommitAll, ChangesList, confirmDiscard, type FileAct } from "./ChangesList";
 import { notify } from "./Notices";
 import { MIN_PANE_HEIGHT, Sash } from "./Sash";
 import { ArrowDownIcon, ArrowUpIcon, CommitIcon, DiscardIcon, StashIcon, SyncIcon } from "./icons";
@@ -52,31 +51,6 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
           return next;
         })
       );
-  };
-
-  const askCommitAll = async (): Promise<void> => {
-    const answer = await prompt({
-      title: "Commit all changes",
-      label: "Message",
-      detail: `Stages and commits all ${state.changes.length} changed files, untracked ones included.`,
-      value: "",
-      confirmLabel: "Commit",
-      // The same push the BRANCHES button does, offered where the commit is asked for — with
-      // no remote or a detached HEAD there is nothing to offer, so no checkbox either.
-      checkboxLabel: canSync
-        ? state.upstream === undefined
-          ? `Also push ${state.head} to ${remote} and track it`
-          : `Also push to ${state.upstream}`
-        : undefined
-    });
-    if (answer) {
-      // Two actions in a row on this section's bar, since both were asked for here: the push
-      // is only worth doing when the commit went through.
-      act(async () => {
-        const committed = await window.tet.repository.commitAll(project.id, answer.value);
-        return committed.ok && answer.checked ? window.tet.repository.push(project.id) : committed;
-      });
-    }
   };
 
   return (
@@ -146,7 +120,7 @@ export const GitPane = memo(function GitPane({ project, state, branch, treeHeigh
               className="icon-button"
               title="Commit all changes"
               disabled={branch.busy || acting || state.changes.length === 0}
-              onClick={() => void askCommitAll()}
+              onClick={() => void askCommitAll(project, state, act)}
             >
               <CommitIcon />
             </button>

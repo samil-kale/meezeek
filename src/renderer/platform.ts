@@ -22,3 +22,9 @@ export function revealLabel(): string {
   }
   return isWindows() ? "Show in Explorer" : "Show in your file manager";
 }
+
+/** git (and this app's own file listing) reports paths relative to the root with `/`; the
+ *  clipboard gets one the platform's own file manager accepts. */
+export function absolutePath(projectPath: string, relative: string): string {
+  return [projectPath, ...relative.split("/")].join(isWindows() ? "\\" : "/");
+}

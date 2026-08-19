@@ -1,10 +1,10 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { FileChange, FileContent, FileDiff, Project } from "../../shared/types";
-import { ChangesList, type FileAct } from "./ChangesList";
+import type { FileContent, FileDiff, FileListing, Project, RepositoryState } from "../../shared/types";
+import { ChangesList, confirmDiscard, type FileAct } from "./ChangesList";
 import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiffView } from "./DiffView";
 import { FileTree } from "./FileTree";
-import { CloseIcon, PencilIcon, SaveIcon, WhitespaceIcon } from "./icons";
+import { CloseIcon, DiscardIcon, PencilIcon, SaveIcon, WhitespaceIcon } from "./icons";
 import { confirm } from "./Dialog";
 import { notify } from "./Notices";
 import { useEscape } from "./use-escape";
@@ -18,8 +18,8 @@ interface DiffDialogProps {
   path: string | null;
   /** What the diff depends on besides the file — a change to it reloads while the dialog is open. */
   version: string;
-  /** The repository's changed files, listed beside the diff so another one is a click away. */
-  changes: FileChange[];
+  /** For the changed-files list beside the diff, and its header bar's commit/stash/discard. */
+  state: RepositoryState;
   /** The list's own choice of file — the same call the git pane's list makes. */
   onOpenDiff: (projectId: string, path: string) => void;
   onClose: () => void;
@@ -41,14 +41,16 @@ async function confirmDiscardEdit(path: string): Promise<boolean> {
  * as always: the git view has no room for it, and looking at (or briefly fixing) a file is
  * something you come out of again, unlike the branch list next to it. FILES over LOCAL CHANGES on
  * the left mirrors the git pane's own BRANCHES-over-LOCAL-CHANGES shape — a browser for any file
- * above the changed ones, not a second file manager: no ↑/↓, no context menu, single click opens.
+ * above the changed ones, with GitHub Desktop's own file actions and VS Code's new/rename/delete
+ * (see `FileTree`); still no ↑/↓ of its own — that stays with `ChangesList` — and a single click
+ * opens rather than needing a double one.
  *
  * Not part of Dialog.tsx: that file puts *questions* (confirm, prompt) and is built around a
  * form with two buttons. This asks nothing itself — it delegates the one question it does need
  * (discard unsaved changes?) to that file, same as everything else that asks one.
  */
-export const DiffDialog = memo(function DiffDialog({ project, path, version, changes, onOpenDiff, onClose }: DiffDialogProps) {
-  const change = path ? changes.find((entry) => entry.path === path) : undefined;
+export const DiffDialog = memo(function DiffDialog({ project, path, version, state, onOpenDiff, onClose }: DiffDialogProps) {
+  const change = path ? state.changes.find((entry) => entry.path === path) : undefined;
   const diffable = change !== undefined;
 
   const [diff, setDiff] = useState<FileDiff | null>(null);
@@ -79,8 +81,12 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
    *  not — `Repository.emit` only pushes a changed *state*, and modified→modified isn't one. */
   const [savedAt, setSavedAt] = useState(0);
 
-  const [files, setFiles] = useState<string[] | undefined>(undefined);
+  const [files, setFiles] = useState<FileListing | undefined>(undefined);
   const [listing, setListing] = useState(false);
+  /** Bumped by the FILES tree's own create/rename/delete — the only kind of change to the
+   *  listing `changesKey` below never catches, since an empty new folder never touches git
+   *  status the way a new file does. */
+  const [filesVersion, setFilesVersion] = useState(0);
   const [treeHeight, setTreeHeight] = usePaneSize("diff-tree", 300, MIN_PANE_HEIGHT);
   const [filesWidth, setFilesWidth] = usePaneSize("diff-files", 260, MIN_PANE_WIDTH);
   const root = useRef<HTMLDivElement>(null);
@@ -163,10 +169,11 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
     };
   }, [version]);
 
-  // The FILES tree — read on open, and again whenever a file starts or stops existing (added,
-  // removed, renamed, untracked). A plain edit leaves `changes` at "modified" for a path already
-  // in the tree, so it alone does not re-list.
-  const changesKey = changes
+  // The FILES tree — read on open, again whenever a file starts or stops existing (added,
+  // removed, renamed, untracked), and again after the tree's own create/rename/delete. A plain
+  // edit leaves `changes` at "modified" for a path already in the tree, so it alone does not
+  // re-list.
+  const changesKey = state.changes
     .filter((entry) => entry.status !== "modified")
     .map((entry) => entry.path)
     .join("\n");
@@ -182,7 +189,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
     return () => {
       cancelled = true;
     };
-  }, [project.id, changesKey]);
+  }, [project.id, changesKey, filesVersion]);
 
   // Takes the keyboard while it is up and hands it back on the way out: ↑/↓ step through the
   // files, and the terminal a path was ctrl-clicked in would otherwise still be the one
@@ -278,24 +285,47 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
           <div className="git-section" style={{ height: treeHeight }}>
             <div className="sidebar-header">
               <span>
-                FILES <span className="count">({files?.length ?? 0})</span>
+                FILES <span className="count">({files?.files.length ?? 0})</span>
               </span>
               {listing && <ProgressBar />}
             </div>
-            <FileTree files={files} selected={path} onOpen={(next) => void requestOpen(next)} />
+            <FileTree
+              project={project}
+              files={files}
+              selected={path}
+              onOpen={(next) => void requestOpen(next)}
+              act={act}
+              onFilesChanged={() => setFilesVersion((count) => count + 1)}
+            />
           </div>
           <Sash orientation="horizontal" size={treeHeight} min={MIN_PANE_HEIGHT} minOther={MIN_PANE_HEIGHT} onResize={setTreeHeight} />
           <div className="git-section grows">
             <div className="sidebar-header">
               <span>
-                LOCAL CHANGES <span className="count">({changes.length})</span>
+                LOCAL CHANGES <span className="count">({state.changes.length})</span>
               </span>
-              {/* This pane's own bar — a discard or an ignore from its list. */}
+              {/* Only "Discard all" here, unlike the git pane's three — commit and stash both
+                  name what they do to the *repository* (a message, a stash entry), which reads
+                  oddly next to a dialog that is otherwise about one file. Narrower than "all of
+                  it" is the list's own context menu, shared with that pane's list too. Gated on
+                  `acting` alone, not a `branch.busy` as well: unlike that pane, nothing here sits
+                  next to a BRANCHES section a fetch/pull/push could be run from while this dialog
+                  is up — it covers the whole window. */}
+              <span className="sidebar-header-actions">
+                <button
+                  className="icon-button"
+                  title="Discard all changes"
+                  disabled={acting || state.changes.length === 0}
+                  onClick={() => void confirmDiscard(project.id, state.changes.map((entry) => entry.path), act)}
+                >
+                  <DiscardIcon />
+                </button>
+              </span>
               {acting && <ProgressBar />}
             </div>
             <ChangesList
               project={project}
-              changes={changes}
+              changes={state.changes}
               act={act}
               onOpenDiff={(next) => void requestOpen(next)}
               active={path}

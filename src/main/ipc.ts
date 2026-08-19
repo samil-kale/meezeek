@@ -14,6 +14,7 @@ import type {
   DiffOptions,
   FileContent,
   FileDiff,
+  FileListing,
   FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
@@ -29,7 +30,7 @@ import type {
 import { PROVIDERS } from "../providers";
 import type { AccountStore } from "../providers/accounts";
 import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
-import { readKeybindings } from "./keybindings";
+import { readKeybindings, writeKeybindings } from "./keybindings";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { ProjectStore } from "./projects";
@@ -147,6 +148,8 @@ export function registerIpc({
   // The file-editor's own keybindings — read fresh, not cached: asked for once per editor
   // opened, and a value held from before an edit would show the file as it used to be.
   ipcMain.handle("keybindings:get", (): Promise<Record<string, string>> => readKeybindings(app.getPath("userData")));
+  ipcMain.handle("keybindings:set", (_event, bindings: Record<string, string>): Promise<void> =>
+    writeKeybindings(app.getPath("userData"), bindings));
 
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
@@ -317,6 +320,12 @@ export function registerIpc({
   onRepository("repo:ignore", (repository, filePath: string, scope: "file" | "extension") =>
     repository.ignore(filePath, scope)
   );
+  onRepository("repo:create-file", (repository, filePath: string) => repository.createFile(filePath));
+  onRepository("repo:create-directory", (repository, dirPath: string) => repository.createDirectory(dirPath));
+  onRepository("repo:delete-path", (repository, filePath: string) => repository.deletePath(filePath));
+  onRepository("repo:rename-path", (repository, fromPath: string, toPath: string) =>
+    repository.renamePath(fromPath, toPath)
+  );
 
   ipcMain.handle(
     "repo:diff",
@@ -336,8 +345,8 @@ export function registerIpc({
     }
   );
 
-  ipcMain.handle("repo:files", async (_event, projectId: string): Promise<string[]> => {
-    return (await repositories.get(projectId)?.listFiles()) ?? [];
+  ipcMain.handle("repo:files", async (_event, projectId: string): Promise<FileListing> => {
+    return (await repositories.get(projectId)?.listFiles()) ?? { files: [], emptyDirs: [] };
   });
 
   ipcMain.handle("repo:file-read", async (_event, projectId: string, filePath: string): Promise<FileContent> => {

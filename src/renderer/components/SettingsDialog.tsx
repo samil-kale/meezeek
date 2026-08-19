@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AppInfo, AppSettings, NotificationSettings } from "../../shared/types";
+import { ChevronIcon } from "./icons";
+import { KEYBINDING_PRESETS } from "../keybinding-presets";
+import { notify } from "./Notices";
 import { SHORTCUTS, shortcutLabel } from "../shortcuts";
 import { useEscape } from "./use-escape";
 
@@ -7,12 +10,13 @@ interface SettingsDialogProps {
   onClose: () => void;
 }
 
-type SettingsTab = "notifications" | "shortcuts" | "info";
+type SettingsTab = "notifications" | "shortcuts" | "editor" | "info";
 
 /** The dialog's panes, in the order they are worth opening. */
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "notifications", label: "Notifications" },
   { id: "shortcuts", label: "Shortcuts" },
+  { id: "editor", label: "Editor" },
   { id: "info", label: "Info" }
 ];
 
@@ -44,6 +48,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const [tab, setTab] = useState<SettingsTab>("notifications");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [presetId, setPresetId] = useState(KEYBINDING_PRESETS[0].id);
 
   useEffect(() => {
     void window.tet.settings.get().then(setSettings);
@@ -61,6 +66,16 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     const next: AppSettings = { ...settings, notifications: { ...settings.notifications, [key]: value } };
     setSettings(next);
     void window.tet.settings.save(next);
+  };
+
+  const applyPreset = (): void => {
+    const preset = KEYBINDING_PRESETS.find((entry) => entry.id === presetId);
+    if (!preset) {
+      return;
+    }
+    void window.tet.keybindings.set(preset.bindings).then(() => {
+      notify("info", `keybindings.json set to ${preset.label} — the next file you open picks it up.`);
+    });
   };
 
   return (
@@ -84,10 +99,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
         <div className="dialog-body">
           {tab === "notifications" && (
             <>
-              <p className="dialog-detail">
-                What the OS is told about an agent. The mark on a tab that finished out of sight is
-                not one of these and stays either way.
-              </p>
+              <p className="dialog-detail">Desktop notifications for agent activity</p>
               {settings &&
                 SWITCHES.map(({ key, label }) => (
                   <label key={key} className="dialog-checkbox">
@@ -104,8 +116,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                   Claude Code as the settings file it reads once, opencode as what its event stream
                   is wired to — and neither can be reached afterwards. */}
               <p className="dialog-detail">
-                An agent is handed these when its first terminal in a project starts, so a change
-                reaches the projects that are already open only after tet is restarted.
+                Handed to an agent when its first terminal in a project starts - a change reaches
+                already-open projects only after tet is restarted.
               </p>
             </>
           )}
@@ -118,6 +130,26 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                 </div>
               ))}
             </div>
+          )}
+          {tab === "editor" && (
+            <>
+              <p className="dialog-detail">Presets from popular editors and IDEs - only for what the file editor supports</p>
+              <div className="settings-preset-row">
+                <div className="select-field">
+                  <select value={presetId} onChange={(event) => setPresetId(event.target.value)}>
+                    {KEYBINDING_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronIcon expanded className="select-arrow" />
+                </div>
+                <button type="button" className="button" onClick={applyPreset}>
+                  Apply
+                </button>
+              </div>
+            </>
           )}
           {tab === "info" && info && (
             <div className="settings-info">

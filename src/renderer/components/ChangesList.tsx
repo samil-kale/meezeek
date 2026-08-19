@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ChangeStatus, FileChange, GitActionResult, Project } from "../../shared/types";
-import { isWindows, revealLabel } from "../platform";
+import type { ChangeStatus, FileChange, GitActionResult, Project, RepositoryState } from "../../shared/types";
+import { absolutePath, revealLabel } from "../platform";
 import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
-import { confirm } from "./Dialog";
+import { confirm, prompt } from "./Dialog";
 
 /** Runs a file action against the repository; the owner shows it running on its own bar. */
 export type FileAct = (action: () => Promise<GitActionResult>) => void;
@@ -44,6 +44,37 @@ export async function confirmDiscard(projectId: string, paths: string[], act: Fi
   });
   if (answer.confirmed) {
     act(() => window.tet.repository.discard(projectId, paths));
+  }
+}
+
+/**
+ * Stages and commits everything the changes list shows, with an optional push in the same
+ * action — the same one message asked, `add --all` then `commit`, wherever it is offered.
+ */
+export async function askCommitAll(project: Project, state: RepositoryState, act: FileAct): Promise<void> {
+  const remote = state.remotes[0]?.name;
+  const canSync = remote !== undefined && !state.detached;
+  const answer = await prompt({
+    title: "Commit all changes",
+    label: "Message",
+    detail: `Stages and commits all ${state.changes.length} changed files, untracked ones included.`,
+    value: "",
+    confirmLabel: "Commit",
+    // The same push the BRANCHES button does, offered where the commit is asked for — with
+    // no remote or a detached HEAD there is nothing to offer, so no checkbox either.
+    checkboxLabel: canSync
+      ? state.upstream === undefined
+        ? `Also push ${state.head} to ${remote} and track it`
+        : `Also push to ${state.upstream}`
+      : undefined
+  });
+  if (answer) {
+    // Two actions in a row, since both were asked for here: the push is only worth doing when
+    // the commit went through.
+    act(async () => {
+      const committed = await window.tet.repository.commitAll(project.id, answer.value);
+      return committed.ok && answer.checked ? window.tet.repository.push(project.id) : committed;
+    });
   }
 }
 
@@ -157,10 +188,6 @@ export function ChangesList({ project, changes, act, onOpenDiff, active }: Chang
     }
   };
 
-  /** git reports paths relative to the root; the clipboard gets ones the platform accepts. */
-  const absolutePath = (relative: string): string =>
-    [project.path, ...relative.split("/")].join(isWindows() ? "\\" : "/");
-
   /**
    * GitHub Desktop's changed-file menu, minus the editor entries tet has no setting for.
    * It acts on the whole selection where that makes sense, and on the one file where it does
@@ -195,7 +222,7 @@ export function ChangesList({ project, changes, act, onOpenDiff, active }: Chang
       },
       {
         label: one ? "Copy file path" : "Copy file paths",
-        run: () => void navigator.clipboard.writeText(paths.map(absolutePath).join("\n"))
+        run: () => void navigator.clipboard.writeText(paths.map((entry) => absolutePath(project.path, entry)).join("\n"))
       },
       {
         label: one ? "Copy relative file path" : "Copy relative file paths",
