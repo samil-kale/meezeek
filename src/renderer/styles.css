@@ -527,8 +527,13 @@ option {
   padding-left: 40px;
 }
 
+/* Its own chevron plus the row's 5px gap eat 18px before the row's own icon even starts, so the
+   base 20px is cut down to 2px here — the same math the label would need worked out in reverse:
+   without it, a remote group's icon (and therefore its label) sits 12px right of a plain
+   `.tree-item`'s, the branch tree's own version of what FileTree.tsx's placeholder-icon trick
+   avoids by construction. */
 .tree-item.remote {
-  padding-left: 14px;
+  padding-left: 2px;
 }
 
 .tree-item:hover {
@@ -554,10 +559,20 @@ option {
   min-height: 0;
 }
 
-/* Denser than the shared `--list-row-height`: a repository's tree runs many rows deeper than the
-   flat lists that size shares with, and this is the one place too much air between them shows. */
+/* VS Code's explorer row (ExplorerDelegate.ITEM_HEIGHT is 22px), shrunk 2px along with every
+   other measurement in FileTree.tsx — and no flex gap, since the twistie slot there carries its
+   own gap to the label instead of the shared `.tree-item` 5px. */
 .file-tree .tree-item {
   height: 20px;
+  gap: 0;
+  font-size: 12px;
+}
+
+/* The chevron itself, 2px down from the shared --icon-size — the rest of FileTree.tsx shrank
+   with it, so this keeps the glyph in proportion to its now-smaller twistie slot. */
+.file-tree .tree-icon {
+  width: 11px;
+  height: 11px;
 }
 
 .tree-icon,

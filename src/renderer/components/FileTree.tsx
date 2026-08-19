@@ -1,5 +1,63 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronIcon, SearchIcon } from "./icons";
+import { languageForPath } from "../diff-highlight";
+import {
+  ChevronIcon,
+  CIcon,
+  CppIcon,
+  CSharpIcon,
+  CssIcon,
+  GoIcon,
+  HtmlIcon,
+  IniIcon,
+  JavaIcon,
+  JavaScriptIcon,
+  JsonIcon,
+  JsxIcon,
+  MarkdownIcon,
+  PowerShellIcon,
+  PythonIcon,
+  RustIcon,
+  SearchIcon,
+  ShellScriptIcon,
+  SMALLER,
+  SqlIcon,
+  TomlIcon,
+  TsxIcon,
+  TypeScriptIcon,
+  XmlIcon,
+  YamlIcon,
+  type IconProps
+} from "./icons";
+
+/**
+ * A file's language, marked in its twistie slot — one entry per grammar `diff-highlight.ts`
+ * bundles, so a mark only ever names a language the diff view itself can colour. Anything else
+ * (an unlisted extension, no extension at all) shows no mark, same as a file always has until now.
+ */
+const LANGUAGE_ICONS: Record<string, (props: IconProps) => React.ReactElement> = {
+  c: CIcon,
+  cpp: CppIcon,
+  csharp: CSharpIcon,
+  css: CssIcon,
+  go: GoIcon,
+  html: HtmlIcon,
+  ini: IniIcon,
+  java: JavaIcon,
+  javascript: JavaScriptIcon,
+  json: JsonIcon,
+  jsx: JsxIcon,
+  markdown: MarkdownIcon,
+  powershell: PowerShellIcon,
+  python: PythonIcon,
+  rust: RustIcon,
+  shellscript: ShellScriptIcon,
+  sql: SqlIcon,
+  toml: TomlIcon,
+  tsx: TsxIcon,
+  typescript: TypeScriptIcon,
+  xml: XmlIcon,
+  yaml: YamlIcon
+};
 
 interface TreeNode {
   name: string;
@@ -9,8 +67,15 @@ interface TreeNode {
   children?: TreeNode[];
 }
 
-const INDENT_STEP = 16;
+/* VS Code's explorer geometry (abstractTree.ts / explorerViewer.ts), shrunk 2px across the board
+ * — indent, twistie slot, its gap to the label, and the chevron glyph itself (see .file-tree
+ * .tree-icon in styles.css) — so the whole tree reads smaller as one piece, not just some of it. */
+const INDENT_STEP = 6;
 const INDENT_BASE = 6;
+/** Wide enough for a folder's chevron or a file's two-letter language badge, whichever a row
+ *  has — both centred in the same box, so either way the label after it starts at the same x. */
+const TWISTIE_WIDTH = 16;
+const TWISTIE_GAP = 4;
 
 /** Folders before files, then alphabetical — VS Code's own explorer order. */
 function compareNodes(a: TreeNode, b: TreeNode): number {
@@ -107,6 +172,7 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
       {nodes.map((node) => {
         const isFolder = node.children !== undefined;
         const open = forceExpanded || (expanded[node.path] ?? false);
+        const LangIcon = isFolder ? undefined : LANGUAGE_ICONS[languageForPath(node.path) ?? ""];
         return (
           <div key={node.path}>
             <button
@@ -122,7 +188,23 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
               title={node.path}
               onClick={() => (isFolder ? toggle(node.path) : onOpen(node.path))}
             >
-              {isFolder ? <ChevronIcon expanded={open} className="tree-icon" /> : <span className="tree-icon" />}
+              <span
+                style={{
+                  display: "flex",
+                  flex: "none",
+                  width: TWISTIE_WIDTH,
+                  alignSelf: "stretch",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: TWISTIE_GAP,
+                }}
+              >
+                {isFolder ? (
+                  <ChevronIcon expanded={open} className="tree-icon" scale={SMALLER} />
+                ) : (
+                  LangIcon && <LangIcon className="tree-icon" />
+                )}
+              </span>
               <span className="tree-label">{node.name}</span>
             </button>
             {isFolder && open && (
