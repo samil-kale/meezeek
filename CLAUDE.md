@@ -46,7 +46,7 @@ Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for
 ## The layout
 
 - projects live in the left sidebar; the tab strip is one project's terminals only
-- git is **not** a tab. The strip's `.git-toggle` slides out a pane between navigation and
+- git is **not** a tab. The strip's git toggle button slides out a pane between navigation and
   terminals — branches over changed files, nothing else — and stays out until pressed again
   (`usePaneToggle`, remembered like a pane size), so a terminal and the repository stay on screen
   together
@@ -72,15 +72,15 @@ Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for
 
 One project's terminals can be split into up to four panes, each with a tab strip and terminal
 stack of its own — VS Code's editor groups, cut down to **five fixed presets** (single, two
-columns, three columns, two columns with the right one split, 2×2) picked from a menu on the
-top-right pane's strip, not a freely nestable tree: nobody splits into a dozen, and a fixed set is
+columns, three columns, two columns with the right one split, 2×2) picked from a menu on pane
+"a"'s strip, not a freely nestable tree: nobody splits into a dozen, and a fixed set is
 one `switch` in `TerminalsPane` instead of a tree, a generic sash composition and a "which pane
 did you mean" for every action. `src/renderer/pane-layout.ts` holds the model and every rule about
 it; `TerminalsPane` lays the panes out; `Pane` is one of them, the strip-and-stack that
-`TerminalsPane` used to be by itself. The first pane (always top-left) carries the git toggle; the
-layout picker sits on whichever pane is top-*right* instead (`TOP_RIGHT_PANE`) — the actual right
-edge of the window, not the first pane's own, which is the same pane only for "single" and only
-there do the two bundles coincide. The progress bar is a bundle of its own again, on neither: it
+`TerminalsPane` used to be by itself. The first pane (always top-left) carries one row of plain
+icon buttons — git toggle, layout picker, browse-files, settings, in that order — all on pane "a"
+regardless of preset, so a split layout's right edge carries none of them. The progress bar is a
+bundle of its own again, on neither: it
 follows whichever pane the slow thing is actually in — see "One progress indicator per pane".
 
 - **The layout lives in `App`, not in `TerminalsPane`** (`layouts: Record<projectId,
@@ -416,10 +416,10 @@ is still the one on screen.
 
 One dialog for everything TET keeps about *itself* rather than a repository — the one button in
 the window belonging to neither a project nor a pane. It sits right of the layout picker, in the
-`.layout-toggle` of whichever pane `TOP_RIGHT_PANE` names (see "Split view"), handed down the same
-way as `onPresetChange` — the actual right edge of the window, whatever the preset. An ordinary
-`.icon-button`. It lived at the title bar's end once, drawn as a platform window control; the
-title bar is now the app's name and the drag region alone.
+`.layout-toggle` of pane "a" (see "Split view"), handed down the same way as `onPresetChange` —
+beside the git toggle regardless of preset. An ordinary `.icon-button`, the same as the git toggle
+and layout picker beside it. It lived at the title bar's end once, drawn as a platform window
+control; the title bar is now the app's name and the drag region alone.
 
 It asks nothing — a switch applies the moment it's flipped, like VS Code's own settings — so one
 button closes it. Tabbed (Notifications, then Info) with the add-repository dialog's own strip
@@ -925,9 +925,8 @@ binding and label can't drift apart.
   indicator between rows, the active tab's underline, the frame around a terminal a file's held
   over, the sash while dragged (`--vscode-sash-hoverBorder`, VS Code's name for the same blue). A new
   one copies an existing rule rather than picking its own width and color — two that differ read as
-  two meanings. The active git toggle's 2px accent is the exception, VS Code's own. Same for a mark
-  that's a *shape*: every session mark sits under one `.session-mark` rule, drawn to the square its
-  neighbours occupy rather than the full 2–14 box.
+  two meanings. Same for a mark that's a *shape*: every session mark sits under one `.session-mark`
+  rule, drawn to the square its neighbours occupy rather than the full 2–14 box.
 - **Icons and marks are monochrome**; the only colour any takes is that blue. The changes list's
   status letters are the one exception, colored by `gitDecoration-*`, the theme's own answer for that
   list — the test for the next one: a colour is allowed where Dark Modern already names one for that

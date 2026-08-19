@@ -149,6 +149,32 @@ export function BranchIcon(props: IconProps) {
   );
 }
 
+/**
+ * The official Git logomark (git-scm.com/downloads/logos, Git-Icon-Black.svg), vendored and
+ * recoloured to `currentColor` rather than redrawn — the same treatment as Claude's mark in
+ * agent-icons.tsx. Measured in the file's own 78-unit viewBox with its `transform` applied: the
+ * rotated square's bbox is a square of side 82.02 centred at (39, 39). Drawn `LARGER`, like
+ * Claude's mark: dividing the measured extent tightens the crop, so the glyph grows inside a box
+ * that stays the shared one and nothing beside it moves.
+ */
+export function GitIcon(props: IconProps) {
+  return (
+    <svg
+      className={props.className}
+      width="13"
+      height="13"
+      viewBox={fitIcon(82.02 / LARGER, 39, 39, 78)}
+      aria-hidden="true"
+    >
+      <path
+        fill="currentColor"
+        transform="translate(10 10) rotate(-45 29 29)"
+        d="M5,58c-2.76142,0 -5,-2.23858 -5,-5v-48c0,-2.76142 2.23858,-5 5,-5h33v12.54404c-2.06553,0.94801 -3.5,3.03446 -3.5,5.45596c0,0.73514 0.13221,1.43941 0.37415,2.09031l-15.28384,15.28384c-0.6509,-0.24194 -1.35517,-0.37415 -2.09031,-0.37415c-3.31371,0 -6,2.68629 -6,6c0,3.31371 2.68629,6 6,6c3.31371,0 6,-2.68629 6,-6c0,-0.73514 -0.13221,-1.43941 -0.37415,-2.09031l14.87415,-14.87415l0,11.50851c-2.06553,0.94801 -3.5,3.03446 -3.5,5.45596c0,3.31371 2.68629,6 6,6c3.31371,0 6,-2.68629 6,-6c0,-2.42149 -1.43447,-4.50795 -3.5,-5.45596l0,-12.08808c2.06553,-0.94801 3.5,-3.03446 3.5,-5.45596c0,-2.42149 -1.43447,-4.50795 -3.5,-5.45596l0,-12.54404h10c2.76142,0 5,2.23858 5,5v48c0,2.76142 -2.23858,5 -5,5z"
+      />
+    </svg>
+  );
+}
+
 export function SearchIcon(props: IconProps) {
   return (
     <Svg {...props} extent={10.79} cx={8.25} cy={8.25}>

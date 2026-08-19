@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, Project, TerminalDescriptor } from "../../shared/types";
 import { disposeTerminal, setRevealHandler } from "../terminal-views";
-import { PANE_IDS, TOP_RIGHT_PANE, layoutStorageKey } from "../pane-layout";
+import { PANE_IDS, layoutStorageKey } from "../pane-layout";
 import type { PaneId, ProjectLayout, SplitPreset } from "../pane-layout";
 import { MIN_PANE_HEIGHT, MIN_PANE_WIDTH, PERSIST_MS, Sash } from "./Sash";
 import { Pane, type PaneChrome } from "./Pane";
@@ -312,11 +312,10 @@ export const TerminalsPane = memo(function TerminalsPane({
       markedTabIds={markedTabIds}
       waitingTabIds={waitingTabIds}
       chrome={first ? chrome : undefined}
-      // The picker sits at the actual right edge — `TOP_RIGHT_PANE`, not always this project's
-      // first pane, which is only ever the top-*left* one once there is more than one column.
-      onPresetChange={paneId === TOP_RIGHT_PANE[layout.preset] ? onPresetChangeHere : undefined}
-      onBrowseFiles={paneId === TOP_RIGHT_PANE[layout.preset] ? browseFiles : undefined}
-      onOpenSettings={paneId === TOP_RIGHT_PANE[layout.preset] ? onOpenSettings : undefined}
+      // The picker sits beside the git toggle, on pane "a" — the same pane `chrome` is on.
+      onPresetChange={first ? onPresetChangeHere : undefined}
+      onBrowseFiles={first ? browseFiles : undefined}
+      onOpenSettings={first ? onOpenSettings : undefined}
       // Pane "a" also carries whatever project-wide reason has no tab of its own to point at;
       // every other pane only ever shows its own.
       showProgress={(first && externalBusy) || (startingHere[paneId] ?? false)}

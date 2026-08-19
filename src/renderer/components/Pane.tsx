@@ -8,12 +8,12 @@ import { ContextMenu, SEPARATOR, type ContextMenuEntry } from "./ContextMenu";
 import { prompt } from "./Dialog";
 import { TerminalHost } from "./TerminalHost";
 import {
-  BranchIcon,
   CloseIcon,
   CommentIcon,
   ExclamationIcon,
   FilesIcon,
   GearIcon,
+  GitIcon,
   LayoutCols2Icon,
   LayoutCols3Icon,
   LayoutGrid2x2Icon,
@@ -85,10 +85,8 @@ interface PaneProps {
   /** Present only for the pane that carries the project's shared chrome — see `PaneChrome`. */
   chrome?: PaneChrome;
   /**
-   * Present only for the pane that carries the layout picker — the rightmost one in the top row
-   * (`TOP_RIGHT_PANE`), not necessarily the same pane as `chrome`: the picker belongs at the
-   * window's own right edge whatever the preset, which for every preset but "single" is a
-   * different pane than the one the git toggle sits in.
+   * Present only for the pane that carries the layout picker — the same pane `chrome` is on
+   * (pane "a"), right beside the git toggle.
    */
   onPresetChange?: (preset: SplitPreset) => void;
   /**
@@ -98,8 +96,8 @@ interface PaneProps {
   onBrowseFiles?: () => void;
   /**
    * The settings, right of the layout picker — present on exactly the pane `onPresetChange` is,
-   * for the same reason: it belongs to the window rather than to a project, so it sits at the
-   * window's own right edge, wherever the preset puts that.
+   * for the same reason: it belongs to the window rather than to a project, so it sits beside the
+   * git toggle rather than following any one project's own layout.
    */
   onOpenSettings?: () => void;
   /**
@@ -388,19 +386,48 @@ export const Pane = memo(function Pane({
       onDragEnd={() => onDragOverChange(paneId, false)}
     >
       <div className="terminal-tabs">
-        {chrome && (
-          <>
-            {/* Where the git tab used to be, and no longer a tab: it shows a pane of its own
-                beside this one rather than taking its place. */}
-            <button
-              className={`git-toggle${chrome.gitOpen ? " active" : ""}`}
-              onClick={chrome.onToggleGit}
-              title={chrome.gitOpen ? "Hide the repository" : "Show the repository"}
-            >
-              <BranchIcon className="terminal-tab-icon" />
-              <span>Git</span>
-            </button>
-          </>
+        {/* Where the git tab used to be, and no longer a tab: toggling it shows a pane of its own
+            beside this one rather than taking its place. Grouped with the layout picker, browse-
+            files and settings — none of them about a tab, all of them window chrome rather than
+            anything a project's own tab strip owns. Present only on pane "a". */}
+        {(chrome || onPresetChange) && (
+          <div className="layout-toggle">
+            {chrome && (
+              <button
+                className={`icon-button${chrome.gitOpen ? " active" : ""}`}
+                onClick={chrome.onToggleGit}
+                title={chrome.gitOpen ? "Hide the repository" : "Show the repository"}
+              >
+                <GitIcon />
+              </button>
+            )}
+            {onPresetChange && (
+              <button
+                className="icon-button"
+                title="Split layout"
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  if (layoutMenu) {
+                    return;
+                  }
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setLayoutMenu({ x: rect.left, y: rect.bottom + 6 });
+                }}
+              >
+                <PresetIcon preset={preset} />
+              </button>
+            )}
+            {onBrowseFiles && (
+              <button className="icon-button" title="Browse files" onClick={onBrowseFiles}>
+                <FilesIcon />
+              </button>
+            )}
+            {onOpenSettings && (
+              <button className="icon-button" title="Settings" onClick={onOpenSettings}>
+                <GearIcon />
+              </button>
+            )}
+          </div>
         )}
         <div className="terminal-tab-strip" ref={strip}>
           {tabs.map((tab) => (
@@ -500,39 +527,6 @@ export const Pane = memo(function Pane({
             <PlusIcon />
           </button>
         </div>
-        {/* At the strip's far end, past the tabs and the + that belongs with them: the layout is
-            about the whole project, not about any tab, so it sits where a window's own controls
-            do — against the right edge — rather than in the row of things that select. Present
-            only on the pane `TOP_RIGHT_PANE` names for this preset, which is the actual right
-            edge whatever the preset is — not always this pane's own `chrome`. */}
-        {onPresetChange && (
-          <div className="layout-toggle">
-            <button
-              className="icon-button"
-              title="Split layout"
-              onMouseDown={(event) => {
-                event.stopPropagation();
-                if (layoutMenu) {
-                  return;
-                }
-                const rect = event.currentTarget.getBoundingClientRect();
-                setLayoutMenu({ x: rect.left, y: rect.bottom + 6 });
-              }}
-            >
-              <PresetIcon preset={preset} />
-            </button>
-            {onBrowseFiles && (
-              <button className="icon-button" title="Browse files" onClick={onBrowseFiles}>
-                <FilesIcon />
-              </button>
-            )}
-            {onOpenSettings && (
-              <button className="icon-button" title="Settings" onClick={onOpenSettings}>
-                <GearIcon />
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="terminal-stack" ref={stack}>
