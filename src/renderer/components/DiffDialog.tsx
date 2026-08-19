@@ -13,8 +13,9 @@ import { MIN_CONTENT_WIDTH, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, Sash, usePaneSize }
 
 interface DiffDialogProps {
   project: Project;
-  /** Repository-relative path of the file being looked at; null with the dialog open on nothing
-   *  yet — "Browse files" over a project with no local changes to double-click into one. */
+  /** Repository-relative path of the file being looked at; null only for a project whose dialog
+   *  has never had one — "Browse files" itself reopens whatever this project last showed
+   *  (`App`'s `lastDiffPathKey`), so this is null in practice only before that first file. */
   path: string | null;
   /** What the diff depends on besides the file — a change to it reloads while the dialog is open. */
   version: string;

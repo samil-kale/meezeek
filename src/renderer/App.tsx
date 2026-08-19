@@ -54,6 +54,15 @@ function diffVersion(state: RepositoryState | undefined, filePath: string): stri
   return `${state?.head}:${state?.changes.find((change) => change.path === filePath)?.status}`;
 }
 
+/**
+ * Where the diff dialog's last-opened file is kept per project, under the same `tet.layout.`
+ * namespace `Sash.tsx` and `pane-layout.ts` use for everything else describing the window rather
+ * than the repository — which file "Browse files" reopens is exactly that kind of thing.
+ */
+function lastDiffPathKey(projectId: string): string {
+  return `tet.layout.diff.${projectId}.lastPath`;
+}
+
 /** The tabs of a project that has none — one instance, so the pane's props stay identical. */
 const NO_TABS: TerminalDescriptor[] = [];
 const NO_IDS: string[] = [];
@@ -733,7 +742,19 @@ export function App() {
   const hasFinished = useCallback((projectId: string) => (marks[projectId]?.finished.length ?? 0) > 0, [marks]);
   const hasWaiting = useCallback((projectId: string) => (marks[projectId]?.waiting.length ?? 0) > 0, [marks]);
   const toggleGit = useCallback(() => setGitOpen(!gitOpen), [gitOpen, setGitOpen]);
-  const openDiff = useCallback((projectId: string, path?: string) => setDiffFile({ projectId, path: path ?? null }), []);
+  /** No explicit path — "Browse files" itself — reopens whatever this project last showed. */
+  const openDiff = useCallback((projectId: string, path?: string) => {
+    const resolved = path ?? localStorage.getItem(lastDiffPathKey(projectId));
+    setDiffFile({ projectId, path: resolved });
+  }, []);
+  // Remembers every file the dialog is pointed at, however it got there (browse, a changed-file
+  // click, the FILES tree) — not just calls to `openDiff` above — so the choice survives the
+  // dialog being closed and reopened.
+  useEffect(() => {
+    if (diffFile?.path !== null && diffFile?.path !== undefined) {
+      localStorage.setItem(lastDiffPathKey(diffFile.projectId), diffFile.path);
+    }
+  }, [diffFile]);
   const openActiveDiff = useCallback(
     (path: string) => {
       if (activeProjectId) {
