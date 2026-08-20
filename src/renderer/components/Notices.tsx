@@ -107,13 +107,13 @@ export function Notices() {
             <span className="notice-message">{notice.message}</span>
           </button>
         ) : (
-          <div key={notice.id} className={`notice ${notice.severity}`}>
-            <SeverityIcon className="notice-icon" severity={notice.severity} />
-            <div className="notice-progress-body">
+          <div key={notice.id} className={`notice notice-progress ${notice.severity}`}>
+            <div className="notice-row">
+              <SeverityIcon className="notice-icon" severity={notice.severity} />
               <span className="notice-message">{notice.message}</span>
-              <div className="notice-progress-track">
-                <div className="notice-progress-fill" style={{ width: `${notice.progress}%` }} />
-              </div>
+            </div>
+            <div className="notice-progress-track">
+              <div className="notice-progress-fill" style={{ width: `${notice.progress}%` }} />
             </div>
           </div>
         )

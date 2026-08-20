@@ -1858,7 +1858,7 @@ option {
   align-items: flex-start;
   gap: 8px;
   max-width: 460px;
-  padding: 8px 10px;
+  padding: 12px 16px;
   text-align: left;
   font-size: 13px;
   color: var(--vscode-notifications-foreground);
@@ -1872,7 +1872,8 @@ option {
    it is urgent, which is how VS Code has it too. */
 .notice-icon {
   flex: none;
-  /* Optical: the icon sits on the first line of a message that may wrap to several. */
+  /* Optical: centered on the message's first line, which may wrap to several — half the gap
+     between that line's height and the icon's own. */
   margin-top: 1px;
 }
 
@@ -1893,17 +1894,25 @@ option {
 .notice-message {
   overflow-wrap: anywhere;
   white-space: pre-line;
+  line-height: 15px;
 }
 
-.notice-progress-body {
-  display: flex;
+.notice-progress {
   flex-direction: column;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
+  /* Overrides .notice's flex-start: as a column that controls cross-axis width, and without it
+     the track — no content, no explicit width — shrinks to nothing instead of spanning full
+     width. .notice-row carries its own flex-start for the icon/text alignment. */
+  align-items: stretch;
+}
+
+.notice-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .notice-progress-track {
+  margin-top: 2px;
   height: 2px;
   background: var(--vscode-notifications-border);
   border-radius: 1px;
