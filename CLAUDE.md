@@ -33,15 +33,17 @@ TET ports its `shared/`; its `CLAUDE.md` records *why* — read it before changi
   `src/agents/claude/hooks.ts`)
 - the `--vscode-*` theming layer
 
-Not ported: the VS Code editor context (TET has no editor) and the diagnostic quick fix. What
-survives is the shell transcript in `src/main/shell-context.ts` — a capped file the agent is pointed
-at, not an excerpt inlined into every prompt.
+Not ported: the VS Code editor context — feeding an agent what's open or under the cursor — and the
+diagnostic quick fix; TET's own editor (see "Editing", below) is a plain look-and-fix surface with
+nothing like that to feed. What survives is the shell transcript in `src/main/shell-context.ts` — a
+capped file the agent is pointed at, not an excerpt inlined into every prompt.
 
 **GitHub Desktop** is the reference for the git half — Electron + TypeScript, so its repository
 models and git paths translate directly; crib the shapes, not the scope. **VS Code** is the UI
 reference (tab semantics, close actions, theme names, the sash) — the **classic** layout and Dark
-Modern's palette, not the pill-shaped Modern UI. Not adopted yet: **Monaco** for a richer diff,
-**Octokit**/**GitBeaker** for the providers.
+Modern's palette, not the pill-shaped Modern UI. **Monaco** is in (see "Editing", below) — as the
+diff dialog's own file editor, not a richer diff; the diff itself is still `DiffView`'s own unified
+render. Not adopted yet: **Octokit**/**GitBeaker** for the providers.
 
 ## The layout
 
@@ -275,6 +277,41 @@ An image is not "Binary file." — `readDiff` recognises it by extension and han
 the renderer as data URLs; the committed one goes through `git show HEAD:<path>` read as a *buffer*,
 since utf8 would mangle every byte. SVG stays out of that list: git diffs it as the text it is.
 
+### Editing
+
+The diff dialog doubles as a plain code editor — a pencil icon toggles Diff/Edit for a diffable
+file, and Edit is the only mode for a file with nothing to diff (a tree file the changes list never
+named). `CodeEditor.tsx` mounts one Monaco model for the dialog's whole time on that file: `path`
+and `content` are read once, at mount, never re-synced under the user — `DiffDialog` only mounts it
+once it already has the right file's content and unmounts it the moment another file is chosen — a
+look-and-fix surface, not a multi-file editing session.
+
+`monaco-core.ts` reproduces `editor.main.js`'s own import list minus every one of its ~80 Monarch
+languages and every language *service* — find, folding, bracket matching and the rest of the plain
+editing contributions stay, format, rename, completions, hover, diagnostics and go-to-definition go,
+since nothing here registers a provider for any of them. Re-diff it against
+`node_modules/monaco-editor/editor/editor.main.js` on a monaco upgrade, since that file isn't a
+public API. Coloring goes through the same shiki instance and theme the diff view already uses
+(`ensureLanguage` in `editor.ts`, wired in via `@shikijs/monaco`), so a token reads identically in
+both places; `applyChrome` then layers tet's own `--vscode-*` colors on top, since monaco's
+`defineTheme` can only inherit from its own built-in themes, not from shiki's. The worker is loaded
+through `getWorker`, not the newer `getWorkerUrl` — a module worker built from the latter can fail
+to start from a `file://` origin.
+
+Saving goes through `Repository.writeFile`, guarded by the mtime the file was read at: a save
+landing after an outside edit (an agent, a terminal) is refused rather than clobbering it. An
+outside edit arriving while the file sits *clean* in the editor is instead folded into the model in
+place (`DiffDialog`'s own effect, keyed on `version`), so undo history and the cursor survive — left
+alone entirely while dirty, since the user's own unsaved edit wins until they act on it themselves.
+
+Keybindings are a curated preset (`keybinding-presets.ts`, one per popular editor/IDE, chosen in the
+Files tab of Settings) layered over tet's own defaults (`keybindings.ts`) — trimmed to the commands
+this reduced contribution set actually registers: line comment/delete/copy/move, multi-cursor,
+fold/unfold, find/replace. Left out on purpose: chord bindings (`parseKeyCombo` only understands one
+combo per command) and every provider-dependent command — format, rename, organize imports — since
+there is no language server behind any of them. No format command exists yet as a result; adding one
+is a separate question of what would drive it, not a gap in the keybinding table.
+
 ### Where we follow GitHub Desktop rather than git's default
 
 - Discarding is not `git checkout --`: a file HEAD doesn't know is moved to the trash
@@ -464,10 +501,16 @@ and layout picker beside it. It lived at the title bar's end once, drawn as a pl
 control; the title bar is now the app's name and the drag region alone.
 
 It asks nothing — a switch applies the moment it's flipped, like VS Code's own settings — so one
-button closes it. Tabbed (Notifications, then Info) with the add-repository dialog's own strip
-(`.dialog-tabs`), which is why neither dialog has a `.dialog-title`: the selected tab names what's
-under it. Height is fixed to the fuller tab so switching doesn't resize under the pointer. Info
-reads `app:info` once, on open.
+button closes it. Tabbed (Notifications, Shortcuts, Files, Info) with the add-repository dialog's
+own strip (`.dialog-tabs`), which is why neither dialog has a `.dialog-title`: the selected tab
+names what's under it. Height is fixed to the fullest tab so switching doesn't resize under the
+pointer. Shortcuts just lists `shortcuts.ts`'s own table (see "The keyboard belongs to the
+terminal") — nothing there to flip. Files carries the diff dialog's Explorer settings (the three
+`tet.json` entries its tree's own context menu also writes — see "Explorer") *and* the editor's
+keybinding preset picker in one tab rather than two, since both are about how that dialog reads or
+is worked in for a project; the preset half renders even with no project open, since unlike the
+Explorer settings it isn't per-project (it lives in `settings.json`, not `tet.json`). Info reads
+`app:info` once, on open.
 
 Values live in a `settings.json` in TET's `userData` (`src/main/settings.ts`), written whole
 from memory and read back defensively — a wrong-typed key falls back to its default rather than
