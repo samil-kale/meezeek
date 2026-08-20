@@ -54,8 +54,11 @@ render. Not adopted yet: **Octokit**/**GitBeaker** for the providers.
   together
 - one git pane for all projects; unlike terminals, it holds nothing a project loses by switching
   away
-- the diff is a **dialog** over the whole window, opened by double-clicking a changed file or
-  ctrl-clicking a path in a terminal. It carries the changed files down its left side — the same
+- the diff is a **dialog** over the whole window, opened by double-clicking a changed file,
+  ctrl-clicking a path in a terminal, or the "Browse files" button, which reopens whichever file
+  the dialog last showed for that project (`localStorage`, keyed by project id under the same
+  `tet.layout.` namespace the split layout uses — see "Split view" — since which file it reopens
+  is a window fact, not a repository one). It carries the changed files down its left side — the same
   `ChangesList` the git pane's LOCAL CHANGES is (filter, selection, context menu), with a plain
   click and ↑/↓ switching the file, so the next diff doesn't mean closing and double-clicking
   again. Its own LOCAL CHANGES header carries only "Discard all" (`confirmDiscard`, shared out of
@@ -108,7 +111,11 @@ follows whichever pane the slow thing is actually in — see "One progress indic
   dragged" — the default *is* the even split. The measurement is seeded synchronously in a
   `useLayoutEffect` (a `ResizeObserver` callback is asynchronous by spec), so a project restored
   straight into a split paints its first frame right. A drag comes back from `Sash` in pixels and
-  is turned into a share of the same room, through the same bounds.
+  is turned into a share of the same room, through the same bounds. Switching the preset back to
+  "single" resets every divider to its own default share — "single" is the one preset that never
+  renders a `Sash` at all, so it's the natural "start over" point rather than a reset action of its
+  own; switching between two *split* presets leaves every divider alone, since each already keeps
+  its own share independently.
 - **What survives a restart**: the preset, the focused pane, the divider shares, and which pane
   each tab is in — that last keyed by **session id**, not tab id (`serializeLayout`; the
   descriptor carries `sessionId` for exactly this). A tab created during a run is `new-N`, an id
@@ -130,7 +137,13 @@ follows whichever pane the slow thing is actually in — see "One progress indic
 - **A tab moved between panes gets a new host** (`TerminalHost` remounts under the other pane),
   so `attachTerminal` moves the existing xterm element rather than calling `open()` again — which
   silently no-ops once opened — and `TerminalHost` attaches an existing view whether or not the
-  tab is active there, so it never sits in an unmounted container taking output.
+  tab is active there, so it never sits in an unmounted container taking output. A pane that loses
+  its own active tab this way (dragged out, or "Move to …") falls back to whichever tab sat right
+  before it in that pane's own order — the one before wins over VS Code's nearest-right-else-left
+  rule, since the tab hasn't closed, only left — or the first of what's left if it was that pane's
+  own first tab, or nothing once the pane has no tabs of its own left at all. A tab landing past
+  its strip's visible width, new or newly activated, scrolls itself into view rather than sitting
+  reachable only by hand.
 - **Keyboard focus follows the focused pane** (`Pane`'s `focused` prop): only that pane focuses
   its terminal when the project comes on screen or its selection changes — with every pane doing
   it, the last one would win, and a tab closed elsewhere would pull the cursor away. Separate from
@@ -355,7 +368,11 @@ Each of these was paid for once and measured; the numbers are in the comment at 
 - `src/main/event-loop-monitor.ts` runs every session, writing stalls to `event-loop.log` in
   `userData` only — the app is usually started from a shortcut, where a console line goes nowhere.
   Not behind a switch on purpose, so a stall is noticed while working rather than while looking for
-  it. The file is rewritten at every start.
+  it. The file is rewritten at every start. `logSlow` names a block directly rather than leaving it
+  to a stall sample's "ran last" guess, for work whose own duration is worth knowing regardless of
+  whether it happened to line up with a sample — `Repository.emit`'s `JSON.stringify` of the next
+  state (labeled `"emit"`, since it runs after the git process a refresh started has already
+  finished) and a session listing's per-line `JSON.parse` during reconcile.
 
 ## Saved commands
 
@@ -387,7 +404,8 @@ command, since only the answer's own field can hold the dialog back.
 
 **Running one opens a terminal tab for it.** The tab's *process is the command*, in its own
 directory, ending when the command does — nothing buffered or summarised, which is what a build
-needs. The tab is labelled with the command, and closing it kills the process like any other
+needs. The tab is labelled with `name` if the command has one, the command line otherwise — a
+shell tab has no session to take a title from — and closing it kills the process like any other
 terminal.
 
 **There is no shell in between.** `splitCommand` reads the saved line as a program plus arguments,
@@ -945,7 +963,16 @@ binding and label can't drift apart.
   shrink the box xterm measures, so every drag would refit and resize the pty. Only a drag carrying
   files raises it, the only kind the drop handler acts on. A file dropped anywhere *else* is
   swallowed in `main.tsx`: unhandled, Electron navigates the window to it and the app is gone. Files
-  only — text dragged into a field still needs to reach that field.
+  only — text dragged into a field still needs to reach that field. A dropped or pasted file types
+  its path the way a hand-typed reference would arrive, through `term.paste` rather than individual
+  keystrokes so a CLI's own input mode (vim-mode commands, say) cannot misread it. One dragged in
+  from the filesystem has a real path; one dragged out of a browser, or a screenshot pasted with
+  Ctrl+V, has only content, so it is written to a temp file first (`files:write-temp`,
+  `clipboard:image-file` in `ipc.ts`) for a path to name — asynchronously, since a pasted
+  screenshot is megabytes and a synchronous write would hold up every pty's output and keystrokes
+  on the way to it. Nothing marks such a file as "already read", so `sweepTempFiles` deletes
+  anything a day old at startup rather than after each paste — the file may still be read a moment
+  later, and a session cut short must not take it with it.
 - **Nothing in the lane at the terminal's right edge may be left to an xterm default, and CSS isn't
   what settles it** — both elements there are xterm's own and redrawn as the buffer grows, so the
   **color given in `theme.ts`** decides — `#00000000` for each, as hex so it passes xterm's color
@@ -955,11 +982,15 @@ binding and label can't drift apart.
   would only twitch, and the wheel is what scrolls. And the overview ruler, asked for only to stop
   FitAddon reserving 14px for a scrollbar (`overviewRuler: { width: 1 }`) — xterm outlines it every
   frame regardless of marks, and an unset outline is a light line beside every terminal.
-- Resizing is two steps, debounced differently. `refitTerminal` follows the container immediately —
-  local to xterm, only acting on a whole row/column, so a dragged sash never leaves an empty pane
-  strip behind. `fitTerminal` also tells the pty, repainting the CLI in full, and waits for dragging
-  to settle. The sash reports one size per animation frame, not per pointer event — a mouse sends
-  hundreds a second — and stores it a moment after the last one.
+- Resizing reflows xterm and notifies the pty together, only once dragging settles
+  (`RESIZE_DEBOUNCE_MS` in `Pane.tsx`) — an immediate local reflow ahead of the debounced pty
+  notify was tried first and reverted: ConPTY can reflow its own internal screen buffer out from
+  under a CLI's own cursor-relative redraw when a resize lands mid-redraw, corrupting the screen
+  (an upstream Windows bug — VS Code hits the identical symptom, e.g. microsoft/vscode#230852,
+  #260038, closed by xterm.js's own maintainer as unfixable from the application side). A dragged
+  sash can show an empty strip of background until it stops, the trade taken instead. The sash
+  itself reports one size per animation frame, not per pointer event — a mouse sends hundreds a
+  second — and stores it a moment after the last one.
 - `provideLinks` runs on **every render** while the pointer's over the terminal, and an agent TUI
   repaints constantly. Nothing expensive, no logging, in that path.
 - A terminal's xterm theme is built **per terminal**, not once for the window, for one deliberate
