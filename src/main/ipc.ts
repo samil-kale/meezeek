@@ -12,11 +12,11 @@ import type {
   AppSettings,
   CheckoutTarget,
   DiffOptions,
+  ExplorerListing,
+  ExplorerSettings,
+  ExplorerSortOrder,
   FileContent,
   FileDiff,
-  FileListing,
-  FileSortOrder,
-  FileViewSettings,
   FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
@@ -31,7 +31,7 @@ import type {
 } from "../shared/types";
 import { PROVIDERS } from "../providers";
 import type { AccountStore } from "../providers/accounts";
-import { DEFAULT_FILE_VIEW, mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
+import { DEFAULT_EXPLORER_VIEW, mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { ProjectStore } from "./projects";
@@ -326,7 +326,7 @@ export function registerIpc({
   onRepository("repo:exclude-path", (repository, relPath: string) => repository.excludePath(relPath));
   onRepository("repo:set-exclude-git-ignore", (repository, value: boolean) => repository.setExcludeGitIgnore(value));
   onRepository("repo:set-compact-folders", (repository, value: boolean) => repository.setCompactFolders(value));
-  onRepository("repo:set-sort-order", (repository, value: FileSortOrder) => repository.setSortOrder(value));
+  onRepository("repo:set-sort-order", (repository, value: ExplorerSortOrder) => repository.setSortOrder(value));
 
   ipcMain.handle(
     "repo:diff",
@@ -346,21 +346,21 @@ export function registerIpc({
     }
   );
 
-  ipcMain.handle("repo:files", async (_event, projectId: string): Promise<FileListing> => {
+  ipcMain.handle("repo:explorer", async (_event, projectId: string): Promise<ExplorerListing> => {
     return (
-      (await repositories.get(projectId)?.listFiles()) ?? {
+      (await repositories.get(projectId)?.listExplorer()) ?? {
         files: [],
         emptyDirs: [],
-        compactFolders: DEFAULT_FILE_VIEW.compactFolders,
-        sortOrder: DEFAULT_FILE_VIEW.sortOrder
+        compactFolders: DEFAULT_EXPLORER_VIEW.compactFolders,
+        sortOrder: DEFAULT_EXPLORER_VIEW.sortOrder
       }
     );
   });
 
   // The settings dialog's Files tab: just the three view settings, not a full listing — reads
   // tet.json alone, no filesystem walk.
-  ipcMain.handle("repo:file-view", async (_event, projectId: string): Promise<FileViewSettings> => {
-    return (await repositories.get(projectId)?.readFileViewSettings()) ?? DEFAULT_FILE_VIEW;
+  ipcMain.handle("repo:explorer-settings", async (_event, projectId: string): Promise<ExplorerSettings> => {
+    return (await repositories.get(projectId)?.readExplorerSettings()) ?? DEFAULT_EXPLORER_VIEW;
   });
 
   ipcMain.handle("repo:file-read", async (_event, projectId: string, filePath: string): Promise<FileContent> => {

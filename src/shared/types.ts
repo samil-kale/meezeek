@@ -313,44 +313,44 @@ export interface FileWriteResult {
 }
 
 /**
- * Every file in the repository, for the diff dialog's FILES tree — a real filesystem scan, not
+ * Every file in the repository, for the diff dialog's Explorer tree — a real filesystem scan, not
  * `git ls-files`: git has no way to represent an empty directory at all, in any of its objects,
  * so a scan is the only way one can ever show up. `emptyDirs` is only the directories that would
  * otherwise be invisible (nothing to infer them from in `files`); a non-empty one is already
  * implied by the paths that pass through it. `.git` is always left out; anything else only on
  * the project's say-so — `exclude` globs and, opted into, what `.gitignore` hides (see
- * "Files view" in CLAUDE.md).
+ * "Explorer" in CLAUDE.md).
  *
  * The listing also carries the project's own view settings from `tet.json`, so the tree gets
  * configuration and data in one read: `roots` for a `folders` list (absent when there is none —
  * the whole repository is the one tree then), and the sort and compaction rules. Paths stay
  * repository-relative throughout and each file is listed once, whichever roots contain it.
  */
-export interface FileListing {
+export interface ExplorerListing {
   files: string[];
   emptyDirs: string[];
-  roots?: FileRoot[];
+  roots?: ExplorerRoot[];
   compactFolders: boolean;
-  sortOrder: FileSortOrder;
+  sortOrder: ExplorerSortOrder;
   /** Modification time per listed path, files and directories alike — only read for `modified`. */
   mtimes?: Record<string, number>;
 }
 
 /** One entry of a `folders` list: a top-level node of the tree, labelled `name`. */
-export interface FileRoot {
+export interface ExplorerRoot {
   name: string;
   /** Repository-relative, forward-slashed; "" for the repository root itself. */
   path: string;
 }
 
 /** VS Code's `explorer.sortOrder` values. `foldersNestsFiles` is `default` without file nesting. */
-export type FileSortOrder = "default" | "mixed" | "filesFirst" | "type" | "modified" | "foldersNestsFiles";
+export type ExplorerSortOrder = "default" | "mixed" | "filesFirst" | "type" | "modified" | "foldersNestsFiles";
 
-/** The FILES tree settings the settings dialog's Files tab edits directly, read on its own. */
-export interface FileViewSettings {
+/** The Explorer settings the settings dialog's Files tab edits directly, read on its own. */
+export interface ExplorerSettings {
   excludeGitIgnore: boolean;
   compactFolders: boolean;
-  sortOrder: FileSortOrder;
+  sortOrder: ExplorerSortOrder;
 }
 
 /** What any git action the UI starts reports back: it worked, or what git said when it didn't. */

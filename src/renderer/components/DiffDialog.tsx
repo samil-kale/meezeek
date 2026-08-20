@@ -1,9 +1,9 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { FileChange, FileContent, FileDiff, FileListing, Project } from "../../shared/types";
+import type { ExplorerListing, FileChange, FileContent, FileDiff, Project } from "../../shared/types";
 import { ChangesList, confirmDiscard, type FileAct } from "./ChangesList";
 import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiffView } from "./DiffView";
-import { FileTree, type FileTreeHandle } from "./FileTree";
+import { Explorer, type ExplorerHandle } from "./Explorer";
 import {
   CloseIcon,
   CollapseAllIcon,
@@ -49,10 +49,10 @@ async function confirmDiscardEdit(path: string): Promise<boolean> {
  * One file, over the whole window — a diff, or (see CLAUDE.md) an editor for the same file when
  * it has none, or the user asked for one anyway. A dialog rather than a pane for the same reason
  * as always: the git view has no room for it, and looking at (or briefly fixing) a file is
- * something you come out of again, unlike the branch list next to it. FILES over LOCAL CHANGES on
- * the left mirrors the git pane's own BRANCHES-over-LOCAL-CHANGES shape — a browser for any file
- * above the changed ones, with GitHub Desktop's own file actions and VS Code's new/rename/delete
- * (see `FileTree`); still no ↑/↓ of its own — that stays with `ChangesList` — and a single click
+ * something you come out of again, unlike the branch list next to it. EXPLORER over LOCAL CHANGES
+ * on the left mirrors the git pane's own BRANCHES-over-LOCAL-CHANGES shape — a browser for any
+ * file above the changed ones, with GitHub Desktop's own file actions and VS Code's
+ * new/rename/delete (see `Explorer`); still no ↑/↓ of its own — that stays with `ChangesList` — and a single click
  * opens rather than needing a double one.
  *
  * Not part of Dialog.tsx: that file puts *questions* (confirm, prompt) and is built around a
@@ -86,19 +86,19 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
   const [saving, setSaving] = useState(false);
   const [editorLoading, setEditorLoading] = useState(false);
   const editorRef = useRef<CodeEditorHandle>(null);
-  const fileTreeRef = useRef<FileTreeHandle>(null);
+  const explorerRef = useRef<ExplorerHandle>(null);
 
   /** Bumped after a successful save so the diff reloads even when the watcher's own push does
    *  not — `Repository.emit` only pushes a changed *state*, and modified→modified isn't one. */
   const [savedAt, setSavedAt] = useState(0);
 
-  const [files, setFiles] = useState<FileListing | undefined>(undefined);
+  const [explorerListing, setExplorerListing] = useState<ExplorerListing | undefined>(undefined);
   const [listing, setListing] = useState(false);
-  /** Bumped by the FILES tree's own create/rename/delete — the only kind of change to the
+  /** Bumped by the Explorer tree's own create/rename/delete — the only kind of change to the
    *  listing `changesKey` below never catches, since an empty new folder never touches git
    *  status the way a new file does. */
-  const [filesVersion, setFilesVersion] = useState(0);
-  const [treeHeight, setTreeHeight] = usePaneSize("diff-tree", 300, MIN_PANE_HEIGHT);
+  const [explorerVersion, setExplorerVersion] = useState(0);
+  const [treeHeight, setTreeHeight] = usePaneSize("diff-explorer", 300, MIN_PANE_HEIGHT);
   const [filesWidth, setFilesWidth] = usePaneSize("diff-files", 260, MIN_PANE_WIDTH);
   const root = useRef<HTMLDivElement>(null);
 
@@ -185,7 +185,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
     };
   }, [version]);
 
-  // The FILES tree — read on open, again whenever a file starts or stops existing (added,
+  // The Explorer tree — read on open, again whenever a file starts or stops existing (added,
   // removed, renamed, untracked), again after the tree's own create/rename/delete, and again
   // when the project's tet.json changed, since the listing carries that file's `folders`,
   // `exclude` and sort settings — whoever wrote it, the tree's own menu, an editor or an agent.
@@ -195,7 +195,7 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
     () =>
       window.tet.commands.onChanged((payload) => {
         if (payload.projectId === project.id) {
-          setFilesVersion((count) => count + 1);
+          setExplorerVersion((count) => count + 1);
         }
       }),
     [project.id]
@@ -207,16 +207,16 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
   useEffect(() => {
     let cancelled = false;
     setListing(true);
-    void window.tet.repository.listFiles(project.id).then((result) => {
+    void window.tet.repository.listExplorer(project.id).then((result) => {
       if (!cancelled) {
-        setFiles(result);
+        setExplorerListing(result);
         setListing(false);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [project.id, changesKey, filesVersion]);
+  }, [project.id, changesKey, explorerVersion]);
 
   // Takes the keyboard while it is up and hands it back on the way out: ↑/↓ step through the
   // files, and the terminal a path was ctrl-clicked in would otherwise still be the one
@@ -312,46 +312,46 @@ export const DiffDialog = memo(function DiffDialog({ project, path, version, cha
           <div className="section" style={{ height: treeHeight }}>
             <div className="section-header">
               <span>
-                FILES <span className="count-badge">({files?.files.length ?? 0})</span>
+                EXPLORER <span className="count-badge">({explorerListing?.files.length ?? 0})</span>
               </span>
               {/* VS Code's own trio, in its order — "Refresh Explorer" is left out: the watcher
-                  already keeps this tree current on its own (see `onFilesChanged`). */}
+                  already keeps this tree current on its own (see `onExplorerChanged`). */}
               <span className="section-header-actions">
                 <button
                   className="icon-button"
                   title="New File..."
-                  disabled={acting || !files}
-                  onClick={() => fileTreeRef.current?.newFile()}
+                  disabled={acting || !explorerListing}
+                  onClick={() => explorerRef.current?.newFile()}
                 >
                   <NewFileIcon />
                 </button>
                 <button
                   className="icon-button"
                   title="New Folder..."
-                  disabled={acting || !files}
-                  onClick={() => fileTreeRef.current?.newFolder()}
+                  disabled={acting || !explorerListing}
+                  onClick={() => explorerRef.current?.newFolder()}
                 >
                   <NewFolderIcon />
                 </button>
                 <button
                   className="icon-button"
                   title="Collapse Folders in Explorer"
-                  disabled={!files}
-                  onClick={() => fileTreeRef.current?.collapseAll()}
+                  disabled={!explorerListing}
+                  onClick={() => explorerRef.current?.collapseAll()}
                 >
                   <CollapseAllIcon />
                 </button>
               </span>
               {listing && <ProgressBar />}
             </div>
-            <FileTree
-              ref={fileTreeRef}
+            <Explorer
+              ref={explorerRef}
               project={project}
-              files={files}
+              files={explorerListing}
               selected={path}
               onOpen={(next) => void requestOpen(next)}
               act={act}
-              onFilesChanged={() => setFilesVersion((count) => count + 1)}
+              onExplorerChanged={() => setExplorerVersion((count) => count + 1)}
             />
           </div>
           <Sash orientation="horizontal" size={treeHeight} min={MIN_PANE_HEIGHT} minOther={MIN_PANE_HEIGHT} onResize={setTreeHeight} />

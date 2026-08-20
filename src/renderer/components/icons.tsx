@@ -457,7 +457,7 @@ export function FilesIcon(props: IconProps) {
   );
 }
 
-/** The FILES header's own "New File...", a page with a fold and a plus badge — VS Code's pair. */
+/** The EXPLORER header's own "New File...", a page with a fold and a plus badge — VS Code's pair. */
 export function NewFileIcon(props: IconProps) {
   return (
     <Svg {...props} extent={11.96} cx={9.25} cy={8.25}>
@@ -469,7 +469,7 @@ export function NewFileIcon(props: IconProps) {
   );
 }
 
-/** The FILES header's own "New Folder...", next to `NewFileIcon`. */
+/** The EXPLORER header's own "New Folder...", next to `NewFileIcon`. */
 export function NewFolderIcon(props: IconProps) {
   return (
     <Svg {...props} extent={13.07} cx={7.75} cy={8.65}>
@@ -513,7 +513,7 @@ export function SaveIcon(props: IconProps) {
 }
 
 /**
- * A file's language, in FileTree.tsx's twistie slot — one per grammar `diff-highlight.ts`
+ * A file's language, in Explorer.tsx's twistie slot — one per grammar `diff-highlight.ts`
  * bundles, so a file only ever gets a mark for a language the diff view itself can colour.
  *
  * Vendored from Catppuccin Icons' `css-variables` set (github.com/catppuccin/vscode-icons,

@@ -3,8 +3,8 @@ import { DEFAULT_KEYBINDING_PRESET_ID } from "../../shared/types";
 import type {
   AppInfo,
   AppSettings,
-  FileSortOrder,
-  FileViewSettings,
+  ExplorerSettings,
+  ExplorerSortOrder,
   GitActionResult,
   NotificationSettings,
   Project
@@ -16,7 +16,7 @@ import { SHORTCUTS, shortcutLabel } from "../shortcuts";
 import { useEscape } from "./use-escape";
 
 interface SettingsDialogProps {
-  /** Whose tet.json the Files tab's FILES view settings read and write; null hides that part. */
+  /** Whose tet.json the Files tab's Explorer settings read and write; null hides that part. */
   activeProject: Project | null;
   onClose: () => void;
 }
@@ -39,11 +39,11 @@ const SWITCHES: { key: keyof NotificationSettings; label: string }[] = [
 ];
 
 /**
- * The Files tab's sort-order picker. `foldersNestsFiles` is left out on purpose: the FILES
+ * The Files tab's sort-order picker. `foldersNestsFiles` is left out on purpose: the Explorer
  * tree has no file nesting to turn off, so it sorts identically to `default` and would be a
  * second, indistinguishable entry — a hand-written tet.json can still hold it.
  */
-const SORT_ORDERS: { id: FileSortOrder; label: string }[] = [
+const SORT_ORDERS: { id: ExplorerSortOrder; label: string }[] = [
   { id: "default", label: "Default" },
   { id: "mixed", label: "Mixed" },
   { id: "filesFirst", label: "Files First" },
@@ -72,7 +72,7 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
   const [tab, setTab] = useState<SettingsTab>("notifications");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [fileView, setFileView] = useState<FileViewSettings | null>(null);
+  const [explorerSettings, setExplorerSettings] = useState<ExplorerSettings | null>(null);
 
   useEffect(() => {
     void window.tet.settings.get().then(setSettings);
@@ -81,18 +81,18 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
     void window.tet.app.info().then(setInfo);
   }, []);
 
-  // The active project's FILES view settings — read on open and again whenever its tet.json
+  // The active project's Explorer settings — read on open and again whenever its tet.json
   // changes underneath, whoever wrote it (the tree's own menu, an editor, an agent).
   useEffect(() => {
     if (!activeProject) {
-      setFileView(null);
+      setExplorerSettings(null);
       return;
     }
     const projectId = activeProject.id;
-    void window.tet.repository.fileView(projectId).then(setFileView);
+    void window.tet.repository.explorerSettings(projectId).then(setExplorerSettings);
     return window.tet.commands.onChanged((payload) => {
       if (payload.projectId === projectId) {
-        void window.tet.repository.fileView(projectId).then(setFileView);
+        void window.tet.repository.explorerSettings(projectId).then(setExplorerSettings);
       }
     });
   }, [activeProject]);
@@ -117,15 +117,15 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
     void window.tet.settings.save(next);
   };
 
-  const updateFileView = <K extends keyof FileViewSettings>(
+  const updateExplorerSettings = <K extends keyof ExplorerSettings>(
     key: K,
-    value: FileViewSettings[K],
-    save: (projectId: string, value: FileViewSettings[K]) => Promise<GitActionResult>
+    value: ExplorerSettings[K],
+    save: (projectId: string, value: ExplorerSettings[K]) => Promise<GitActionResult>
   ): void => {
-    if (!activeProject || !fileView) {
+    if (!activeProject || !explorerSettings) {
       return;
     }
-    setFileView({ ...fileView, [key]: value });
+    setExplorerSettings({ ...explorerSettings, [key]: value });
     void save(activeProject.id, value).then((result) => {
       if (!result.ok) {
         notify("error", result.error ?? "Could not update tet.json");
@@ -189,16 +189,20 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
           {tab === "files" && (
             <>
               <p className="dialog-detail">
-                {activeProject ? `FILES tree, for ${activeProject.name}` : "FILES tree - open a project to edit it"}
+                {activeProject ? `EXPLORER tree, for ${activeProject.name}` : "EXPLORER tree - open a project to edit it"}
               </p>
-              {activeProject && fileView && (
+              {activeProject && explorerSettings && (
                 <>
                   <label className="dialog-checkbox">
                     <input
                       type="checkbox"
-                      checked={fileView.excludeGitIgnore}
+                      checked={explorerSettings.excludeGitIgnore}
                       onChange={(event) =>
-                        updateFileView("excludeGitIgnore", event.target.checked, window.tet.repository.setExcludeGitIgnore)
+                        updateExplorerSettings(
+                          "excludeGitIgnore",
+                          event.target.checked,
+                          window.tet.repository.setExcludeGitIgnore
+                        )
                       }
                     />
                     <span>Hide what git ignores too</span>
@@ -206,9 +210,13 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
                   <label className="dialog-checkbox">
                     <input
                       type="checkbox"
-                      checked={fileView.compactFolders}
+                      checked={explorerSettings.compactFolders}
                       onChange={(event) =>
-                        updateFileView("compactFolders", event.target.checked, window.tet.repository.setCompactFolders)
+                        updateExplorerSettings(
+                          "compactFolders",
+                          event.target.checked,
+                          window.tet.repository.setCompactFolders
+                        )
                       }
                     />
                     <span>Compact folders that only contain another folder into one row</span>
@@ -217,11 +225,11 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
                     <span>Sort order</span>
                     <div className="select-field">
                       <select
-                        value={fileView.sortOrder}
+                        value={explorerSettings.sortOrder}
                         onChange={(event) =>
-                          updateFileView(
+                          updateExplorerSettings(
                             "sortOrder",
-                            event.target.value as FileSortOrder,
+                            event.target.value as ExplorerSortOrder,
                             window.tet.repository.setSortOrder
                           )
                         }

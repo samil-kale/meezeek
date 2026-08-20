@@ -11,17 +11,23 @@ const STALL_MS = 50;
 const LOUD_STALL_MS = 200;
 /** One summary per interval, and only when there was something to report. */
 const REPORT_MS = 60_000;
+/**
+ * Below this, a single measured block is scheduling noise the same way a short stall is; above
+ * it, worth a line naming the block itself rather than leaving it to the "ran last" guess.
+ */
+const SLOW_MS = 100;
 
 /**
  * The main process's continuous work, in the places it happens. Nothing here is a guess about
  * cost — the point is to find out which of them the loop is actually sitting in.
  */
-export type Activity = "output" | "input" | "sse" | "reconcile" | "git";
+export type Activity = "output" | "input" | "sse" | "reconcile" | "git" | "emit";
 
 const counts = new Map<Activity, number>();
 /**
  * What ran last. A stall is only noticed by the sample that follows it, so whatever was
- * running just before is the likeliest thing to have blocked it.
+ * running just before is the likeliest thing to have blocked it — a guess `logSlow` doesn't
+ * need, since it times the block directly.
  */
 let lastActivity: Activity | undefined;
 
@@ -33,6 +39,19 @@ export function countActivity(activity: Activity): void {
 function tally(): string {
   const entries = [...counts].sort((a, b) => b[1] - a[1]);
   return entries.length === 0 ? "nothing counted" : entries.map(([activity, n]) => `${activity} ${n}`).join(", ");
+}
+
+let append: ((line: string) => void) | undefined;
+
+/**
+ * Names a block of work directly instead of leaving it to a stall sample's "ran last" guess —
+ * for work whose own duration is worth knowing regardless of whether it happened to line up
+ * with a sample. Callers still call `countActivity` themselves for the tally.
+ */
+export function logSlow(activity: Activity, ms: number): void {
+  if (ms >= SLOW_MS) {
+    append?.(`${activity} took ${Math.round(ms)}ms`);
+  }
 }
 
 /**
@@ -51,7 +70,7 @@ export function startEventLoopMonitor(logFile: string): void {
     console.error("[tet] could not open the event loop log:", error);
     return;
   }
-  const append = (line: string): void => {
+  append = (line: string): void => {
     fs.appendFile(logFile, `${new Date().toISOString().slice(11, 23)} ${line}\n`, () => undefined);
   };
 
@@ -75,14 +94,14 @@ export function startEventLoopMonitor(logFile: string): void {
         worstAfter = lastActivity;
       }
       if (lag >= LOUD_STALL_MS) {
-        append(`loop blocked ${lag}ms after ${lastActivity ?? "nothing"} | ${tally()}`);
+        append?.(`loop blocked ${lag}ms after ${lastActivity ?? "nothing"} | ${tally()}`);
       }
     }
 
     if (now >= reportAt) {
       reportAt = now + REPORT_MS;
       if (stalls > 0) {
-        append(
+        append?.(
           `loop: ${stalls} stalls in ${REPORT_MS / 1000}s, ${stalledMs}ms lost,` +
             ` worst ${worst}ms after ${worstAfter ?? "nothing"} | ${tally()}`
         );

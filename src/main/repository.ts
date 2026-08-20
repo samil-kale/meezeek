@@ -5,11 +5,11 @@ import { EMPTY_REPOSITORY_STATE } from "../shared/types";
 import type {
   CheckoutTarget,
   DiffOptions,
+  ExplorerListing,
+  ExplorerSettings,
+  ExplorerSortOrder,
   FileContent,
   FileDiff,
-  FileListing,
-  FileSortOrder,
-  FileViewSettings,
   FileWriteResult,
   GitActionResult,
   NoticeSeverity,
@@ -20,13 +20,13 @@ import type {
 import {
   addExclude,
   addFolder,
-  readFileView,
+  readExplorerView,
   removeFolder,
   setCompactFolders,
   setExcludeGitIgnore,
   setSortOrder
 } from "./commands";
-import { countActivity } from "./event-loop-monitor";
+import { countActivity, logSlow } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { DiscardTargets } from "./git";
 
@@ -267,7 +267,12 @@ export class Repository {
     // Only emit on an actual change: the watcher fires for plenty of edits that leave the
     // state identical, and every emit re-renders the views. And not at all once the project
     // is closed — this call was already in flight when it went.
+    // Labeled on its own rather than left as "git": this runs after the git process the
+    // refresh started has already finished, well past whatever countActivity("git") caught.
+    const stringifyStart = performance.now();
     const nextJson = JSON.stringify(next);
+    countActivity("emit");
+    logSlow("emit", performance.now() - stringifyStart);
     if (!this.disposed && nextJson !== this.stateJson) {
       this.state = next;
       this.stateJson = nextJson;
@@ -519,19 +524,19 @@ export class Repository {
 
   /**
    * Every file in the repository, plus any directory nothing else in the listing would imply —
-   * see `FileListing`. A real scan rather than a git process: not on the index lock `runAction`
-   * serialises, and `fs.promises` so a large `node_modules` doesn't hold the main process's
-   * event loop — the same typing-lag reason git itself never runs there directly.
+   * see `ExplorerListing`. A real scan rather than a git process: not on the index lock
+   * `runAction` serialises, and `fs.promises` so a large `node_modules` doesn't hold the main
+   * process's event loop — the same typing-lag reason git itself never runs there directly.
    *
-   * What the project's tet.json says about its FILES tree is applied here: `exclude` globs and
-   * git's own ignore list (one `ls-files` process per listing, only when opted into — never on
-   * the refresh path) are skipped during the walk, a walk that covers only the configured
+   * What the project's tet.json says about its Explorer tree is applied here: `exclude` globs
+   * and git's own ignore list (one `ls-files` process per listing, only when opted into — never
+   * on the refresh path) are skipped during the walk, a walk that covers only the configured
    * `folders` where there are any — the outermost ones, since a root inside another root holds
    * nothing the outer walk doesn't already pass. Modification times are read only for the one
    * sort order that needs them: a `stat` per entry is not free on a large tree.
    */
-  async listFiles(): Promise<FileListing> {
-    const view = await readFileView(this.project.path);
+  async listExplorer(): Promise<ExplorerListing> {
+    const view = await readExplorerView(this.project.path);
     const ignored = view.excludeGitIgnore ? await git.listIgnored(this.project.path).catch(() => []) : [];
     const ignoredFiles = new Set(ignored.filter((entry) => !entry.endsWith("/")));
     const ignoredDirs = new Set(ignored.filter((entry) => entry.endsWith("/")).map((entry) => entry.slice(0, -1)));
@@ -624,7 +629,7 @@ export class Repository {
     return { absolute };
   }
 
-  /** An empty file, for the FILES tree's "New File..." — parent directories are created with it. */
+  /** An empty file, for the Explorer tree's "New File..." — parent directories are created with it. */
   async createFile(filePath: string): Promise<GitActionResult> {
     const target = await this.resolveNew(filePath);
     if ("error" in target) {
@@ -639,7 +644,7 @@ export class Repository {
     }
   }
 
-  /** An empty directory, for the FILES tree's "New Folder...". */
+  /** An empty directory, for the Explorer tree's "New Folder...". */
   async createDirectory(dirPath: string): Promise<GitActionResult> {
     const target = await this.resolveNew(dirPath);
     if ("error" in target) {
@@ -654,7 +659,7 @@ export class Repository {
   }
 
   /**
-   * A file or directory, moved to the trash — the FILES tree's own "Delete...", same
+   * A file or directory, moved to the trash — the Explorer tree's own "Delete...", same
    * recoverability as `discard` gives an untracked file, since this one may not be tracked at
    * all either.
    */
@@ -671,7 +676,7 @@ export class Repository {
     }
   }
 
-  /** Renames or moves a file or directory — the FILES tree's own "Rename...". */
+  /** Renames or moves a file or directory — the Explorer tree's own "Rename...". */
   async renamePath(fromPath: string, toPath: string): Promise<GitActionResult> {
     const from = this.resolveInside(fromPath);
     if (!from) {
@@ -691,40 +696,40 @@ export class Repository {
   }
 
   /**
-   * The FILES tree's three edits of the project's own tet.json — "Add Folder to Workspace",
+   * The Explorer tree's three edits of the project's own tet.json — "Add Folder to Workspace",
    * "Remove Folder from Workspace", "Exclude from Files". Reported like the file actions above
    * (the tree runs all of them the same way); the watcher sees the write and re-lists.
    */
   addFolder(folderPath: string): Promise<GitActionResult> {
-    return this.editView(() => addFolder(this.project.path, folderPath));
+    return this.editExplorer(() => addFolder(this.project.path, folderPath));
   }
 
   removeFolder(folderPath: string): Promise<GitActionResult> {
-    return this.editView(() => removeFolder(this.project.path, folderPath));
+    return this.editExplorer(() => removeFolder(this.project.path, folderPath));
   }
 
   excludePath(relPath: string): Promise<GitActionResult> {
-    return this.editView(() => addExclude(this.project.path, relPath));
+    return this.editExplorer(() => addExclude(this.project.path, relPath));
   }
 
   /** The settings dialog's Files tab reads and writes these three the same way. */
-  readFileViewSettings(): Promise<FileViewSettings> {
-    return readFileView(this.project.path);
+  readExplorerSettings(): Promise<ExplorerSettings> {
+    return readExplorerView(this.project.path);
   }
 
   setExcludeGitIgnore(value: boolean): Promise<GitActionResult> {
-    return this.editView(() => setExcludeGitIgnore(this.project.path, value));
+    return this.editExplorer(() => setExcludeGitIgnore(this.project.path, value));
   }
 
   setCompactFolders(value: boolean): Promise<GitActionResult> {
-    return this.editView(() => setCompactFolders(this.project.path, value));
+    return this.editExplorer(() => setCompactFolders(this.project.path, value));
   }
 
-  setSortOrder(value: FileSortOrder): Promise<GitActionResult> {
-    return this.editView(() => setSortOrder(this.project.path, value));
+  setSortOrder(value: ExplorerSortOrder): Promise<GitActionResult> {
+    return this.editExplorer(() => setSortOrder(this.project.path, value));
   }
 
-  private async editView(edit: () => Promise<void>): Promise<GitActionResult> {
+  private async editExplorer(edit: () => Promise<void>): Promise<GitActionResult> {
     try {
       await edit();
       return { ok: true };

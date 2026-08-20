@@ -7,11 +7,11 @@ import type {
   AppSettings,
   CheckoutTarget,
   DiffOptions,
+  ExplorerListing,
+  ExplorerSettings,
+  ExplorerSortOrder,
   FileContent,
   FileDiff,
-  FileListing,
-  FileSortOrder,
-  FileViewSettings,
   FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
@@ -120,16 +120,16 @@ export interface TETApi {
     discard(projectId: string, paths: string[]): Promise<GitActionResult>;
     /** Appends the file, or its whole extension, to the repository's .gitignore. */
     ignore(projectId: string, path: string, scope: "file" | "extension"): Promise<GitActionResult>;
-    /** An empty file, parent directories created with it — the FILES tree's "New File...". */
+    /** An empty file, parent directories created with it — the Explorer tree's "New File...". */
     createFile(projectId: string, path: string): Promise<GitActionResult>;
-    /** An empty directory — the FILES tree's "New Folder...". */
+    /** An empty directory — the Explorer tree's "New Folder...". */
     createDirectory(projectId: string, path: string): Promise<GitActionResult>;
-    /** Moves a file or directory to the trash — the FILES tree's "Delete...". */
+    /** Moves a file or directory to the trash — the Explorer tree's "Delete...". */
     deletePath(projectId: string, path: string): Promise<GitActionResult>;
-    /** Renames or moves a file or directory — the FILES tree's "Rename...". */
+    /** Renames or moves a file or directory — the Explorer tree's "Rename...". */
     renamePath(projectId: string, from: string, to: string): Promise<GitActionResult>;
-    /** Adds a folder to the project's `folders` list in tet.json — the FILES tree's "Add Folder
-     *  to Workspace". */
+    /** Adds a folder to the project's `folders` list in tet.json — the Explorer tree's "Add
+     *  Folder to Workspace". */
     addFolder(projectId: string, path: string): Promise<GitActionResult>;
     /** Removes one again — "Remove Folder from Workspace"; the last one gone restores the whole
      *  repository as one tree. */
@@ -139,15 +139,15 @@ export interface TETApi {
     /** The three file-only view settings, set from the settings dialog's Files tab. */
     setExcludeGitIgnore(projectId: string, value: boolean): Promise<GitActionResult>;
     setCompactFolders(projectId: string, value: boolean): Promise<GitActionResult>;
-    setSortOrder(projectId: string, value: FileSortOrder): Promise<GitActionResult>;
+    setSortOrder(projectId: string, value: ExplorerSortOrder): Promise<GitActionResult>;
     diff(projectId: string, path: string, options: DiffOptions): Promise<FileDiff>;
     /** Lines `from` to `to` of the file as it is now, for a gap the diff view opens. */
     fileLines(projectId: string, path: string, from: number, to: number): Promise<string[]>;
     /** Every file in the repository, plus any directory nothing else implies — the diff dialog's
-     *  FILES tree, not the changed-files list. */
-    listFiles(projectId: string): Promise<FileListing>;
+     *  Explorer tree, not the changed-files list. */
+    listExplorer(projectId: string): Promise<ExplorerListing>;
     /** Just the settings dialog's Files tab needs — no filesystem walk, tet.json alone. */
-    fileView(projectId: string): Promise<FileViewSettings>;
+    explorerSettings(projectId: string): Promise<ExplorerSettings>;
     /** A file's content for the diff dialog's editor. */
     readFile(projectId: string, path: string): Promise<FileContent>;
     /** Writes a file's content; `expectedMtimeMs` must match what's on disk or nothing is written. */

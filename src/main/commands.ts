@@ -2,15 +2,17 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isSameCommand } from "../shared/command";
-import type { FileRoot, FileSortOrder, FileViewSettings, ProjectCommand } from "../shared/types";
+import type { ExplorerRoot, ExplorerSettings, ExplorerSortOrder, ProjectCommand } from "../shared/types";
 import { resolveCommand } from "./pty";
 
 /**
  * What a project keeps about itself in its own root: shell commands — "npm run build", a deploy
- * script, whatever is typed often enough to be worth a button — and how its FILES tree is shown
- * (`folders`, `exclude`, `excludeGitIgnore`, `compactFolders`, `sortOrder`; see `readFileView`).
- * They live in the repository rather than in tet's own storage, so they travel with it like any
- * other project file.
+ * script, whatever is typed often enough to be worth a button — and how its Explorer tree is shown.
+ * Shaped like a VS Code `.code-workspace`: `folders` at the top level, the view settings nested
+ * under `settings` by their full VS Code name (`files.exclude`, `explorer.excludeGitIgnore`,
+ * `explorer.compactFolders`, `explorer.sortOrder`; see `readExplorerView`). They live in the
+ * repository rather than in tet's own storage, so they travel with it like any other project
+ * file.
  */
 const FILE = "tet.json";
 
@@ -26,20 +28,23 @@ type StoredCommand =
 interface ProjectFile {
   commands?: StoredCommand[];
   folders?: unknown;
-  exclude?: unknown;
-  excludeGitIgnore?: unknown;
-  compactFolders?: unknown;
-  sortOrder?: unknown;
+  settings?: unknown;
 }
 
+/** The four view settings' keys, spelled the way VS Code itself does inside `settings`. */
+const KEY_EXCLUDE = "files.exclude";
+const KEY_EXCLUDE_GIT_IGNORE = "explorer.excludeGitIgnore";
+const KEY_COMPACT_FOLDERS = "explorer.compactFolders";
+const KEY_SORT_ORDER = "explorer.sortOrder";
+
 /**
- * How the FILES tree shows this project — VS Code's `folders` list and `files.exclude` /
+ * How the Explorer tree shows this project — VS Code's `folders` list and `files.exclude` /
  * `explorer.*` settings, read the same defensive way as the commands: anything not of the
  * expected shape is its default, never an error.
  */
-export interface FileView {
+export interface ExplorerView {
   /** Top-level nodes; empty means the whole repository as one tree. */
-  folders: FileRoot[];
+  folders: ExplorerRoot[];
   /** `files.exclude`'s globs, matched against repository-relative paths. */
   exclude: string[];
   /** `explorer.excludeGitIgnore`: hide what git ignores too. */
@@ -47,10 +52,10 @@ export interface FileView {
   /** `explorer.compactFolders`: fold `src/main/java` into one row. */
   compactFolders: boolean;
   /** `explorer.sortOrder`. */
-  sortOrder: FileSortOrder;
+  sortOrder: ExplorerSortOrder;
 }
 
-const SORT_ORDERS: readonly FileSortOrder[] = ["default", "mixed", "filesFirst", "type", "modified", "foldersNestsFiles"];
+const SORT_ORDERS: readonly ExplorerSortOrder[] = ["default", "mixed", "filesFirst", "type", "modified", "foldersNestsFiles"];
 
 /** How many characters of a command's or an agent's output a notice is worth. */
 const MAX_OUTPUT = 600;
@@ -194,11 +199,11 @@ function storedPath(entry: unknown): string | undefined {
 }
 
 /** `folders` as stored, turned into roots; a duplicate path is one root. */
-function toFolders(value: unknown, root: string): FileRoot[] {
+function toFolders(value: unknown, root: string): ExplorerRoot[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  const folders: FileRoot[] = [];
+  const folders: ExplorerRoot[] = [];
   for (const entry of value) {
     const folderPath = storedPath(entry);
     if (folderPath === undefined || folders.some((folder) => folder.path === folderPath)) {
@@ -211,7 +216,14 @@ function toFolders(value: unknown, root: string): FileRoot[] {
   return folders;
 }
 
-/** `exclude`'s patterns: VS Code's map of glob → true; only the ones set to true count. */
+/** `settings`, defensively: anything not an object is no settings at all. */
+function toSettings(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** `files.exclude`'s patterns: VS Code's map of glob → true; only the ones set to true count. */
 function toExclude(value: unknown): string[] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return [];
@@ -221,27 +233,28 @@ function toExclude(value: unknown): string[] {
     .map(([pattern]) => pattern);
 }
 
-export async function readFileView(root: string): Promise<FileView> {
+export async function readExplorerView(root: string): Promise<ExplorerView> {
   const content = (await read(root)) ?? {};
+  const settings = toSettings(content.settings);
   return {
     folders: toFolders(content.folders, root),
-    exclude: toExclude(content.exclude),
-    excludeGitIgnore: content.excludeGitIgnore === true,
-    compactFolders: content.compactFolders !== false,
-    sortOrder: SORT_ORDERS.find((order) => order === content.sortOrder) ?? "default"
+    exclude: toExclude(settings[KEY_EXCLUDE]),
+    excludeGitIgnore: settings[KEY_EXCLUDE_GIT_IGNORE] === true,
+    compactFolders: settings[KEY_COMPACT_FOLDERS] !== false,
+    sortOrder: SORT_ORDERS.find((order) => order === settings[KEY_SORT_ORDER]) ?? "default"
   };
 }
 
-/** `readFileView`'s defaults for a project with no tet.json at all — the one place ipc.ts's
+/** `readExplorerView`'s defaults for a project with no tet.json at all — the one place ipc.ts's
  *  fallbacks for a missing repository read them from, so the three values can't drift apart. */
-export const DEFAULT_FILE_VIEW: FileViewSettings = {
+export const DEFAULT_EXPLORER_VIEW: ExplorerSettings = {
   excludeGitIgnore: false,
   compactFolders: true,
   sortOrder: "default"
 };
 
 /**
- * The FILES tree's "Add Folder to Workspace". A project with no `folders` yet is the whole
+ * The Explorer tree's "Add Folder to Workspace". A project with no `folders` yet is the whole
  * repository as one tree, so the first add writes that root down alongside the new folder —
  * VS Code's own move when a single-folder window gets a second folder — rather than narrowing
  * the view to the new one. Entries are kept as written, so a `name` survives.
@@ -272,27 +285,38 @@ export async function removeFolder(root: string, folderPath: string): Promise<vo
   await write(root, rest);
 }
 
+/** Writes one key inside `settings`, keeping every other setting and top-level key as they are. */
+async function patchSetting(root: string, key: string, value: unknown): Promise<void> {
+  const content = await readForPatch(root);
+  const settings = toSettings(content.settings);
+  await write(root, { ...content, settings: { ...settings, [key]: value } });
+}
+
 /** "Exclude from Files": the path itself as a pattern, set to true the way VS Code stores it. */
 export async function addExclude(root: string, relPath: string): Promise<void> {
   const content = await readForPatch(root);
+  const settings = toSettings(content.settings);
   const existing =
-    typeof content.exclude === "object" && content.exclude !== null && !Array.isArray(content.exclude)
-      ? (content.exclude as Record<string, unknown>)
+    typeof settings[KEY_EXCLUDE] === "object" && settings[KEY_EXCLUDE] !== null && !Array.isArray(settings[KEY_EXCLUDE])
+      ? (settings[KEY_EXCLUDE] as Record<string, unknown>)
       : {};
-  await write(root, { ...content, exclude: { ...existing, [relPath]: true } });
+  await write(root, {
+    ...content,
+    settings: { ...settings, [KEY_EXCLUDE]: { ...existing, [relPath]: true } }
+  });
 }
 
 /** The three file-only view settings, set from the settings dialog's Files tab. */
 export async function setExcludeGitIgnore(root: string, value: boolean): Promise<void> {
-  await patch(root, { excludeGitIgnore: value });
+  await patchSetting(root, KEY_EXCLUDE_GIT_IGNORE, value);
 }
 
 export async function setCompactFolders(root: string, value: boolean): Promise<void> {
-  await patch(root, { compactFolders: value });
+  await patchSetting(root, KEY_COMPACT_FOLDERS, value);
 }
 
-export async function setSortOrder(root: string, value: FileSortOrder): Promise<void> {
-  await patch(root, { sortOrder: value });
+export async function setSortOrder(root: string, value: ExplorerSortOrder): Promise<void> {
+  await patchSetting(root, KEY_SORT_ORDER, value);
 }
 
 

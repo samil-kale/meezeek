@@ -12,7 +12,7 @@ import type {
   TerminalDescriptor,
   TerminalStatus
 } from "../shared/types";
-import { countActivity } from "./event-loop-monitor";
+import { countActivity, logSlow } from "./event-loop-monitor";
 import type { SettingsStore } from "./settings";
 import { ShellContext } from "./shell-context";
 import { isAgentInstalled, TerminalSession } from "./terminal-session";
@@ -1004,7 +1004,12 @@ export class ProjectSessionManager {
     if (this.disposed || runtime.released || !agent.sessions || !this.canStart(runtime)) {
       return;
     }
+    // Wall time, not pure blocking time: the listing's own I/O is async. But for local
+    // transcript files that I/O is fast, so a slow listing here is the per-line JSON.parse
+    // dominating — the actual synchronous cost this exists to surface.
+    const listStart = performance.now();
     const infos = await agent.sessions.list(executable, this.project.path);
+    logSlow("reconcile", performance.now() - listStart);
     const ownTabs = this.tabsOf(runtime);
     const claimed = new Set([
       ...ownTabs.map((tab) => tab.sessionId).filter((id) => id !== undefined),

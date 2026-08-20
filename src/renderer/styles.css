@@ -285,7 +285,7 @@ option {
 }
 
 /* One titled section of a column — the sidebar's PROJECTS and COMMANDS, the git pane's BRANCHES
-   and LOCAL CHANGES, the diff dialog's FILES and LOCAL CHANGES. One of each pair is sized by the
+   and LOCAL CHANGES, the diff dialog's EXPLORER and LOCAL CHANGES. One of each pair is sized by the
    sash between them and may still be shrunk to the floor below, so a height dragged in a taller
    window doesn't push it off the bottom in a shorter one; the other (`.grows`) takes what is
    left. */
@@ -545,10 +545,10 @@ option {
   color: var(--vscode-list-activeSelectionForeground);
 }
 
-/* The diff dialog's FILES tree — its own filter and rows sit in `.tree` above, unindented by
+/* The diff dialog's EXPLORER tree — its own filter and rows sit in `.tree` above, unindented by
    `.tree-item`'s own fixed values: it nests to whatever depth a repository's folders do, so its
-   rows set `padding-left` inline instead (see FileTree.tsx). */
-.file-tree {
+   rows set `padding-left` inline instead (see Explorer.tsx). */
+.explorer-tree {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -556,17 +556,17 @@ option {
 }
 
 /* VS Code's explorer row (ExplorerDelegate.ITEM_HEIGHT is 22px), shrunk 2px along with every
-   other measurement in FileTree.tsx — and no flex gap, since the twistie slot there carries its
+   other measurement in Explorer.tsx — and no flex gap, since the twistie slot there carries its
    own gap to the label instead of the shared `.tree-item` 5px. */
-.file-tree .tree-item {
+.explorer-tree .tree-item {
   height: 20px;
   gap: 0;
   font-size: 12px;
 }
 
-/* The chevron itself, 2px down from the shared --icon-size — the rest of FileTree.tsx shrank
+/* The chevron itself, 2px down from the shared --icon-size — the rest of Explorer.tsx shrank
    with it, so this keeps the glyph in proportion to its now-smaller twistie slot. */
-.file-tree .tree-icon {
+.explorer-tree .tree-icon {
   width: 11px;
   height: 11px;
 }
@@ -1121,7 +1121,7 @@ option {
   outline: none;
 }
 
-/* FILES over LOCAL CHANGES, the git pane's own BRANCHES-over-LOCAL-CHANGES shape (`.section`,
+/* EXPLORER over LOCAL CHANGES, the git pane's own BRANCHES-over-LOCAL-CHANGES shape (`.section`,
    `.section.grows`, a horizontal `Sash` between) — same background, sized by the vertical
    sash the way the git pane is beside the terminals. */
 .diff-dialog-files {

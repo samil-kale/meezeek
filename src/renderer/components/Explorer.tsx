@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { FileListing, FileRoot, FileSortOrder, Project } from "../../shared/types";
+import type { ExplorerListing, ExplorerRoot, ExplorerSortOrder, Project } from "../../shared/types";
 import { languageForPath } from "../diff-highlight";
 import { absolutePath, revealLabel } from "../platform";
 import { type FileAct } from "./ChangesList";
@@ -83,7 +83,7 @@ interface TreeNode {
 }
 
 /* VS Code's explorer geometry (abstractTree.ts / explorerViewer.ts), shrunk 2px across the board
- * — indent, twistie slot, its gap to the label, and the chevron glyph itself (see .file-tree
+ * — indent, twistie slot, its gap to the label, and the chevron glyph itself (see .explorer-tree
  * .tree-icon in styles.css) — so the whole tree reads smaller as one piece, not just some of it. */
 const INDENT_STEP = 6;
 const INDENT_BASE = 6;
@@ -116,7 +116,7 @@ function extensionOf(name: string): string {
  * `mixed` name alone; `filesFirst` the reverse grouping; `type` folders first, files by
  * extension then name; `modified` newest first, folders and files alike, name on a tie.
  */
-function comparatorFor(order: FileSortOrder, mtimes: Record<string, number>): (a: TreeNode, b: TreeNode) => number {
+function comparatorFor(order: ExplorerSortOrder, mtimes: Record<string, number>): (a: TreeNode, b: TreeNode) => number {
   switch (order) {
     case "mixed":
       return compareNames;
@@ -147,7 +147,7 @@ function sortTree(nodes: TreeNode[], compare: (a: TreeNode, b: TreeNode) => numb
 
 /**
  * Every file under `under` ("" for all of them), split on `/` into nested folders, plus any
- * directory `files` alone wouldn't imply (see `FileListing`) — inserted the same way, except
+ * directory `files` alone wouldn't imply (see `ExplorerListing`) — inserted the same way, except
  * its own leaf is a folder node too. Paths stay repository-relative whatever `under` is; `idOf`
  * is what a root prefixes them with (see `TreeNode.id`).
  */
@@ -215,7 +215,7 @@ function compactTree(nodes: TreeNode[]): TreeNode[] {
  * per root under a top-level node carrying its name — the same file under two overlapping roots
  * twice, each row its own. Sorted by the project's `sortOrder` either way.
  */
-function buildForest(files: FileListing): TreeNode[] {
+function buildForest(files: ExplorerListing): TreeNode[] {
   const compare = comparatorFor(files.sortOrder, files.mtimes ?? {});
   if (!files.roots) {
     const tree = buildTree(files.files, files.emptyDirs, "", (path) => path);
@@ -231,7 +231,7 @@ function buildForest(files: FileListing): TreeNode[] {
 
 /** The root whose subtree a path is revealed in: the innermost one containing it — VS Code's
  *  `getWorkspaceFolder` — or undefined when it lies under none. */
-function rootIndexFor(roots: FileRoot[], filePath: string): number | undefined {
+function rootIndexFor(roots: ExplorerRoot[], filePath: string): number | undefined {
   let best: number | undefined;
   roots.forEach((root, index) => {
     const inside = root.path === "" || filePath.startsWith(`${root.path}/`);
@@ -361,10 +361,10 @@ function Rows({ nodes, depth, expanded, toggle, forceExpanded, selected, onOpen,
   );
 }
 
-interface FileTreeProps {
+interface ExplorerProps {
   project: Project;
-  /** Undefined while the listing is still being read — the FILES header's own bar says so. */
-  files: FileListing | undefined;
+  /** Undefined while the listing is still being read — the EXPLORER header's own bar says so. */
+  files: ExplorerListing | undefined;
   /** The open file, if any — reveals and highlights it; not itself an ↑/↓ target (see CLAUDE.md). */
   selected: string | null;
   onOpen: (path: string) => void;
@@ -373,13 +373,13 @@ interface FileTreeProps {
   act: FileAct;
   /** A create, rename or delete settled — nothing else would tell the tree to read the listing
    *  again: an empty new folder, unlike a new file, never touches git status. */
-  onFilesChanged: () => void;
-  ref?: React.Ref<FileTreeHandle>;
+  onExplorerChanged: () => void;
+  ref?: React.Ref<ExplorerHandle>;
 }
 
-/** What the FILES header's own title-bar buttons reach in — VS Code's "New File...", "New
+/** What the EXPLORER header's own title-bar buttons reach in — VS Code's "New File...", "New
  *  Folder..." and "Collapse Folders in Explorer", the same trio its explorer carries. */
-export interface FileTreeHandle {
+export interface ExplorerHandle {
   newFile(): void;
   newFolder(): void;
   collapseAll(): void;
@@ -392,12 +392,12 @@ export interface FileTreeHandle {
  * explorer adds for a tree rather than a flat list: new file, new folder, rename, delete.
  *
  * How it is shown is the project's own say, from its tet.json and carried in by the listing
- * (see `FileListing`): `folders` make it VS Code's multi-root explorer — one top-level node per
- * entry, overlapping allowed, the file revealed in the innermost root containing it — while
+ * (see `ExplorerListing`): `folders` make it VS Code's multi-root explorer — one top-level node
+ * per entry, overlapping allowed, the file revealed in the innermost root containing it — while
  * `exclude`/`excludeGitIgnore` have already thinned the listing before it gets here, and
  * `sortOrder`/`compactFolders` are applied on the way to the screen.
  */
-export function FileTree({ project, files, selected, onOpen, act, onFilesChanged, ref }: FileTreeProps) {
+export function Explorer({ project, files, selected, onOpen, act, onExplorerChanged, ref }: ExplorerProps) {
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode | null } | null>(null);
@@ -491,12 +491,12 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
     });
   };
 
-  /** `act`, plus telling the FILES header to read the listing again once the action lands. */
+  /** `act`, plus telling the EXPLORER header to read the listing again once the action lands. */
   const run: FileAct = (action) =>
     act(() =>
       action().then((result) => {
         if (result.ok) {
-          onFilesChanged();
+          onExplorerChanged();
         }
         return result;
       })
@@ -549,7 +549,7 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
     }
   };
 
-  // The FILES header's own title-bar buttons — same target as right-clicking the empty space
+  // The EXPLORER header's own title-bar buttons — same target as right-clicking the empty space
   // below the tree (`menuEntries` with `node: null`): the repository root.
   useImperativeHandle(ref, () => ({
     newFile: () => void askNewFile(""),
@@ -562,7 +562,7 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
    * change, plus VS Code's new/rename/delete for a tree of every file, and its explorer's
    * workspace entries — "Add Folder to Workspace" on a folder, "Remove Folder from Workspace" on
    * a root — with one VS Code keeps in its settings editor, "Exclude from Files". All three edit
-   * the project's tet.json (see CLAUDE.md, "Files view"). A root is neither renamed nor deleted
+   * the project's tet.json (see CLAUDE.md, "Explorer"). A root is neither renamed nor deleted
    * from here: it is a view onto a folder, not the folder.
    */
   const menuEntries = (node: TreeNode | null): ContextMenuEntry[] => {
@@ -636,7 +636,7 @@ export function FileTree({ project, files, selected, onOpen, act, onFilesChanged
   };
 
   return (
-    <div className="file-tree">
+    <div className="explorer-tree">
       <div className="filter-field">
         <SearchIcon className="filter-icon" />
         <input type="text" placeholder="Filter files..." value={filter} onChange={(event) => setFilter(event.target.value)} />
