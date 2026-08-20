@@ -921,11 +921,19 @@ the opposite of what "xterm drops the shift" would suggest, why this got read ra
 twice. `Alt+1…9` is out (`ESC 1`, readline's digit argument), so is `Ctrl+Tab`/`Ctrl+Shift+Tab`:
 keyCode 9's case never looks at `ctrlKey`, so both are byte-identical to plain Tab/Shift+Tab — the
 latter is Claude Code's own mode toggle. `Ctrl+,` and `Ctrl+Shift+.`/`Ctrl+Shift+,` are open: none of
-those keycodes appear in any branch, modified or not. Shift+Enter and Ctrl+V are handled *for* the
-terminal, not taken from it. None of the six window shortcuts close a tab — behind that key is a
-live agent session that doesn't come back. They live in `src/renderer/shortcuts.ts`, the one list
-both the capture-phase listener in `App.tsx` and the settings dialog's Shortcuts tab read from, so
-binding and label can't drift apart.
+those keycodes appear in any branch, modified or not. Shift+Enter, Ctrl+V and Ctrl+C are handled
+*for* the terminal, not taken from it. None of the six window shortcuts close a tab — behind that
+key is a live agent session that doesn't come back. They live in `src/renderer/shortcuts.ts`, the
+one list both the capture-phase listener in `App.tsx` and the settings dialog's Shortcuts tab read
+from, so binding and label can't drift apart.
+
+**Ctrl+C is the one deliberate exception to "takes nothing an agent could have received."** With a
+selection it always copies instead of sending `\x03`. Without one, only a plain shell still gets
+`\x03` (SIGINT) — every agent swallows it instead, since on win32 ConPTY turns that byte into a
+process-level `CTRL_C_EVENT` that can kill a CLI outright rather than interrupt it, and closing the
+tab already covers what an agent would need it for. Check a newly added agent against this rather
+than assuming; `agentId !== "shell"` in `attachCustomKeyEventHandler`'s Ctrl+C branch is what
+currently draws the line.
 
 ## The renderer
 

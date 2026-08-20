@@ -245,6 +245,28 @@ function createView(projectId: string, tabId: string, agentId: AgentId): Termina
       }
       return false;
     }
+    // Ctrl+C with a selection copies instead of interrupting, in every terminal type. Without
+    // a selection it keeps sending \x03 (SIGINT) for a plain shell, where that is the point of
+    // the key — but never for an agent: on win32 that byte becomes a CTRL_C_EVENT ConPTY raises
+    // at the process level, which kills a CLI with no handler for it rather than "interrupting"
+    // it. Closing the tab is the agents' equivalent action, so the key is simply swallowed there.
+    if (event.type === "keydown" && event.key.toLowerCase() === "c" && isModifierHeld(event) && !event.shiftKey) {
+      const selection = term.getSelection();
+      if (selection) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) {
+          void navigator.clipboard.writeText(selection);
+          term.clearSelection();
+        }
+        return false;
+      }
+      if (agentId !== "shell") {
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+    }
     return true;
   });
 
@@ -317,6 +339,7 @@ export function attachTerminal(projectId: string, tabId: string, agentId: AgentI
       const selection = view.term.getSelection();
       if (selection) {
         void navigator.clipboard.writeText(selection);
+        view.term.clearSelection();
       } else {
         void pasteClipboard(view.term);
       }
