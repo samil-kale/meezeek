@@ -1022,7 +1022,7 @@ export class ProjectSessionManager {
       .filter((tab) => !tab.sessionId && tab.spawnedAt !== undefined)
       .sort((a, b) => (b.spawnedAt ?? 0) - (a.spawnedAt ?? 0));
     for (const tab of pendingTabs) {
-      const match = unclaimed.find((info) => info.updatedAt > (tab.spawnedAt ?? 0));
+      const match = unclaimed.find((info) => info.createdAt > (tab.spawnedAt ?? 0));
       if (!match) {
         continue;
       }
