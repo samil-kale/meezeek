@@ -4,6 +4,7 @@
     ".claude": true,
     ".gitignore": true
   },
+  "excludeGitIgnore": true,
   "commands": [
     {
       "command": "npm run compile",
@@ -15,5 +16,4 @@
     "npm run lint",
     "npm run dist"
   ],
-  "excludeGitIgnore": true
 }
