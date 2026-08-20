@@ -201,11 +201,14 @@ function createView(projectId: string, tabId: string, agentId: AgentId): Termina
     // Governs OSC 8 hyperlinks the CLI itself may emit (as opposed to plain URL text, which
     // the url link provider below matches by regex). Without this, xterm's built-in OSC 8
     // handling wins priority over our own link providers and opens links with window.open.
+    //
+    // Unlike ILinkProvider's ILink, xterm's ILinkHandler has no `decorations` to gate the
+    // hover underline behind a modifier — xterm always shows it on hover for an OSC 8 link.
+    // Gating only the click there would leave a link that visibly invites a click but eats it,
+    // so activation matches the affordance instead: a plain click opens it.
     linkHandler: {
-      activate(event, text) {
-        if (isModifierHeld(event)) {
-          openUrl(text);
-        }
+      activate(_event, text) {
+        openUrl(text);
       }
     }
   });
