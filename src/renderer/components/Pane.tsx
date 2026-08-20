@@ -60,6 +60,8 @@ function formatIso(ms: number): string {
 export interface PaneChrome {
   gitOpen: boolean;
   onToggleGit: () => void;
+  /** Whether the repository has local changes — bars the toggle even while its pane is closed. */
+  gitDirty: boolean;
 }
 
 interface PaneProps {
@@ -406,7 +408,7 @@ export const Pane = memo(function Pane({
           <div className="tab-strip-actions">
             {chrome && (
               <button
-                className={`icon-button${chrome.gitOpen ? " active" : ""}`}
+                className={`icon-button${chrome.gitOpen ? " active" : ""}${chrome.gitDirty ? " dirty" : ""}`}
                 onClick={chrome.onToggleGit}
                 title={chrome.gitOpen ? "Hide the repository" : "Show the repository"}
               >

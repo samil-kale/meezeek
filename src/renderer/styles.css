@@ -1231,6 +1231,24 @@ option {
   color: var(--vscode-button-background);
 }
 
+/* A bar under the git icon while its repository has local changes, shown whether or not the
+   pane is open — `currentColor`, so it rides the same recolor `.active` already gives the icon:
+   the toggle's own blue once the pane is open, plain otherwise, with no separate color rule to
+   keep in step with it. */
+.icon-button.dirty {
+  position: relative;
+}
+
+.icon-button.dirty::after {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  left: 6px;
+  right: 6px;
+  height: 1px;
+  background: currentColor;
+}
+
 /* Two-up, side by side, each version as large as it fits without stretching. */
 .image-diff {
   display: flex;

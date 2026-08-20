@@ -875,6 +875,7 @@ export function App() {
               visible={project.id === activeProjectId}
               gitOpen={gitOpen}
               onToggleGit={toggleGit}
+              gitDirty={(states[project.id]?.changes.length ?? 0) > 0}
               // The git pane, the diff dialog and a discard/stash now all carry their own bar —
               // this one is left with only the reason that has no tab of its own to point a pane
               // at yet: the session listing at bootstrap, before any tab exists. Once a tab is
