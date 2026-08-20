@@ -42,6 +42,12 @@ pane for the navigation and review that's left once the agent is done, with a di
 fallback for reading code directly. A feature becomes a button only where a click beats writing
 the prompt for it; everything else stays in the terminal it belongs to.
 
+<br/>
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="TET screenshot" width="800" />
+</p>
+
 ---
 
 ### Real terminals, several agents
