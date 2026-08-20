@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isSameCommand } from "../shared/command";
-import type { FileRoot, FileSortOrder, ProjectCommand } from "../shared/types";
+import type { FileRoot, FileSortOrder, FileViewSettings, ProjectCommand } from "../shared/types";
 import { resolveCommand } from "./pty";
 
 /**
@@ -232,6 +232,14 @@ export async function readFileView(root: string): Promise<FileView> {
   };
 }
 
+/** `readFileView`'s defaults for a project with no tet.json at all — the one place ipc.ts's
+ *  fallbacks for a missing repository read them from, so the three values can't drift apart. */
+export const DEFAULT_FILE_VIEW: FileViewSettings = {
+  excludeGitIgnore: false,
+  compactFolders: true,
+  sortOrder: "default"
+};
+
 /**
  * The FILES tree's "Add Folder to Workspace". A project with no `folders` yet is the whole
  * repository as one tree, so the first add writes that root down alongside the new folder —
@@ -274,7 +282,7 @@ export async function addExclude(root: string, relPath: string): Promise<void> {
   await write(root, { ...content, exclude: { ...existing, [relPath]: true } });
 }
 
-/** The three file-only view settings, set from the settings dialog's Editor tab. */
+/** The three file-only view settings, set from the settings dialog's Files tab. */
 export async function setExcludeGitIgnore(root: string, value: boolean): Promise<void> {
   await patch(root, { excludeGitIgnore: value });
 }

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { DEFAULT_KEYBINDING_PRESET_ID } from "../shared/types";
 import type { AppSettings } from "../shared/types";
 
 /** What tet does before anyone has said otherwise; sbc's own defaults. */
@@ -9,7 +10,7 @@ const DEFAULTS: AppSettings = {
     needsYou: true,
     idleReminder: false
   },
-  editorKeybindingPreset: "vscode"
+  editorKeybindingPreset: DEFAULT_KEYBINDING_PRESET_ID
 };
 
 /**

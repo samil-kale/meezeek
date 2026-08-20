@@ -136,7 +136,7 @@ export interface TETApi {
     removeFolder(projectId: string, path: string): Promise<GitActionResult>;
     /** Adds the path to the project's `exclude` map in tet.json — "Exclude from Files". */
     excludePath(projectId: string, path: string): Promise<GitActionResult>;
-    /** The three file-only view settings, set from the settings dialog's Editor tab. */
+    /** The three file-only view settings, set from the settings dialog's Files tab. */
     setExcludeGitIgnore(projectId: string, value: boolean): Promise<GitActionResult>;
     setCompactFolders(projectId: string, value: boolean): Promise<GitActionResult>;
     setSortOrder(projectId: string, value: FileSortOrder): Promise<GitActionResult>;
@@ -146,7 +146,7 @@ export interface TETApi {
     /** Every file in the repository, plus any directory nothing else implies — the diff dialog's
      *  FILES tree, not the changed-files list. */
     listFiles(projectId: string): Promise<FileListing>;
-    /** Just the settings dialog's Editor tab needs — no filesystem walk, tet.json alone. */
+    /** Just the settings dialog's Files tab needs — no filesystem walk, tet.json alone. */
     fileView(projectId: string): Promise<FileViewSettings>;
     /** A file's content for the diff dialog's editor. */
     readFile(projectId: string, path: string): Promise<FileContent>;

@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import type { AppInfo, AppSettings, FileSortOrder, FileViewSettings, NotificationSettings, Project } from "../../shared/types";
+import { DEFAULT_KEYBINDING_PRESET_ID } from "../../shared/types";
+import type {
+  AppInfo,
+  AppSettings,
+  FileSortOrder,
+  FileViewSettings,
+  GitActionResult,
+  NotificationSettings,
+  Project
+} from "../../shared/types";
 import { ChevronIcon } from "./icons";
 import { KEYBINDING_PRESETS } from "../keybinding-presets";
 import { notify } from "./Notices";
@@ -7,18 +16,18 @@ import { SHORTCUTS, shortcutLabel } from "../shortcuts";
 import { useEscape } from "./use-escape";
 
 interface SettingsDialogProps {
-  /** Whose tet.json the Editor tab's FILES view settings read and write; null hides that part. */
+  /** Whose tet.json the Files tab's FILES view settings read and write; null hides that part. */
   activeProject: Project | null;
   onClose: () => void;
 }
 
-type SettingsTab = "notifications" | "shortcuts" | "editor" | "info";
+type SettingsTab = "notifications" | "shortcuts" | "files" | "info";
 
 /** The dialog's panes, in the order they are worth opening. */
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "notifications", label: "Notifications" },
   { id: "shortcuts", label: "Shortcuts" },
-  { id: "editor", label: "Files" },
+  { id: "files", label: "Files" },
   { id: "info", label: "Info" }
 ];
 
@@ -30,7 +39,7 @@ const SWITCHES: { key: keyof NotificationSettings; label: string }[] = [
 ];
 
 /**
- * The Editor tab's sort-order picker. `foldersNestsFiles` is left out on purpose: the FILES
+ * The Files tab's sort-order picker. `foldersNestsFiles` is left out on purpose: the FILES
  * tree has no file nesting to turn off, so it sorts identically to `default` and would be a
  * second, indistinguishable entry — a hand-written tet.json can still hold it.
  */
@@ -108,36 +117,16 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
     void window.tet.settings.save(next);
   };
 
-  const setExcludeGitIgnore = (value: boolean): void => {
+  const updateFileView = <K extends keyof FileViewSettings>(
+    key: K,
+    value: FileViewSettings[K],
+    save: (projectId: string, value: FileViewSettings[K]) => Promise<GitActionResult>
+  ): void => {
     if (!activeProject || !fileView) {
       return;
     }
-    setFileView({ ...fileView, excludeGitIgnore: value });
-    void window.tet.repository.setExcludeGitIgnore(activeProject.id, value).then((result) => {
-      if (!result.ok) {
-        notify("error", result.error ?? "Could not update tet.json");
-      }
-    });
-  };
-
-  const setCompactFolders = (value: boolean): void => {
-    if (!activeProject || !fileView) {
-      return;
-    }
-    setFileView({ ...fileView, compactFolders: value });
-    void window.tet.repository.setCompactFolders(activeProject.id, value).then((result) => {
-      if (!result.ok) {
-        notify("error", result.error ?? "Could not update tet.json");
-      }
-    });
-  };
-
-  const setSortOrder = (value: FileSortOrder): void => {
-    if (!activeProject || !fileView) {
-      return;
-    }
-    setFileView({ ...fileView, sortOrder: value });
-    void window.tet.repository.setSortOrder(activeProject.id, value).then((result) => {
+    setFileView({ ...fileView, [key]: value });
+    void save(activeProject.id, value).then((result) => {
       if (!result.ok) {
         notify("error", result.error ?? "Could not update tet.json");
       }
@@ -197,7 +186,7 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
               ))}
             </div>
           )}
-          {tab === "editor" && (
+          {tab === "files" && (
             <>
               <p className="dialog-detail">
                 {activeProject ? `FILES tree, for ${activeProject.name}` : "FILES tree - open a project to edit it"}
@@ -208,7 +197,9 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
                     <input
                       type="checkbox"
                       checked={fileView.excludeGitIgnore}
-                      onChange={(event) => setExcludeGitIgnore(event.target.checked)}
+                      onChange={(event) =>
+                        updateFileView("excludeGitIgnore", event.target.checked, window.tet.repository.setExcludeGitIgnore)
+                      }
                     />
                     <span>Hide what git ignores too</span>
                   </label>
@@ -216,7 +207,9 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
                     <input
                       type="checkbox"
                       checked={fileView.compactFolders}
-                      onChange={(event) => setCompactFolders(event.target.checked)}
+                      onChange={(event) =>
+                        updateFileView("compactFolders", event.target.checked, window.tet.repository.setCompactFolders)
+                      }
                     />
                     <span>Compact folders that only contain another folder into one row</span>
                   </label>
@@ -225,7 +218,13 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
                     <div className="select-field">
                       <select
                         value={fileView.sortOrder}
-                        onChange={(event) => setSortOrder(event.target.value as FileSortOrder)}
+                        onChange={(event) =>
+                          updateFileView(
+                            "sortOrder",
+                            event.target.value as FileSortOrder,
+                            window.tet.repository.setSortOrder
+                          )
+                        }
                       >
                         {SORT_ORDERS.map((order) => (
                           <option key={order.id} value={order.id}>
@@ -241,7 +240,7 @@ export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) 
               <p className="dialog-detail">Presets from popular editors and IDEs - only for what the file editor supports</p>
               <div className="select-field">
                 <select
-                  value={settings?.editorKeybindingPreset ?? KEYBINDING_PRESETS[0].id}
+                  value={settings?.editorKeybindingPreset ?? DEFAULT_KEYBINDING_PRESET_ID}
                   onChange={(event) => applyPreset(event.target.value)}
                 >
                   {KEYBINDING_PRESETS.map((preset) => (

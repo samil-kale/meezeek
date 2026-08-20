@@ -54,9 +54,14 @@ export interface NotificationSettings {
  */
 export interface AppSettings {
   notifications: NotificationSettings;
-  /** The Editor tab's preset picker; an id out of `KEYBINDING_PRESETS`, "vscode" its default. */
+  /** The Files tab's keybinding preset picker; an id out of `KEYBINDING_PRESETS`,
+   *  `DEFAULT_KEYBINDING_PRESET_ID` its default. */
   editorKeybindingPreset: string;
 }
+
+/** The Files tab's keybinding-preset fallback, shared so main and renderer can't drift apart —
+ *  matches `KEYBINDING_PRESETS[0].id`. */
+export const DEFAULT_KEYBINDING_PRESET_ID = "vscode";
 
 /**
  * What tet *is*, as opposed to what it is set to — the settings dialog's Info tab. Read once
@@ -341,7 +346,7 @@ export interface FileRoot {
 /** VS Code's `explorer.sortOrder` values. `foldersNestsFiles` is `default` without file nesting. */
 export type FileSortOrder = "default" | "mixed" | "filesFirst" | "type" | "modified" | "foldersNestsFiles";
 
-/** The FILES tree settings the settings dialog's Editor tab edits directly, read on its own. */
+/** The FILES tree settings the settings dialog's Files tab edits directly, read on its own. */
 export interface FileViewSettings {
   excludeGitIgnore: boolean;
   compactFolders: boolean;

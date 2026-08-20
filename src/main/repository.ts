@@ -707,7 +707,7 @@ export class Repository {
     return this.editView(() => addExclude(this.project.path, relPath));
   }
 
-  /** The settings dialog's Editor tab reads and writes these three the same way. */
+  /** The settings dialog's Files tab reads and writes these three the same way. */
   readFileViewSettings(): Promise<FileViewSettings> {
     return readFileView(this.project.path);
   }

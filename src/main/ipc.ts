@@ -31,7 +31,7 @@ import type {
 } from "../shared/types";
 import { PROVIDERS } from "../providers";
 import type { AccountStore } from "../providers/accounts";
-import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
+import { DEFAULT_FILE_VIEW, mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { ProjectStore } from "./projects";
@@ -351,22 +351,16 @@ export function registerIpc({
       (await repositories.get(projectId)?.listFiles()) ?? {
         files: [],
         emptyDirs: [],
-        compactFolders: true,
-        sortOrder: "default"
+        compactFolders: DEFAULT_FILE_VIEW.compactFolders,
+        sortOrder: DEFAULT_FILE_VIEW.sortOrder
       }
     );
   });
 
-  // The settings dialog's Editor tab: just the three view settings, not a full listing — reads
+  // The settings dialog's Files tab: just the three view settings, not a full listing — reads
   // tet.json alone, no filesystem walk.
   ipcMain.handle("repo:file-view", async (_event, projectId: string): Promise<FileViewSettings> => {
-    return (
-      (await repositories.get(projectId)?.readFileViewSettings()) ?? {
-        excludeGitIgnore: false,
-        compactFolders: true,
-        sortOrder: "default"
-      }
-    );
+    return (await repositories.get(projectId)?.readFileViewSettings()) ?? DEFAULT_FILE_VIEW;
   });
 
   ipcMain.handle("repo:file-read", async (_event, projectId: string, filePath: string): Promise<FileContent> => {
