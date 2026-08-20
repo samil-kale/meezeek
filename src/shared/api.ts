@@ -10,6 +10,8 @@ import type {
   FileContent,
   FileDiff,
   FileListing,
+  FileSortOrder,
+  FileViewSettings,
   FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
@@ -46,15 +48,6 @@ export interface TETApi {
     get(): Promise<AppSettings>;
     /** Writes all of it. Each switch applies to the agents set up after it — see the dialog. */
     save(settings: AppSettings): Promise<void>;
-  };
-  /**
-   * The file-editor's own keybindings — a key-combo-to-command-id map read from keybindings.json
-   * in tet's own userData. Normally hand-edited; `set` is only ever called by the settings
-   * dialog's preset picker, which overwrites the whole file rather than editing it in place.
-   */
-  keybindings: {
-    get(): Promise<Record<string, string>>;
-    set(bindings: Record<string, string>): Promise<void>;
   };
   projects: {
     list(): Promise<Project[]>;
@@ -143,12 +136,18 @@ export interface TETApi {
     removeFolder(projectId: string, path: string): Promise<GitActionResult>;
     /** Adds the path to the project's `exclude` map in tet.json — "Exclude from Files". */
     excludePath(projectId: string, path: string): Promise<GitActionResult>;
+    /** The three file-only view settings, set from the settings dialog's Editor tab. */
+    setExcludeGitIgnore(projectId: string, value: boolean): Promise<GitActionResult>;
+    setCompactFolders(projectId: string, value: boolean): Promise<GitActionResult>;
+    setSortOrder(projectId: string, value: FileSortOrder): Promise<GitActionResult>;
     diff(projectId: string, path: string, options: DiffOptions): Promise<FileDiff>;
     /** Lines `from` to `to` of the file as it is now, for a gap the diff view opens. */
     fileLines(projectId: string, path: string, from: number, to: number): Promise<string[]>;
     /** Every file in the repository, plus any directory nothing else implies — the diff dialog's
      *  FILES tree, not the changed-files list. */
     listFiles(projectId: string): Promise<FileListing>;
+    /** Just the settings dialog's Editor tab needs — no filesystem walk, tet.json alone. */
+    fileView(projectId: string): Promise<FileViewSettings>;
     /** A file's content for the diff dialog's editor. */
     readFile(projectId: string, path: string): Promise<FileContent>;
     /** Writes a file's content; `expectedMtimeMs` must match what's on disk or nothing is written. */

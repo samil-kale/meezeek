@@ -5,14 +5,15 @@ export interface KeybindingPreset {
 }
 
 /**
- * A curated starting point for keybindings.json, one per popular editor/IDE — the settings
- * dialog's preset picker writes one of these over the whole file. Each is trimmed from that
- * editor's own well-known VS Code keymap extension down to the commands this editor's reduced
- * contribution set actually registers (see monaco-core.ts): line comment/delete/copy/move,
- * multi-cursor, fold/unfold, find/replace. Left out for all of them: workbench-level commands
- * (there is no explorer, no editor groups, no command palette here), provider-dependent ones
- * (format, rename, organize imports — no LSP), and chord bindings ("ctrl+k ctrl+b") — this
- * editor's keybindings.json only understands a single combo per command (see keybindings.ts).
+ * A curated keymap, one per popular editor/IDE — in-code data the settings dialog's preset
+ * picker only ever selects from, never writes anywhere; `resolveKeybindings` (keybindings.ts)
+ * layers the chosen one's bindings over this editor's own defaults, entirely in memory. Each is
+ * trimmed from that editor's own well-known VS Code keymap extension down to the commands this
+ * editor's reduced contribution set actually registers (see monaco-core.ts): line
+ * comment/delete/copy/move, multi-cursor, fold/unfold, find/replace. Left out for all of them:
+ * workbench-level commands (there is no explorer, no editor groups, no command palette here),
+ * provider-dependent ones (format, rename, organize imports — no LSP), and chord bindings
+ * ("ctrl+k ctrl+b") — `parseKeyCombo` only understands a single combo per command.
  * A binding identical to this editor's own default is left out too, since it would be a no-op.
  *
  * Emacs and Neovim/Vim have no preset here: both are almost entirely chords or modal motions

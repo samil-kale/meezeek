@@ -1,10 +1,8 @@
 {
   "exclude": {
-    "node_modules": true,
     ".github/workflows": true,
-    "dist": true,
-    "release": true,
-    ".claude": true
+    ".claude": true,
+    ".gitignore": true
   },
   "commands": [
     {
@@ -16,5 +14,6 @@
     "npm run typecheck",
     "npm run lint",
     "npm run dist"
-  ]
+  ],
+  "excludeGitIgnore": true
 }

@@ -274,6 +274,19 @@ export async function addExclude(root: string, relPath: string): Promise<void> {
   await write(root, { ...content, exclude: { ...existing, [relPath]: true } });
 }
 
+/** The three file-only view settings, set from the settings dialog's Editor tab. */
+export async function setExcludeGitIgnore(root: string, value: boolean): Promise<void> {
+  await patch(root, { excludeGitIgnore: value });
+}
+
+export async function setCompactFolders(root: string, value: boolean): Promise<void> {
+  await patch(root, { compactFolders: value });
+}
+
+export async function setSortOrder(root: string, value: FileSortOrder): Promise<void> {
+  await patch(root, { sortOrder: value });
+}
+
 
 /**
  * What an agent is asked when the wand is pressed. Deliberately concrete about where commands

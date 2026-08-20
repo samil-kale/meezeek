@@ -8,6 +8,8 @@ import type {
   FileContent,
   FileDiff,
   FileListing,
+  FileSortOrder,
+  FileViewSettings,
   FileWriteResult,
   GitActionResult,
   NoticeSeverity,
@@ -15,7 +17,15 @@ import type {
   RepositoryState,
   StashCommand
 } from "../shared/types";
-import { addExclude, addFolder, readFileView, removeFolder } from "./commands";
+import {
+  addExclude,
+  addFolder,
+  readFileView,
+  removeFolder,
+  setCompactFolders,
+  setExcludeGitIgnore,
+  setSortOrder
+} from "./commands";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { DiscardTargets } from "./git";
@@ -695,6 +705,23 @@ export class Repository {
 
   excludePath(relPath: string): Promise<GitActionResult> {
     return this.editView(() => addExclude(this.project.path, relPath));
+  }
+
+  /** The settings dialog's Editor tab reads and writes these three the same way. */
+  readFileViewSettings(): Promise<FileViewSettings> {
+    return readFileView(this.project.path);
+  }
+
+  setExcludeGitIgnore(value: boolean): Promise<GitActionResult> {
+    return this.editView(() => setExcludeGitIgnore(this.project.path, value));
+  }
+
+  setCompactFolders(value: boolean): Promise<GitActionResult> {
+    return this.editView(() => setCompactFolders(this.project.path, value));
+  }
+
+  setSortOrder(value: FileSortOrder): Promise<GitActionResult> {
+    return this.editView(() => setSortOrder(this.project.path, value));
   }
 
   private async editView(edit: () => Promise<void>): Promise<GitActionResult> {

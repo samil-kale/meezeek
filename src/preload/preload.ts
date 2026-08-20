@@ -19,10 +19,6 @@ const api: TETApi = {
     get: () => ipcRenderer.invoke("settings:get"),
     save: (settings) => ipcRenderer.invoke("settings:save", settings)
   },
-  keybindings: {
-    get: () => ipcRenderer.invoke("keybindings:get"),
-    set: (bindings) => ipcRenderer.invoke("keybindings:set", bindings)
-  },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
     pickDirectory: (title, defaultPath) => ipcRenderer.invoke("projects:pick-directory", title, defaultPath),
@@ -72,10 +68,14 @@ const api: TETApi = {
     addFolder: (projectId, folderPath) => ipcRenderer.invoke("repo:add-folder", projectId, folderPath),
     removeFolder: (projectId, folderPath) => ipcRenderer.invoke("repo:remove-folder", projectId, folderPath),
     excludePath: (projectId, relPath) => ipcRenderer.invoke("repo:exclude-path", projectId, relPath),
+    setExcludeGitIgnore: (projectId, value) => ipcRenderer.invoke("repo:set-exclude-git-ignore", projectId, value),
+    setCompactFolders: (projectId, value) => ipcRenderer.invoke("repo:set-compact-folders", projectId, value),
+    setSortOrder: (projectId, value) => ipcRenderer.invoke("repo:set-sort-order", projectId, value),
     diff: (projectId, filePath, options) => ipcRenderer.invoke("repo:diff", projectId, filePath, options),
     fileLines: (projectId, filePath, from, to) =>
       ipcRenderer.invoke("repo:file-lines", projectId, filePath, from, to),
     listFiles: (projectId) => ipcRenderer.invoke("repo:files", projectId),
+    fileView: (projectId) => ipcRenderer.invoke("repo:file-view", projectId),
     readFile: (projectId, filePath) => ipcRenderer.invoke("repo:file-read", projectId, filePath),
     writeFile: (projectId, filePath, content, expectedMtimeMs) =>
       ipcRenderer.invoke("repo:file-write", projectId, filePath, content, expectedMtimeMs),

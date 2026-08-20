@@ -15,6 +15,8 @@ import type {
   FileContent,
   FileDiff,
   FileListing,
+  FileSortOrder,
+  FileViewSettings,
   FileWriteResult,
   GitActionResult,
   ListRepositoriesResult,
@@ -30,7 +32,6 @@ import type {
 import { PROVIDERS } from "../providers";
 import type { AccountStore } from "../providers/accounts";
 import { mergeCommands, readCommands, suggestCommands, suggestQuestion, writeCommands } from "./commands";
-import { readKeybindings, writeKeybindings } from "./keybindings";
 import { countActivity } from "./event-loop-monitor";
 import { git } from "./git-client";
 import type { ProjectStore } from "./projects";
@@ -144,12 +145,6 @@ export function registerIpc({
   // Written whole, like a project's saved commands: the dialog holds all of it and every
   // switch it draws is one the user could have flipped since it was opened.
   ipcMain.handle("settings:save", (_event, next: AppSettings): void => settings.save(next));
-
-  // The file-editor's own keybindings — read fresh, not cached: asked for once per editor
-  // opened, and a value held from before an edit would show the file as it used to be.
-  ipcMain.handle("keybindings:get", (): Promise<Record<string, string>> => readKeybindings(app.getPath("userData")));
-  ipcMain.handle("keybindings:set", (_event, bindings: Record<string, string>): Promise<void> =>
-    writeKeybindings(app.getPath("userData"), bindings));
 
   ipcMain.handle("projects:list", (): Project[] => store.list());
 
@@ -329,6 +324,9 @@ export function registerIpc({
   onRepository("repo:add-folder", (repository, folderPath: string) => repository.addFolder(folderPath));
   onRepository("repo:remove-folder", (repository, folderPath: string) => repository.removeFolder(folderPath));
   onRepository("repo:exclude-path", (repository, relPath: string) => repository.excludePath(relPath));
+  onRepository("repo:set-exclude-git-ignore", (repository, value: boolean) => repository.setExcludeGitIgnore(value));
+  onRepository("repo:set-compact-folders", (repository, value: boolean) => repository.setCompactFolders(value));
+  onRepository("repo:set-sort-order", (repository, value: FileSortOrder) => repository.setSortOrder(value));
 
   ipcMain.handle(
     "repo:diff",
@@ -353,6 +351,18 @@ export function registerIpc({
       (await repositories.get(projectId)?.listFiles()) ?? {
         files: [],
         emptyDirs: [],
+        compactFolders: true,
+        sortOrder: "default"
+      }
+    );
+  });
+
+  // The settings dialog's Editor tab: just the three view settings, not a full listing — reads
+  // tet.json alone, no filesystem walk.
+  ipcMain.handle("repo:file-view", async (_event, projectId: string): Promise<FileViewSettings> => {
+    return (
+      (await repositories.get(projectId)?.readFileViewSettings()) ?? {
+        excludeGitIgnore: false,
         compactFolders: true,
         sortOrder: "default"
       }

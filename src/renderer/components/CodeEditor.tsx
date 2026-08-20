@@ -2,7 +2,7 @@ import { useEffect, useImperativeHandle, useRef } from "react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { languageForPath } from "../diff-highlight";
 import { editorOptions, ensureLanguage, loadMonaco } from "../editor";
-import { loadKeybindings, parseKeyCombo } from "../keybindings";
+import { parseKeyCombo, resolveKeybindings } from "../keybindings";
 
 export interface CodeEditorHandle {
   /** The model's current text, BOM preserved — see `Repository.writeFile`. */
@@ -68,11 +68,12 @@ export function CodeEditor({ path, content, onDirty, onSave, onBusy, ref }: Code
       // for plaintext too: the first call is also what defines the theme — see ensureLanguage.
       const language = languageForPath(path);
       await ensureLanguage(monaco, language ?? null);
-      // The user's own keybindings.json, layered over tet's defaults for the commands added
-      // below — and free to name any of monaco's own command ids too (see keybindings.ts). Read
+      // The settings dialog's chosen preset, layered over tet's defaults for the commands added
+      // below — free to name any of monaco's own command ids too (see keybindings.ts). Read
       // before the editor exists: an unmount landing during this read must find nothing to
       // dispose, not an editor the loop below would then reach for through a nulled ref.
-      const keybindings = await loadKeybindings();
+      const { editorKeybindingPreset } = await window.tet.settings.get();
+      const keybindings = resolveKeybindings(editorKeybindingPreset);
       if (cancelled || !hostRef.current) {
         return;
       }
@@ -83,8 +84,8 @@ export function CodeEditor({ path, content, onDirty, onSave, onBusy, ref }: Code
       });
       const fontFamily = getComputedStyle(document.documentElement).getPropertyValue("--vscode-editor-font-family").trim();
       editorRef.current = monaco.editor.create(hostRef.current, { ...editorOptions(fontFamily), model });
-      // No keybinding here — every command tet adds gets one the same way, below, from
-      // keybindings.json (layered over that file's own defaults, "ctrl+s" among them).
+      // No keybinding here — every command tet adds gets one the same way, below, from the
+      // resolved keybindings ("ctrl+s" among tet's own defaults in there).
       editorRef.current.addAction({ id: "tet.save", label: "Save", run: () => onSaveRef.current() });
       // Monaco's find/find-replace actions (Ctrl+F/Ctrl+H, both already bound by default) don't
       // declare a context menu group of their own — VS Code's own right-click menu doesn't carry

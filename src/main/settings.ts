@@ -8,7 +8,8 @@ const DEFAULTS: AppSettings = {
     finished: true,
     needsYou: true,
     idleReminder: false
-  }
+  },
+  editorKeybindingPreset: "vscode"
 };
 
 /**
@@ -31,7 +32,10 @@ export class SettingsStore {
   }
 
   save(settings: AppSettings): void {
-    this.settings = { notifications: booleans(settings.notifications) };
+    this.settings = {
+      notifications: booleans(settings.notifications),
+      editorKeybindingPreset: presetId(settings.editorKeybindingPreset)
+    };
     try {
       fs.writeFileSync(this.file, JSON.stringify(this.settings, null, 2), "utf8");
     } catch (error) {
@@ -43,7 +47,11 @@ export class SettingsStore {
     try {
       const parsed: unknown = JSON.parse(fs.readFileSync(this.file, "utf8"));
       if (typeof parsed === "object" && parsed !== null) {
-        this.settings = { notifications: booleans((parsed as AppSettings).notifications) };
+        const value = parsed as Partial<AppSettings>;
+        this.settings = {
+          notifications: booleans(value.notifications),
+          editorKeybindingPreset: presetId(value.editorKeybindingPreset)
+        };
       }
     } catch {
       // No file yet (first start) or unreadable — the defaults stand.
@@ -61,4 +69,11 @@ function booleans(notifications: Partial<AppSettings["notifications"]> | undefin
     idleReminder:
       typeof notifications?.idleReminder === "boolean" ? notifications.idleReminder : defaults.idleReminder
   };
+}
+
+/** Not a string in the file is the default; an id the current presets no longer know is left
+ *  as it is — the renderer's own lookup falls back to VS Code's bindings for one it doesn't
+ *  recognise, same as it would for an id this store had never heard of either. */
+function presetId(value: unknown): string {
+  return typeof value === "string" && value ? value : DEFAULTS.editorKeybindingPreset;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AppInfo, AppSettings, NotificationSettings } from "../../shared/types";
+import type { AppInfo, AppSettings, FileSortOrder, FileViewSettings, NotificationSettings, Project } from "../../shared/types";
 import { ChevronIcon } from "./icons";
 import { KEYBINDING_PRESETS } from "../keybinding-presets";
 import { notify } from "./Notices";
@@ -7,6 +7,8 @@ import { SHORTCUTS, shortcutLabel } from "../shortcuts";
 import { useEscape } from "./use-escape";
 
 interface SettingsDialogProps {
+  /** Whose tet.json the Editor tab's FILES view settings read and write; null hides that part. */
+  activeProject: Project | null;
   onClose: () => void;
 }
 
@@ -16,7 +18,7 @@ type SettingsTab = "notifications" | "shortcuts" | "editor" | "info";
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "notifications", label: "Notifications" },
   { id: "shortcuts", label: "Shortcuts" },
-  { id: "editor", label: "Editor" },
+  { id: "editor", label: "Files" },
   { id: "info", label: "Info" }
 ];
 
@@ -25,6 +27,19 @@ const SWITCHES: { key: keyof NotificationSettings; label: string }[] = [
   { key: "finished", label: "Finished — the turn ended and nothing it started is still running" },
   { key: "needsYou", label: "Action needed — waiting on a permission prompt or a question" },
   { key: "idleReminder", label: "Still waiting — no new prompt for a while" }
+];
+
+/**
+ * The Editor tab's sort-order picker. `foldersNestsFiles` is left out on purpose: the FILES
+ * tree has no file nesting to turn off, so it sorts identically to `default` and would be a
+ * second, indistinguishable entry — a hand-written tet.json can still hold it.
+ */
+const SORT_ORDERS: { id: FileSortOrder; label: string }[] = [
+  { id: "default", label: "Default" },
+  { id: "mixed", label: "Mixed" },
+  { id: "filesFirst", label: "Files First" },
+  { id: "type", label: "Type" },
+  { id: "modified", label: "Modified" }
 ];
 
 /** The Info tab's rows, in the order the versions nest: tet, then what it runs on. */
@@ -44,11 +59,11 @@ const INFO_ROWS: { key: keyof AppInfo; label: string }[] = [
  * buttons. This asks nothing — every switch applies the moment it is flipped, the way VS Code's
  * own settings do, so there is nothing to confirm and nothing to take back.
  */
-export function SettingsDialog({ onClose }: SettingsDialogProps) {
+export function SettingsDialog({ activeProject, onClose }: SettingsDialogProps) {
   const [tab, setTab] = useState<SettingsTab>("notifications");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [presetId, setPresetId] = useState(KEYBINDING_PRESETS[0].id);
+  const [fileView, setFileView] = useState<FileViewSettings | null>(null);
 
   useEffect(() => {
     void window.tet.settings.get().then(setSettings);
@@ -56,6 +71,22 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     // change while the process runs, so there is nothing a later read would catch.
     void window.tet.app.info().then(setInfo);
   }, []);
+
+  // The active project's FILES view settings — read on open and again whenever its tet.json
+  // changes underneath, whoever wrote it (the tree's own menu, an editor, an agent).
+  useEffect(() => {
+    if (!activeProject) {
+      setFileView(null);
+      return;
+    }
+    const projectId = activeProject.id;
+    void window.tet.repository.fileView(projectId).then(setFileView);
+    return window.tet.commands.onChanged((payload) => {
+      if (payload.projectId === projectId) {
+        void window.tet.repository.fileView(projectId).then(setFileView);
+      }
+    });
+  }, [activeProject]);
 
   useEscape(onClose);
 
@@ -68,13 +99,48 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     void window.tet.settings.save(next);
   };
 
-  const applyPreset = (): void => {
-    const preset = KEYBINDING_PRESETS.find((entry) => entry.id === presetId);
-    if (!preset) {
+  const applyPreset = (id: string): void => {
+    if (!settings) {
       return;
     }
-    void window.tet.keybindings.set(preset.bindings).then(() => {
-      notify("info", `keybindings.json set to ${preset.label} — the next file you open picks it up.`);
+    const next: AppSettings = { ...settings, editorKeybindingPreset: id };
+    setSettings(next);
+    void window.tet.settings.save(next);
+  };
+
+  const setExcludeGitIgnore = (value: boolean): void => {
+    if (!activeProject || !fileView) {
+      return;
+    }
+    setFileView({ ...fileView, excludeGitIgnore: value });
+    void window.tet.repository.setExcludeGitIgnore(activeProject.id, value).then((result) => {
+      if (!result.ok) {
+        notify("error", result.error ?? "Could not update tet.json");
+      }
+    });
+  };
+
+  const setCompactFolders = (value: boolean): void => {
+    if (!activeProject || !fileView) {
+      return;
+    }
+    setFileView({ ...fileView, compactFolders: value });
+    void window.tet.repository.setCompactFolders(activeProject.id, value).then((result) => {
+      if (!result.ok) {
+        notify("error", result.error ?? "Could not update tet.json");
+      }
+    });
+  };
+
+  const setSortOrder = (value: FileSortOrder): void => {
+    if (!activeProject || !fileView) {
+      return;
+    }
+    setFileView({ ...fileView, sortOrder: value });
+    void window.tet.repository.setSortOrder(activeProject.id, value).then((result) => {
+      if (!result.ok) {
+        notify("error", result.error ?? "Could not update tet.json");
+      }
     });
   };
 
@@ -133,21 +199,58 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
           )}
           {tab === "editor" && (
             <>
+              <p className="dialog-detail">
+                {activeProject ? `FILES tree, for ${activeProject.name}` : "FILES tree - open a project to edit it"}
+              </p>
+              {activeProject && fileView && (
+                <>
+                  <label className="dialog-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={fileView.excludeGitIgnore}
+                      onChange={(event) => setExcludeGitIgnore(event.target.checked)}
+                    />
+                    <span>Hide what git ignores too</span>
+                  </label>
+                  <label className="dialog-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={fileView.compactFolders}
+                      onChange={(event) => setCompactFolders(event.target.checked)}
+                    />
+                    <span>Compact folders that only contain another folder into one row</span>
+                  </label>
+                  <label className="dialog-field">
+                    <span>Sort order</span>
+                    <div className="select-field">
+                      <select
+                        value={fileView.sortOrder}
+                        onChange={(event) => setSortOrder(event.target.value as FileSortOrder)}
+                      >
+                        {SORT_ORDERS.map((order) => (
+                          <option key={order.id} value={order.id}>
+                            {order.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronIcon expanded className="select-arrow" />
+                    </div>
+                  </label>
+                </>
+              )}
               <p className="dialog-detail">Presets from popular editors and IDEs - only for what the file editor supports</p>
-              <div className="settings-preset-row">
-                <div className="select-field">
-                  <select value={presetId} onChange={(event) => setPresetId(event.target.value)}>
-                    {KEYBINDING_PRESETS.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronIcon expanded className="select-arrow" />
-                </div>
-                <button type="button" className="button" onClick={applyPreset}>
-                  Apply
-                </button>
+              <div className="select-field">
+                <select
+                  value={settings?.editorKeybindingPreset ?? KEYBINDING_PRESETS[0].id}
+                  onChange={(event) => applyPreset(event.target.value)}
+                >
+                  {KEYBINDING_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronIcon expanded className="select-arrow" />
               </div>
             </>
           )}

@@ -1555,16 +1555,6 @@ option {
   gap: 6px;
 }
 
-/* The Editor tab's preset picker: the select grows, Apply stays its own width beside it. */
-.settings-preset-row {
-  display: flex;
-  gap: 8px;
-}
-
-.settings-preset-row .select-field {
-  flex: 1;
-}
-
 /* The Shortcuts tab's rows: the key combo in a fixed-width column, wide enough for
    "Ctrl+Shift+" plus a letter — the Info tab's labels share the same column, so the two tabs'
    rows line up under each other. */

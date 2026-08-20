@@ -54,6 +54,8 @@ export interface NotificationSettings {
  */
 export interface AppSettings {
   notifications: NotificationSettings;
+  /** The Editor tab's preset picker; an id out of `KEYBINDING_PRESETS`, "vscode" its default. */
+  editorKeybindingPreset: string;
 }
 
 /**
@@ -338,6 +340,13 @@ export interface FileRoot {
 
 /** VS Code's `explorer.sortOrder` values. `foldersNestsFiles` is `default` without file nesting. */
 export type FileSortOrder = "default" | "mixed" | "filesFirst" | "type" | "modified" | "foldersNestsFiles";
+
+/** The FILES tree settings the settings dialog's Editor tab edits directly, read on its own. */
+export interface FileViewSettings {
+  excludeGitIgnore: boolean;
+  compactFolders: boolean;
+  sortOrder: FileSortOrder;
+}
 
 /** What any git action the UI starts reports back: it worked, or what git said when it didn't. */
 export interface GitActionResult {

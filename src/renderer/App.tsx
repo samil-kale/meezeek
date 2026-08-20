@@ -917,7 +917,7 @@ export function App() {
 
       {addOpen && <AddRepositoryDialog onAdded={projectAdded} onClose={closeAdd} />}
 
-      {settingsOpen && <SettingsDialog onClose={closeSettings} />}
+      {settingsOpen && <SettingsDialog activeProject={activeProject} onClose={closeSettings} />}
 
       <Notices />
       <Dialogs />
