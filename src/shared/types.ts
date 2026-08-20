@@ -258,6 +258,8 @@ export type NoticeSeverity = "error" | "warning" | "info";
 export interface Notice {
   severity: NoticeSeverity;
   message: string;
+  /** 0-100 while a download the notice is tracking is under way; omitted for a plain notice. */
+  progress?: number;
 }
 
 export type DiffLineType = "context" | "add" | "del" | "hunk";

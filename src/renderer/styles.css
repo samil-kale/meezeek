@@ -1894,3 +1894,24 @@ option {
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
+
+.notice-progress-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-progress-track {
+  height: 2px;
+  background: var(--vscode-notifications-border);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.notice-progress-fill {
+  height: 100%;
+  background: var(--vscode-progressBar-background);
+  transition: width 0.2s linear;
+}

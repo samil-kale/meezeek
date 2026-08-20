@@ -6,10 +6,17 @@ import { SeverityIcon } from "./icons";
  *  notice you didn't click away still shouldn't outlive the moment it was about. */
 const DISMISS_MS = 8000;
 
+/** How long a progress notice sits at 100% before it closes itself — long enough to read that
+ *  it finished, short enough not to need a click. */
+const PROGRESS_DONE_MS = 2000;
+
 interface ShownNotice {
   id: number;
   severity: NoticeSeverity;
   message: string;
+  /** 0-100 while tracking a download; undefined for a plain notice. Presence, not severity,
+   *  decides whether a notice renders its bar and skips click-to-dismiss. */
+  progress?: number;
 }
 
 /**
@@ -21,6 +28,9 @@ interface ShownNotice {
 let shown: ShownNotice[] = [];
 const listeners = new Set<() => void>();
 let nextId = 0;
+// The one progress notice in flight, if any. A download's percent changes on every tick, so
+// each tick updates this notice in place rather than stacking a new one under a new message.
+let progressNoticeId: number | null = null;
 
 function publish(next: ShownNotice[]): void {
   shown = next;
@@ -29,7 +39,11 @@ function publish(next: ShownNotice[]): void {
   }
 }
 
-export function notify(severity: NoticeSeverity, message: string): void {
+export function notify(severity: NoticeSeverity, message: string, progress?: number): void {
+  if (progress !== undefined) {
+    notifyProgress(severity, message, progress);
+    return;
+  }
   const id = ++nextId;
   // A failure that repeats (a checkout retried on the same dirty tree, say) says nothing new
   // the second time — better one message standing than a wall of identical ones.
@@ -38,6 +52,26 @@ export function notify(severity: NoticeSeverity, message: string): void {
   }
   publish([...shown, { id, severity, message }]);
   setTimeout(() => dismissNotice(id), DISMISS_MS);
+}
+
+function notifyProgress(severity: NoticeSeverity, message: string, progress: number): void {
+  const clamped = Math.max(0, Math.min(100, progress));
+  const existing = progressNoticeId !== null && shown.some((notice) => notice.id === progressNoticeId);
+  if (existing) {
+    publish(
+      shown.map((notice) =>
+        notice.id === progressNoticeId ? { ...notice, severity, message, progress: clamped } : notice
+      )
+    );
+  } else {
+    progressNoticeId = ++nextId;
+    publish([...shown, { id: progressNoticeId, severity, message, progress: clamped }]);
+  }
+  if (clamped >= 100) {
+    const id = progressNoticeId;
+    progressNoticeId = null;
+    setTimeout(() => dismissNotice(id!), PROGRESS_DONE_MS);
+  }
 }
 
 function dismissNotice(id: number): void {
@@ -49,7 +83,11 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Stacked over the window's bottom right corner, newest at the bottom, each dismissed by clicking it. */
+/**
+ * Stacked over the window's bottom right corner, newest at the bottom, each dismissed by
+ * clicking it — except a progress notice, which tracks a download and closes itself once it
+ * reaches 100% rather than waiting to be clicked away.
+ */
 export function Notices() {
   const notices = useSyncExternalStore(subscribe, () => shown);
   if (notices.length === 0) {
@@ -57,17 +95,29 @@ export function Notices() {
   }
   return (
     <div className="notices">
-      {notices.map((notice) => (
-        <button
-          key={notice.id}
-          className={`notice ${notice.severity}`}
-          onClick={() => dismissNotice(notice.id)}
-          title="Dismiss"
-        >
-          <SeverityIcon className="notice-icon" severity={notice.severity} />
-          <span className="notice-message">{notice.message}</span>
-        </button>
-      ))}
+      {notices.map((notice) =>
+        notice.progress === undefined ? (
+          <button
+            key={notice.id}
+            className={`notice ${notice.severity}`}
+            onClick={() => dismissNotice(notice.id)}
+            title="Dismiss"
+          >
+            <SeverityIcon className="notice-icon" severity={notice.severity} />
+            <span className="notice-message">{notice.message}</span>
+          </button>
+        ) : (
+          <div key={notice.id} className={`notice ${notice.severity}`}>
+            <SeverityIcon className="notice-icon" severity={notice.severity} />
+            <div className="notice-progress-body">
+              <span className="notice-message">{notice.message}</span>
+              <div className="notice-progress-track">
+                <div className="notice-progress-fill" style={{ width: `${notice.progress}%` }} />
+              </div>
+            </div>
+          </div>
+        )
+      )}
     </div>
   );
 }

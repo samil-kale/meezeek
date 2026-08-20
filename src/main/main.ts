@@ -178,7 +178,7 @@ if (!app.requestSingleInstanceLock()) {
     sweepTempFiles();
     registerIpc({ store, settings, accounts, repositories, sessions, send, openProject, openWorkspace });
     createWindow();
-    startAutoUpdate((severity, message) => send("app:notice", { severity, message }));
+    startAutoUpdate((severity, message, progress) => send("app:notice", { severity, message, progress }));
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {

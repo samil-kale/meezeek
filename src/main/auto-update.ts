@@ -29,7 +29,9 @@ const RELEASES_URL = "https://github.com/samil-kale/tet/releases/latest";
  *   sets at launch); a deb install has no such mechanism, and would otherwise fail every check
  *   behind the silent error handler below, never telling that user anything.
  */
-export function startAutoUpdate(notify: (severity: NoticeSeverity, message: string) => void): void {
+export function startAutoUpdate(
+  notify: (severity: NoticeSeverity, message: string, progress?: number) => void
+): void {
   if (!app.isPackaged) {
     return;
   }
@@ -38,8 +40,13 @@ export function startAutoUpdate(notify: (severity: NoticeSeverity, message: stri
   autoUpdater.autoDownload = canInstall;
 
   if (canInstall) {
+    // Ticks the same notice's progress in place rather than a fresh notice per event — see
+    // Notices.tsx, which tracks the one in-flight progress notice by id for exactly this.
+    autoUpdater.on("download-progress", (info) => {
+      notify("info", `Downloading update ${Math.round(info.percent)}%`, info.percent);
+    });
     autoUpdater.on("update-downloaded", (info) => {
-      notify("info", `Update ${info.version} downloaded, installs on next restart`);
+      notify("info", `Update ${info.version} downloaded, installs on next restart`, 100);
     });
   } else {
     autoUpdater.on("update-available", (info) => {

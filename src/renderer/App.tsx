@@ -265,7 +265,10 @@ export function App() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
-  useEffect(() => window.tet.onNotice(({ severity, message }) => notify(severity, message)), []);
+  useEffect(
+    () => window.tet.onNotice(({ severity, message, progress }) => notify(severity, message, progress)),
+    []
+  );
 
   /**
    * Keeps every project's split layout honest against its tab list — a tab closed elsewhere
