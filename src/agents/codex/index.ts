@@ -47,5 +47,7 @@ export const codexAgent: AgentDefinition = {
   // total a few hundred bytes before the first real redraw, itself a single ~700-900 byte chunk.
   // Unverified against a *logged-in* start, which may draw less before the first redraw — revisit
   // once that is checked.
-  createIsSessionReady: () => createByteThresholdCheck(600)
+  createIsSessionReady: () => createByteThresholdCheck(600),
+  // One: a second byte would land mid-shutdown and kill it instead.
+  quitPresses: 1
 };

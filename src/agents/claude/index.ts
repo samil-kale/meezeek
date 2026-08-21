@@ -38,5 +38,7 @@ export const claudeAgent: AgentDefinition = {
   // few tiny trailing chunks can still follow a second later, but a fresh session's total
   // doesn't reliably clear a threshold set to catch those too — better to reveal right as
   // the main chunk lands.
-  createIsSessionReady: () => createByteThresholdCheck(500)
+  createIsSessionReady: () => createByteThresholdCheck(500),
+  // Two: the first only offers to exit, the second takes it up.
+  quitPresses: 2
 };

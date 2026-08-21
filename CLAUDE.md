@@ -770,6 +770,35 @@ too, one per pane of the split (see "Split view") — a pane asks for a change t
 
 Left deliberately unmarked: saved-command tabs (see "Saved commands").
 
+## Ending a session
+
+A session is **asked to quit before it is killed** (`TerminalSession.stop`): it gets the Ctrl+C
+bytes its own convention expects (`AgentDefinition.quitPresses`, none for the shell), and only what
+is still running afterwards is killed. `stop` resolves once the process is actually gone, not once
+a kill was asked for — `destroyTab` deletes what the CLI persisted right after, and must not race
+a process still writing it.
+
+The reason is that a hard kill never lets a CLI run its own exit handlers, and at least one agent
+keeps something there that matters: Claude Code arms a record in `~/.claude.json` while its
+fullscreen renderer boots and clears it again ten seconds later, counting every process that died
+in between as a strike — twice, and it turns its fullscreen renderer off machine-wide. Restarting
+tet is exactly what killed those, since a tab spawned at startup sits inside that window. Its own
+exit handler clears the record; nothing else does.
+
+`\x03` only works because the TUI is in raw mode by then and reads it as an ordinary byte — in
+cooked mode (a plain shell, the moment before a TUI starts, or **one already shutting down**)
+ConPTY turns it into a process-level CTRL_C_EVENT that kills without running anything. Hence each
+agent gets exactly the count it asked for and no more, and each press returns early if the process
+has already left. See "Never assume the agents behave alike" for what the counts are and why one
+shared interval could not work.
+
+Two consequences worth knowing before touching either: stopping is asynchronous, so `before-quit`
+has to hold the quit back with `preventDefault()` and ask again once the sessions are gone
+(electron tears the process down the moment a synchronous handler returns) — with a guard, or the
+second ask is held back too and the app never quits. And `closeTabs` starts every doomed tab's stop
+before waiting on any of them, so closing four tabs costs one grace period rather than four; the
+loop after it stays sequential for the CLI calls that list and delete sessions.
+
 ## Agent-specific vs shared code
 
 Each agent gets a folder under `src/agents/`, described by one `AgentDefinition`
@@ -800,6 +829,32 @@ renderer's.
 - `resolveUrlPrefix` — completes a url the agent's TUI wrapped across rows
 - `createIsSessionReady` — the per-agent guess at "the CLI drew its first real frame," driving the
   progress bar
+- `quitPresses` — how many Ctrl+C bytes make it quit by itself, so a session can be asked before
+  it is killed (see "Ending a session")
+
+### Never assume the agents behave alike
+
+They are three separate products that happen to sit in the same kind of tab. Every time the same
+question has been put to all of them, the answers differed — and the differences were only ever
+found by **measuring the real binary through this same pty**, never by reading its source or its
+docs, and never by reasoning from one agent to another:
+
+- `createIsSessionReady`'s byte thresholds: 500 / 800 / 600, one per agent, all tuned by hand.
+- `quitPresses`: Claude Code wants two Ctrl+C and withdraws the offer after about a second;
+  Codex and opencode quit on one, and a second byte sent to a Codex already leaving *kills* the
+  shutdown it would have completed. There is no single interval that serves all three, which is
+  why it is a count per agent instead of one constant.
+- The right mouse button: Claude Code and opencode take it themselves through mouse reporting,
+  Codex deliberately leaves it to the terminal (`terminal-views.ts`).
+- Colours: opencode's `"theme": "system"` adopts the terminal palette but swaps blue and magenta;
+  Codex ignores the palette entirely until `-c tui.theme=ansi`.
+- Turn signals: opencode has an event stream, Claude Code and Codex need hook processes touching
+  marker files, and Codex only runs a hook it has hashed and decided to trust.
+
+So when adding anything that touches how a CLI is driven, the default is a field on
+`AgentDefinition` with a value per agent, not one shared constant with a comment guessing at the
+others. And what goes in that field is what was measured — a value carried over from the agent
+next to it is a guess wearing a number.
 
 ### The one database under opencode's servers
 
@@ -929,11 +984,14 @@ from, so binding and label can't drift apart.
 
 **Ctrl+C is the one deliberate exception to "takes nothing an agent could have received."** With a
 selection it always copies instead of sending `\x03`. Without one, only a plain shell still gets
-`\x03` (SIGINT) — every agent swallows it instead, since on win32 ConPTY turns that byte into a
-process-level `CTRL_C_EVENT` that can kill a CLI outright rather than interrupt it, and closing the
-tab already covers what an agent would need it for. Check a newly added agent against this rather
-than assuming; `agentId !== "shell"` in `attachCustomKeyEventHandler`'s Ctrl+C branch is what
-currently draws the line.
+`\x03` (SIGINT) — every agent swallows it instead, since closing the tab already covers what an
+agent would need it for, and what the byte does to one is not what it looks like: measured through
+this pty, a TUI in raw mode reads it as an ordinary byte and decides for itself, but the *same*
+byte reaching a process in cooked mode — one still starting, or already shutting down — becomes a
+process-level `CTRL_C_EVENT` that kills it outright. Sending it deliberately is a separate matter,
+with its own rules per agent (see "Ending a session"). Check a newly added agent against this
+rather than assuming; `agentId !== "shell"` in `attachCustomKeyEventHandler`'s Ctrl+C branch is
+what currently draws the line.
 
 ## The renderer
 

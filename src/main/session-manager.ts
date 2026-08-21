@@ -693,7 +693,7 @@ export class ProjectSessionManager {
           }
         }
       },
-      tab.agentId,
+      agent.quitPresses ?? 0,
       args,
       tab.env
     );

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { IPty } from "node-pty";
-import type { AgentId, TerminalStatus } from "../shared/types";
+import type { TerminalStatus } from "../shared/types";
 import { resolveCommand, spawnAgentProcess } from "./pty";
 
 export interface SessionCallbacks {
@@ -9,32 +9,28 @@ export interface SessionCallbacks {
 }
 
 /**
- * Ending an agent asks it to quit before killing it, by writing the two Ctrl+C bytes its own
- * "press again to exit" convention expects — a CLI that exits by itself gets to run its exit
- * handlers, one hard kill never does. What that buys, concretely: Claude Code arms a record in
- * `~/.claude.json` while its fullscreen renderer boots and clears it again ten seconds later,
- * counting every process that died in between as a strike against the renderer — twice, and it
- * turns fullscreen off machine-wide. Restarting tet is exactly what killed those, since a tab
- * spawned at startup is inside that window.
+ * Ending an agent asks it to quit before killing it, by writing the Ctrl+C bytes its own quit
+ * convention expects (`AgentDefinition.quitPresses`) — a CLI that exits by itself gets to run
+ * its exit handlers, one hard kill never does. What that buys, concretely: Claude Code arms a
+ * record in `~/.claude.json` while its fullscreen renderer boots and clears it again ten
+ * seconds later, counting every process that died in between as a strike against the renderer —
+ * twice, and it turns fullscreen off machine-wide. Restarting tet is exactly what killed those,
+ * since a tab spawned at startup is inside that window.
  *
- * `\x03` is only safe here because an agent's TUI is in raw mode by then and reads it as an
- * ordinary byte — measured, not assumed. In cooked mode (a plain shell, or the moment before a
- * TUI starts) ConPTY turns the same byte into a process-level CTRL_C_EVENT that kills without
- * running anything, which is why the shell keeps the straight kill below.
+ * `\x03` is only safe here because an agent TUI is in raw mode by then and reads it as an
+ * ordinary byte — measured, not assumed. In cooked mode (a plain shell, the moment before a TUI
+ * starts, or one already on its way out) ConPTY turns the same byte into a process-level
+ * CTRL_C_EVENT that kills without running anything. Hence exactly the count the agent asked for
+ * and no more, and a straight kill for one that asked for none.
  */
-/**
- * Both numbers are measured against a real `claude.exe` (2.1.238) driven through this same pty,
- * not guessed: it exits ~650ms after the second byte, consistently, and a gap as short as 80ms
- * was still read as two separate keypresses. The gap keeps threefold room over that, and the
- * wait threefold over the exit — a machine quitting several sessions at once is busier than the
- * one those were taken on.
- */
-/** Between the two Ctrl+C bytes, so the first lands as a keypress before the second. */
+/** Between two Ctrl+C bytes. Only long enough that the first is read as its own keypress — 80ms
+ *  still was, measured — since the offer the second answers is withdrawn after about a second. */
 const CTRL_C_GAP_MS = 250;
-/** After the second one. A session that read Ctrl+C as "interrupt the turn" never leaves at all,
- *  and waiting past this only delays the kill it needs instead. */
+/** After the last one. Measured through this same pty: opencode is gone in ~150ms, Codex in
+ *  ~400ms, Claude Code in ~650ms. A session that read Ctrl+C as "interrupt the turn" instead
+ *  never leaves at all, and waiting past this only delays the kill it actually needs. */
 const GRACEFUL_EXIT_MS = 2000;
-/** After the kill, so stopping can't hang on a pty that never reports its exit. */
+/** After the kill, so stopping cannot hang on a pty that never reports its exit. */
 const FORCE_KILL_MS = 1000;
 
 /** Resolves true if the process exited within `ms`, false on timeout. */
@@ -97,8 +93,8 @@ export class TerminalSession {
     private readonly cwd: string,
     private readonly env: Record<string, string> | undefined,
     private readonly callbacks: SessionCallbacks,
-    /** Decides whether ending this session asks first — see the Ctrl+C comment above. */
-    private readonly agentId: AgentId,
+    /** How many Ctrl+C bytes this agent wants before it is killed; 0 asks for none. */
+    private readonly quitPresses: number,
     private readonly args: string[] = [],
     /** A saved command's own variables, which outrank the ones inherited from the machine. */
     private readonly envOverride?: Record<string, string>
@@ -211,13 +207,14 @@ export class TerminalSession {
       proc.onExit(() => resolve());
     });
 
-    if (this.agentId !== "shell") {
+    for (let press = 0; press < this.quitPresses; press += 1) {
       this.writeQuit(proc);
-      if (await exitedWithin(exited, CTRL_C_GAP_MS)) {
-        return;
-      }
-      this.writeQuit(proc);
-      if (await exitedWithin(exited, GRACEFUL_EXIT_MS)) {
+      // The last press gets the long wait; the ones before it only wait long enough to be told
+      // apart as keypresses. Returning early on an exit is what keeps a byte from reaching an
+      // agent that is already leaving, where it would kill what we asked for — Codex gives up
+      // raw mode as it goes, so a second one lands as a CTRL_C_EVENT instead.
+      const last = press === this.quitPresses - 1;
+      if (await exitedWithin(exited, last ? GRACEFUL_EXIT_MS : CTRL_C_GAP_MS)) {
         return;
       }
     }

@@ -212,4 +212,19 @@ export interface AgentDefinition {
    * agent. Omitted for agents that are up as soon as they are spawned (the shell).
    */
   createIsSessionReady?: () => (chunk: string) => boolean;
+  /**
+   * How many Ctrl+C bytes it takes to make this CLI quit by itself, so tet can ask before it
+   * kills (see TerminalSession.stop). Omitted where asking makes no sense — the shell, which
+   * has nothing to save and whose Ctrl+C is a plain SIGINT.
+   *
+   * Per agent because they genuinely differ, measured through this same pty rather than
+   * assumed: Claude Code wants two, and drops its "press again to exit" offer after about a
+   * second, so the second byte has to arrive well inside that. Codex and opencode start
+   * shutting down on the first one (~400ms and ~150ms to exit) — and a byte sent to a Codex
+   * already on its way out lands after it has given up raw mode, where ConPTY turns it into a
+   * process-level CTRL_C_EVENT and kills the very shutdown we were waiting for. That left no
+   * single interval that is right for all three: this is what one number to rule them all
+   * would have had to thread, and why it is a per-agent count instead.
+   */
+  quitPresses?: number;
 }

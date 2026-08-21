@@ -44,5 +44,7 @@ export const opencodeAgent: AgentDefinition = {
   // `attach` has no splash — it opens with a 4-byte and a 19-byte frame — so a plain byte
   // count is what tells the first real redraw: the frames before it total ~530 bytes, the
   // redraw itself is one chunk of 0.6 KB to 7.4 KB. 800 sits between.
-  createIsSessionReady: () => createByteThresholdCheck(800)
+  createIsSessionReady: () => createByteThresholdCheck(800),
+  // One: its TUI starts leaving immediately.
+  quitPresses: 1
 };
