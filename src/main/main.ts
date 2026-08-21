@@ -194,8 +194,29 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
-  sessions.disposeAll();
-  repositories.disposeAll();
-  stopGitProcess();
+/**
+ * Ending the sessions is asynchronous now — each agent is given a moment to quit by itself
+ * (see TerminalSession.stop) — and electron tears the process down the moment a synchronous
+ * before-quit handler returns, so the quit has to be held back and asked for again afterwards.
+ * `quitting` is what keeps that second ask from being held back in turn, which would leave the
+ * app unable to quit at all. Bounded so a pty that never reports its exit can't do the same.
+ */
+const QUIT_TEARDOWN_TIMEOUT_MS = 5000;
+
+let quitting = false;
+
+app.on("before-quit", (event) => {
+  if (quitting) {
+    return;
+  }
+  quitting = true;
+  event.preventDefault();
+  void Promise.race([
+    sessions.disposeAll(),
+    new Promise((resolve) => setTimeout(resolve, QUIT_TEARDOWN_TIMEOUT_MS))
+  ]).finally(() => {
+    repositories.disposeAll();
+    stopGitProcess();
+    app.quit();
+  });
 });

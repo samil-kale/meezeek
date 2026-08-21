@@ -254,7 +254,9 @@ export function registerIpc({
   ipcMain.handle("projects:reorder", (_event, projectIds: string[]): void => store.reorder(projectIds));
 
   ipcMain.handle("projects:remove", (_event, projectId: string): void => {
-    sessions.close(projectId);
+    // Not awaited: the project is gone from the window either way, and its sessions are given a
+    // moment to end by themselves (see TerminalSession.stop) rather than holding the removal up.
+    void sessions.close(projectId);
     repositories.close(projectId);
     store.remove(projectId);
   });

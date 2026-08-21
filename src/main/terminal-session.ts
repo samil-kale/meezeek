@@ -1,11 +1,50 @@
 import { spawn } from "node:child_process";
 import type { IPty } from "node-pty";
-import type { TerminalStatus } from "../shared/types";
+import type { AgentId, TerminalStatus } from "../shared/types";
 import { resolveCommand, spawnAgentProcess } from "./pty";
 
 export interface SessionCallbacks {
   onOutput: (data: string) => void;
   onStatusChange: (status: TerminalStatus) => void;
+}
+
+/**
+ * Ending an agent asks it to quit before killing it, by writing the two Ctrl+C bytes its own
+ * "press again to exit" convention expects — a CLI that exits by itself gets to run its exit
+ * handlers, one hard kill never does. What that buys, concretely: Claude Code arms a record in
+ * `~/.claude.json` while its fullscreen renderer boots and clears it again ten seconds later,
+ * counting every process that died in between as a strike against the renderer — twice, and it
+ * turns fullscreen off machine-wide. Restarting tet is exactly what killed those, since a tab
+ * spawned at startup is inside that window.
+ *
+ * `\x03` is only safe here because an agent's TUI is in raw mode by then and reads it as an
+ * ordinary byte — measured, not assumed. In cooked mode (a plain shell, or the moment before a
+ * TUI starts) ConPTY turns the same byte into a process-level CTRL_C_EVENT that kills without
+ * running anything, which is why the shell keeps the straight kill below.
+ */
+/**
+ * Both numbers are measured against a real `claude.exe` (2.1.238) driven through this same pty,
+ * not guessed: it exits ~650ms after the second byte, consistently, and a gap as short as 80ms
+ * was still read as two separate keypresses. The gap keeps threefold room over that, and the
+ * wait threefold over the exit — a machine quitting several sessions at once is busier than the
+ * one those were taken on.
+ */
+/** Between the two Ctrl+C bytes, so the first lands as a keypress before the second. */
+const CTRL_C_GAP_MS = 250;
+/** After the second one. A session that read Ctrl+C as "interrupt the turn" never leaves at all,
+ *  and waiting past this only delays the kill it needs instead. */
+const GRACEFUL_EXIT_MS = 2000;
+/** After the kill, so stopping can't hang on a pty that never reports its exit. */
+const FORCE_KILL_MS = 1000;
+
+/** Resolves true if the process exited within `ms`, false on timeout. */
+function exitedWithin(exited: Promise<void>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  // Whichever loses the race leaves its timer behind otherwise, and a fast exit is the common case.
+  return Promise.race([exited.then(() => true), timedOut]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -50,12 +89,16 @@ export class TerminalSession {
   private lastRows: number | undefined;
   /** Set while a running process is being killed for a restart, so a second click can't queue another. */
   private restartQueued = false;
+  /** The teardown underway, so a second `stop()` joins it rather than starting its own. */
+  private stopping: Promise<void> | undefined;
 
   constructor(
     private readonly executable: string,
     private readonly cwd: string,
     private readonly env: Record<string, string> | undefined,
     private readonly callbacks: SessionCallbacks,
+    /** Decides whether ending this session asks first — see the Ctrl+C comment above. */
+    private readonly agentId: AgentId,
     private readonly args: string[] = [],
     /** A saved command's own variables, which outrank the ones inherited from the machine. */
     private readonly envOverride?: Record<string, string>
@@ -138,10 +181,61 @@ export class TerminalSession {
     this.process?.write(data);
   }
 
-  stop(): void {
-    if (this.process) {
-      this.intentionalStop = true;
-      this.process.kill();
+  /**
+   * Ends the process and resolves once it is actually gone — not merely once a kill was asked
+   * for, since a caller deleting what the session persisted (`destroyTab`) must not race a
+   * process still writing it. Every agent is asked to quit first (see the Ctrl+C comment at the
+   * top of this file); the shell is killed outright, having nothing to save and no handler for
+   * the byte anyway.
+   */
+  stop(): Promise<void> {
+    this.stopping ??= this.runStop().finally(() => {
+      this.stopping = undefined;
+    });
+    return this.stopping;
+  }
+
+  private async runStop(): Promise<void> {
+    const proc = this.process;
+    if (!proc) {
+      return;
+    }
+    // Before the first write, not after: whichever way the process ends from here — its own exit
+    // on Ctrl+C, or the kill below — is our doing, and `start`'s exit handler reads this to tell
+    // "stopped" from a process that failed on its own.
+    this.intentionalStop = true;
+    // A second listener beside the one `start` registered; node-pty's onExit is multicast and
+    // `restart` already relies on that. It only observes — clearing `this.process` and setting
+    // the status stay with the primary handler.
+    const exited = new Promise<void>((resolve) => {
+      proc.onExit(() => resolve());
+    });
+
+    if (this.agentId !== "shell") {
+      this.writeQuit(proc);
+      if (await exitedWithin(exited, CTRL_C_GAP_MS)) {
+        return;
+      }
+      this.writeQuit(proc);
+      if (await exitedWithin(exited, GRACEFUL_EXIT_MS)) {
+        return;
+      }
+    }
+
+    try {
+      proc.kill();
+    } catch (error) {
+      // Already gone, most likely — its exit is on its way and there is nothing else to try.
+      console.error(`[tet] failed to kill ${this.executable}:`, error);
+    }
+    await exitedWithin(exited, FORCE_KILL_MS);
+  }
+
+  private writeQuit(proc: IPty): void {
+    try {
+      proc.write("\x03");
+    } catch {
+      // A pty that died between the two writes: the exit race decides what happens next.
     }
   }
 

@@ -693,6 +693,7 @@ export class ProjectSessionManager {
           }
         }
       },
+      tab.agentId,
       args,
       tab.env
     );
@@ -756,6 +757,13 @@ export class ProjectSessionManager {
     this.tabs = this.tabs.filter((tab) => !doomed.has(tab.tabId));
     this.postTabs();
 
+    // Every process is asked to end here, before the loop below waits for any of them: stopping
+    // an agent now takes a grace period (see TerminalSession.stop), and closing four tabs must
+    // not cost four of them. The loop itself stays one at a time — `destroyTab` asks for the same
+    // stop again and joins the one already underway.
+    for (const tab of tabs) {
+      void this.sessions.get(tab.tabId)?.stop();
+    }
     for (const tab of tabs) {
       await this.destroyTab(tab, indices.get(tab.tabId) ?? this.tabs.length);
     }
@@ -773,8 +781,10 @@ export class ProjectSessionManager {
   private async destroyTab(tab: TabState, index: number): Promise<void> {
     const session = this.sessions.get(tab.tabId);
     if (session) {
-      session.stop();
       this.sessions.delete(tab.tabId);
+      // Awaited, so everything below — deleting what the CLI persisted — happens after the
+      // process is gone rather than beside one that could still write it.
+      await session.stop();
     }
 
     const runtime = this.runtimeFor(tab.agentId);
@@ -1101,7 +1111,7 @@ export class ProjectSessionManager {
     }
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     // Read by the reconcile loop, whose calls can outlive this and would otherwise arm
     // themselves again — see armReconcileTimer.
     this.disposed = true;
@@ -1116,9 +1126,9 @@ export class ProjectSessionManager {
       runtime.stopWatching?.();
       runtime.stopWatching = undefined;
     }
-    for (const session of this.sessions.values()) {
-      session.stop();
-    }
+    // All at once: each one may take a grace period to end (see TerminalSession.stop), and the
+    // app is waiting on this before it quits.
+    await Promise.all([...this.sessions.values()].map((session) => session.stop()));
     this.sessions.clear();
     // Last: the sessions above may still be talking to whatever it set up.
     for (const runtime of this.runtimes.values()) {
@@ -1153,15 +1163,15 @@ export class SessionManagerRegistry {
     return this.managers.get(projectId);
   }
 
-  close(projectId: string): void {
-    this.managers.get(projectId)?.dispose();
+  async close(projectId: string): Promise<void> {
+    const manager = this.managers.get(projectId);
+    // Dropped before the wait, so a project removed and reopened at once never has two.
     this.managers.delete(projectId);
+    await manager?.dispose();
   }
 
-  disposeAll(): void {
-    for (const manager of this.managers.values()) {
-      manager.dispose();
-    }
+  async disposeAll(): Promise<void> {
+    await Promise.all([...this.managers.values()].map((manager) => manager.dispose()));
     this.managers.clear();
   }
 }
