@@ -60,7 +60,7 @@ function formatIso(ms: number): string {
 export interface PaneChrome {
   gitOpen: boolean;
   onToggleGit: () => void;
-  /** Whether the repository has local changes — bars the toggle even while its pane is closed. */
+  /** Whether the repository has local changes — colors the toggle regardless of pane state. */
   gitDirty: boolean;
 }
 
@@ -399,7 +399,7 @@ export const Pane = memo(function Pane({
       // `drop` nor `dragleave` if the pointer never left this pane — this still clears it.
       onDragEnd={() => onDragOverChange(paneId, false)}
     >
-      <div className="tab-strip">
+      <div className={`tab-strip${chrome?.gitOpen ? " git-open" : ""}`}>
         {/* Where the git tab used to be, and no longer a tab: toggling it shows a pane of its own
             beside this one rather than taking its place. Grouped with browse-files, the layout
             picker and settings — none of them about a tab, all of them window chrome rather than
@@ -408,7 +408,7 @@ export const Pane = memo(function Pane({
           <div className="tab-strip-actions">
             {chrome && (
               <button
-                className={`icon-button${chrome.gitOpen ? " active" : ""}${chrome.gitDirty ? " dirty" : ""}`}
+                className={`icon-button${chrome.gitDirty ? " active" : ""}`}
                 onClick={chrome.onToggleGit}
                 title={chrome.gitOpen ? "Hide the repository" : "Show the repository"}
               >

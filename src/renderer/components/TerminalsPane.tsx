@@ -87,7 +87,7 @@ interface TerminalsPaneProps {
   /** Whether the git pane beside this one is open; the button in the strip shows which. */
   gitOpen: boolean;
   onToggleGit: () => void;
-  /** Whether this project's repository has local changes; the button in the strip badges it. */
+  /** Whether this project's repository has local changes; the button in the strip colors on it. */
   gitDirty: boolean;
   /** Bootstrap's own session listing, before any tab exists yet to carry `starting` itself — the
       one project-wide reason left with no tab of its own to show on, so it falls to pane "a". */

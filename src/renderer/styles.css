@@ -711,6 +711,15 @@ option {
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
+/* Points back at the git pane sliding out beside this one, only on pane "a" (the only one
+   `chrome` reaches). The sash between the two panes sits centred on that same boundary with
+   `z-index: 1` and 2px of negative margin into this side, so without outranking it here the
+   sash's own grey line paints straight over this border. */
+.tab-strip.git-open {
+  border-left: 1px solid var(--vscode-focusBorder);
+  z-index: 2;
+}
+
 /* Indeterminate: none of what this sits under reports real progress, only that it is or isn't
    done — a CLI starting, a branch command, a diff being read or coloured. One rule, anchored to
    whichever header or bar declares `position: relative` above (a pane's own tab strip, a git
@@ -1229,24 +1238,6 @@ option {
 .icon-button.active {
   opacity: 1;
   color: var(--vscode-button-background);
-}
-
-/* A bar under the git icon while its repository has local changes, shown whether or not the
-   pane is open — `currentColor`, so it rides the same recolor `.active` already gives the icon:
-   the toggle's own blue once the pane is open, plain otherwise, with no separate color rule to
-   keep in step with it. */
-.icon-button.dirty {
-  position: relative;
-}
-
-.icon-button.dirty::after {
-  content: "";
-  position: absolute;
-  bottom: 1px;
-  left: 6px;
-  right: 6px;
-  height: 1px;
-  background: currentColor;
 }
 
 /* Two-up, side by side, each version as large as it fits without stretching. */
