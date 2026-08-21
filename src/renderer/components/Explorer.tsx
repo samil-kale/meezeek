@@ -229,6 +229,17 @@ function buildForest(files: ExplorerListing): TreeNode[] {
   });
 }
 
+/** VS Code's `hasExpandedRootChild`: is there a root with an open, collapsible child — a
+ *  subfolder open one level under a workspace folder? Defaults match `toggle`'s (a root open, a
+ *  plain folder shut) since a node left out of `expanded` is exactly that default. */
+function hasExpandedRootChild(roots: TreeNode[], expanded: Record<string, boolean>): boolean {
+  return roots.some(
+    (root) =>
+      (expanded[root.id] ?? root.root === true) &&
+      root.children!.some((child) => child.children && (expanded[child.id] ?? false))
+  );
+}
+
 /** The root whose subtree a path is revealed in: the innermost one containing it — VS Code's
  *  `getWorkspaceFolder` — or undefined when it lies under none. */
 function rootIndexFor(roots: ExplorerRoot[], filePath: string): number | undefined {
@@ -467,10 +478,14 @@ export function Explorer({ project, files, selected, onOpen, act, onExplorerChan
   const toggle = (node: TreeNode): void =>
     setExpanded((current) => ({ ...current, [node.id]: !(current[node.id] ?? node.root === true) }));
 
-  /** VS Code's "Collapse Folders in Explorer": every folder shut at once, roots included — so
-   *  each has to be written explicitly, not merely left out of the map (a root defaults open,
-   *  see `toggle`). Walks the unfiltered, uncompacted `tree`: a compacted chain's row keeps its
-   *  innermost folder's id (see `compactTree`), which this still collects. */
+  /** VS Code's "Collapse Folders in Explorer": with `folders` open (a multi-root workspace) and
+   *  something expanded below one of them, a press only shuts what's open under each root,
+   *  leaving the roots themselves in place — a plain `collapseAll()` would close the very
+   *  folders the button is meant to declutter, not empty them out. Only once nothing is left
+   *  open below the roots (or there are none — a single tree, same as VS Code's single-folder
+   *  window) does a press fold everything, roots included. Walks the unfiltered, uncompacted
+   *  `tree`: a compacted chain's row keeps its innermost folder's id (see `compactTree`), which
+   *  this still collects either way. */
   const collapseAll = (): void => {
     const ids: string[] = [];
     const collect = (nodes: TreeNode[]): void => {
@@ -481,7 +496,11 @@ export function Explorer({ project, files, selected, onOpen, act, onExplorerChan
         }
       }
     };
-    collect(tree);
+    if (roots && hasExpandedRootChild(tree, expanded)) {
+      tree.forEach((root) => collect(root.children!));
+    } else {
+      collect(tree);
+    }
     setExpanded((current) => {
       const next = { ...current };
       for (const id of ids) {

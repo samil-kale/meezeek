@@ -457,36 +457,48 @@ export function FilesIcon(props: IconProps) {
   );
 }
 
-/** The EXPLORER header's own "New File...", a page with a fold and a plus badge — VS Code's pair. */
+/** The EXPLORER header's own "New File...": the reference icon's exact path (svgrepo's
+ *  "document-add"), scaled 1:1 from its 1024-unit grid down to this file's 16-unit one (divide
+ *  every coordinate by 64) — the hollow page-with-fold and the solid plus are one fill, not a
+ *  stroke, since that is how the reference draws its own outline (an outer contour plus an
+ *  inner one of opposite winding, filled with the default nonzero rule). `Svg`'s own
+ *  `fill="none" stroke="currentColor"` is for every other icon in this file; this one overrides
+ *  both back, same as the reference. */
 export function NewFileIcon(props: IconProps) {
   return (
-    <Svg {...props} extent={11.96} cx={9.25} cy={8.25}>
-      <path d="M4.5 2.5h4l2.5 2.5v4.3" />
-      <path d="M8.5 2.5v2.5h2.5" />
-      <path d="M4.5 2.5v10a1 1 0 0 0 1 1H8" />
-      <path d="M11.5 9v5M9 11.5h5" />
+    <Svg {...props} extent={12.96} cx={8} cy={8}>
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M13 6H9V2H3v12h10V6Z M12.586 5L10 2.414V5h2.586Z M2.5 1h7.5l4 4v9.5a0.5 0.5 0 0 1-0.5 0.5H2.5a0.5 0.5 0 0 1-0.5-0.5V1.5a0.5 0.5 0 0 1 0.5-0.5Z M7.5 9V7h1v2h2v1h-2v2h-1v-2h-2v-1h2Z"
+      />
     </Svg>
   );
 }
 
-/** The EXPLORER header's own "New Folder...", next to `NewFileIcon`. */
+/** The EXPLORER header's own "New Folder...", next to `NewFileIcon` — svgrepo's "folder-add",
+ *  scaled the same way. */
 export function NewFolderIcon(props: IconProps) {
   return (
-    <Svg {...props} extent={13.07} cx={7.75} cy={8.65}>
-      <path d="M1.5 4.3a1 1 0 0 1 1-1H5l1 1.4h3.5" />
-      <path d="M1.5 4.3h8a1 1 0 0 1 1 1v2" />
-      <path d="M11.5 9v5M9 11.5h5" />
-      <path d="M1.5 4.3v6.7a1 1 0 0 0 1 1H7" />
+    <Svg {...props} extent={12.96} cx={8} cy={8}>
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M2 3v10h12V5H7.59L5.586 3H2Z M1.5 2h4.498l2.006 2H14.5a0.5 0.5 0 0 1 0.5 0.5v9a0.5 0.5 0 0 1-0.5 0.5H1.5a0.5 0.5 0 0 1-0.5-0.5V2.5a0.5 0.5 0 0 1 0.5-0.5Z M7.5 8.5V6.5h1v2h2v1h-2v2h-1v-2h-2v-1h2Z"
+      />
     </Svg>
   );
 }
 
-/** "Collapse Folders in Explorer": two chevrons folding everything up at once. */
+/** "Collapse Folders in Explorer": two panes stacked diagonally, the front one shut (the
+ *  minus) — traced from the reference icon's own layout (a full frame's worth of the back pane
+ *  showing along the top and right, not just its corner). */
 export function CollapseAllIcon(props: IconProps) {
   return (
-    <Svg {...props} extent={9.99}>
-      <path d="M4 7l4-3.5L12 7" />
-      <path d="M4 12.5l4-3.5 4 3.5" />
+    <Svg {...props} extent={11.4} cx={7.95} cy={8.55}>
+      <path d="M4.4 3.6H12.9V12.1" />
+      <rect x="3" y="5" width="8.5" height="8.5" rx="1.2" />
+      <path d="M3.85 9.25h6.8" />
     </Svg>
   );
 }
